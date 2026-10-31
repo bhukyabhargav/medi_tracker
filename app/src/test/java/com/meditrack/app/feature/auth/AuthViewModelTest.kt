@@ -134,18 +134,28 @@ class AuthViewModelTest {
     }
 
     @Test
-    fun `registration fails for doctor without registration number`() = runTest(testDispatcher) {
+    fun `registration succeeds for doctor role without requiring registration number`() = runTest(testDispatcher) {
         var otpRouteContact: String? = null
         viewModel.onNameChange("Dr. Smith")
         viewModel.onContactChange("doctor@test.com")
         viewModel.onPasswordChange("doctorpass")
         viewModel.onRoleChange(UserRole.DOCTOR)
-        viewModel.onDoctorRegNoChange("")
+
+        coEvery {
+            authRepository.createAccount(
+                name = "Dr. Smith",
+                emailOrPhone = "doctor@test.com",
+                password = "doctorpass",
+                role = UserRole.DOCTOR,
+                doctorRegistrationNo = null
+            )
+        } returns Result.success("doctor_1")
 
         viewModel.createAccount(onNavigateToOtp = { otpRouteContact = it })
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        assertNull(otpRouteContact)
-        assertEquals("Please enter your Doctor Registration Number", viewModel.uiState.value.errorMessage)
+        assertEquals("doctor@test.com", otpRouteContact)
+        assertNull(viewModel.uiState.value.errorMessage)
     }
 
     @Test

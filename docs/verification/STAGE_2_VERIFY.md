@@ -37,7 +37,7 @@ flowchart TD
   - Prevents duplicate registered contacts and duplicate pending registrations.
   - Preserves debug OTP `123456`. Failed OTP checks do not create a user or establish a session.
   - Successful OTP verification writes the user to Room exactly once and establishes the session.
-  - Preserves user roles (`PATIENT`, `CAREGIVER`, `DOCTOR`) and Doctor Registration Numbers.
+  - Preserves user roles (`PATIENT`, `CAREGIVER`, `DOCTOR`). In accordance with the consent-based Doctor Mode, selecting Doctor identifies the user's application role without requiring or verifying medical credentials or registration numbers.
 - **Session-Based Current User Observation**:
   - `observeCurrentUser()` reads `UserPreferences.currentUserId` and reactively transforms it via `flatMapLatest` to `userDao.observeUserById(userId)`.
   - Emits `null` when logged out. When multiple users exist in Room, it observes strictly the active session user, completely eliminating unsafe `SELECT * FROM users LIMIT 1` queries.
@@ -113,7 +113,7 @@ Across the entire MediTrack project, there are **81 automated unit test methods*
 | `FakeAuthRepositoryTest` | `login succeeds with correct credentials` | Verifies deterministic login with matching password | **PASSED** |
 | `FakeAuthRepositoryTest` | `login fails with incorrect password and does not log in` | Validates password failure; ensures user is not logged in | **PASSED** |
 | `FakeAuthRepositoryTest` | `login fails with unknown contact without silent account creation` | Ensures no silent account creation occurs for unknown contacts | **PASSED** |
-| `FakeAuthRepositoryTest` | `doctor registration number is preserved` | Confirms Doctor Registration Number persists in Room | **PASSED** |
+| `FakeAuthRepositoryTest` | `doctor registration succeeds without registration number` | Confirms Doctor role account creates and persists in Room without registration numbers | **PASSED** |
 | `FakeAuthRepositoryTest` | `multi-user observation tests current session user when multiple users exist in Room` | Proves `observeCurrentUser` tracks the active session user, not `LIMIT 1` | **PASSED** |
 | `FakeAuthRepositoryTest` | `logout clears session but preserves device level onboarding flags` | Confirms logout clears session while preserving device-level setup flags | **PASSED** |
 | `HomeViewModelTest` | `upcoming doses include next day doses across midnight within 24 hours` | Tests upcoming doses spanning midnight into next morning | **PASSED** |
@@ -125,7 +125,7 @@ Across the entire MediTrack project, there are **81 automated unit test methods*
 | `AuthViewModelTest` | `login displays error on repository failure` | Validates repository error handling on invalid credentials | **PASSED** |
 | `AuthViewModelTest` | `registration fails when name is blank` | Validates name requirement during signup | **PASSED** |
 | `AuthViewModelTest` | `registration fails when password length is less than 6` | Validates minimum 6-character password constraint | **PASSED** |
-| `AuthViewModelTest` | `registration fails for doctor without registration number` | Validates doctor registration number requirement | **PASSED** |
+| `AuthViewModelTest` | `registration succeeds for doctor role without requiring registration number` | Validates doctor role registration succeeds without registration number | **PASSED** |
 | `AuthViewModelTest` | `registration succeeds and invokes onNavigateToOtp` | Validates successful registration and navigation to OTP screen | **PASSED** |
 | `AuthViewModelTest` | `verifyOtp fails when otp length is not 6` | Validates 6-digit OTP code format | **PASSED** |
 | `AuthViewModelTest` | `verifyOtp succeeds when repository accepts code` | Validates accepted OTP code (`123456`) and success state | **PASSED** |
@@ -145,8 +145,8 @@ Across the entire MediTrack project, there are **81 automated unit test methods*
 
 ### Step 2: Account Creation & Role Validation
 1. Tap **"Don't have an account? Create one"**.
-2. Select **Doctor** chip. Attempt to submit with empty Registration Number. Confirm validation error `"Please enter your Doctor Registration Number"`.
-3. Select **Patient** chip. Enter Name (`John Doe`), Contact (`john@example.com`), and Password (`123456`).
+2. Select **Doctor** chip. Confirm no Doctor Registration Number field or medical credential check is requested (consistent with consent-based Doctor Mode).
+3. Select desired role chip (**Patient**, **Doctor**, or **Caregiver**). Enter Name (`John Doe`), Contact (`john@example.com`), and Password (`123456`).
 4. Tap **"Send Verification Code"**. Confirm transition to **Verify Account** screen displaying `john@example.com`.
 
 ### Step 3: OTP Verification

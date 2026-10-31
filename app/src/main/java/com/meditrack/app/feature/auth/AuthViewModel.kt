@@ -17,7 +17,6 @@ data class AuthUiState(
     val contact: String = "",
     val password: String = "",
     val role: UserRole = UserRole.PATIENT,
-    val doctorRegNo: String = "",
     val otp: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
@@ -36,7 +35,6 @@ class AuthViewModel @Inject constructor(
     fun onContactChange(contact: String) = _uiState.update { it.copy(contact = contact, errorMessage = null) }
     fun onPasswordChange(password: String) = _uiState.update { it.copy(password = password, errorMessage = null) }
     fun onRoleChange(role: UserRole) = _uiState.update { it.copy(role = role, errorMessage = null) }
-    fun onDoctorRegNoChange(regNo: String) = _uiState.update { it.copy(doctorRegNo = regNo, errorMessage = null) }
     fun onOtpChange(otp: String) = _uiState.update { it.copy(otp = otp, errorMessage = null) }
 
     fun validateLoginFields(): Boolean {
@@ -56,10 +54,6 @@ class AuthViewModel @Inject constructor(
         val state = _uiState.value
         if (state.name.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Please enter your name") }
-            return false
-        }
-        if (state.role == UserRole.DOCTOR && state.doctorRegNo.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Please enter your Doctor Registration Number") }
             return false
         }
         if (state.contact.isBlank()) {
@@ -107,7 +101,7 @@ class AuthViewModel @Inject constructor(
                 emailOrPhone = state.contact,
                 password = state.password,
                 role = state.role,
-                doctorRegistrationNo = state.doctorRegNo.takeIf { it.isNotBlank() }
+                doctorRegistrationNo = null
             )
             result.onSuccess {
                 _uiState.update { it.copy(isLoading = false) }

@@ -21,7 +21,6 @@
     <string name="role_patient">Patient</string>
     <string name="role_caregiver">Caregiver</string>
     <string name="role_doctor">Doctor</string>
-    <string name="doctor_reg_no_label">Doctor Registration Number (Optional)</string>
     <string name="create_account_button">Send Verification Code</string>
     <string name="already_have_account_prompt">Already have an account? Sign In</string>
 

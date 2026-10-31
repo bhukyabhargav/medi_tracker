@@ -120,17 +120,6 @@ fun CreateAccountScreen(
                 )
             }
 
-            if (uiState.role == UserRole.DOCTOR) {
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = uiState.doctorRegNo,
-                    onValueChange = viewModel::onDoctorRegNoChange,
-                    label = { Text(stringResource(R.string.doctor_reg_no_label)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(

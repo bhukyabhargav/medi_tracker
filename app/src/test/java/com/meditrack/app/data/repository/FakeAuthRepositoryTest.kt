@@ -152,13 +152,13 @@ class FakeAuthRepositoryTest {
     }
 
     @Test
-    fun `doctor registration number is preserved`() = runTest {
+    fun `doctor registration succeeds without registration number`() = runTest {
         val result = repository.createAccount(
             name = "Dr. Alice",
             emailOrPhone = "doctor@hospital.org",
             password = "doctorSecurePass",
             role = UserRole.DOCTOR,
-            doctorRegistrationNo = "DOC-998877"
+            doctorRegistrationNo = null
         )
         assertTrue(result.isSuccess)
         repository.verifyOtp("doctor@hospital.org", FakeAuthRepository.DEBUG_OTP)
@@ -166,7 +166,7 @@ class FakeAuthRepositoryTest {
         val user = userDao.getUserByContact("doctor@hospital.org")
         assertNotNull(user)
         assertEquals(UserRole.DOCTOR, user?.role)
-        assertEquals("DOC-998877", user?.doctorRegistrationNo)
+        assertNull(user?.doctorRegistrationNo)
     }
 
     @Test
