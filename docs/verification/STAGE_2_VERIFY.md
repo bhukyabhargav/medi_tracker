@@ -63,7 +63,7 @@ MediTrack declares **ZERO** location permissions and **ZERO** email or SMS permi
 - `android.permission.INTERNET`: Required for backend sync, Firebase, and outbox delivery.
 - `android.permission.CAMERA`: Required for blister pack photo verification (hardware marked `required="false"`).
 - `android.permission.POST_NOTIFICATIONS`: Required for Android 13+ runtime reminder notifications.
-- `android.permission.USE_EXACT_ALARM`: Required for exact-time dose alarms on Android 12+.
+- `android.permission.SCHEDULE_EXACT_ALARM`: Required for scheduling exact alarms on Android 12+ (paired with `AlarmManager.canScheduleExactAlarms()` and `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`).
 - `android.permission.RECEIVE_BOOT_COMPLETED`: Required to reschedule dose alarms upon device reboot.
 - `android.permission.READ_CONTACTS`: Optional, used to select caregiver contacts.
 - `android.permission.USE_FULL_SCREEN_INTENT`: Optional, used for high-priority full-screen dose alarms.
