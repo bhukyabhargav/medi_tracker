@@ -174,7 +174,7 @@ fun HomeScreen(
                                                 fontWeight = FontWeight.SemiBold
                                             )
                                             Text(
-                                                text = "${medicine.dosageText} • ${medicine.pillsPerDose} pill(s) • ${medicine.foodRelation}",
+                                                text = "${medicine.dosageText} \u2022 ${medicine.pillsPerDose} pill(s) \u2022 ${medicine.foodRelation}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                             )

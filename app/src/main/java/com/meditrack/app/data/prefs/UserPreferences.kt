@@ -44,6 +44,20 @@ class UserPreferences @Inject constructor(
         prefs[KEY_BATTERY_GUIDANCE_SEEN] ?: false
     }
 
+    /**
+     * Stored password digest for demo-only fake local authentication.
+     * Not for production authentication.
+     */
+    fun getUserPasswordDigest(userId: String): Flow<String?> = dataStore.data.map { prefs ->
+        prefs[stringPreferencesKey("cred_digest_$userId")]
+    }
+
+    suspend fun saveUserPasswordDigest(userId: String, passwordDigest: String) {
+        dataStore.edit { prefs ->
+            prefs[stringPreferencesKey("cred_digest_$userId")] = passwordDigest
+        }
+    }
+
     suspend fun setLoggedIn(userId: String) {
         dataStore.edit { prefs ->
             prefs[KEY_IS_LOGGED_IN] = true
@@ -63,6 +77,9 @@ class UserPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Clears current user session without resetting device-level onboarding or battery guidance flags.
+     */
     suspend fun clearSession() {
         dataStore.edit { prefs ->
             prefs[KEY_IS_LOGGED_IN] = false

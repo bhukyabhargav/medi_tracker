@@ -27,6 +27,12 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     suspend fun getUserById(id: String): User?
 
+    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
+    fun observeUserById(id: String): Flow<User?>
+
+    @Query("SELECT * FROM users WHERE (email IS NOT NULL AND LOWER(email) = LOWER(:contact)) OR phone = :contact LIMIT 1")
+    suspend fun getUserByContact(contact: String): User?
+
     @Query("SELECT * FROM users LIMIT 1")
     fun observeCurrentUser(): Flow<User?>
 

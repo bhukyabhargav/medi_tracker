@@ -54,31 +54,35 @@
   - **No Alarm Scheduling yet**: Android `AlarmManager` alarms will be wired in Stage 4.
   - **No UI Views yet**: UI screens and forms begin in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).
 
-## Stage 2 – Auth, Onboarding, Permission Setup, Home Shell – DONE (2026-11-01)
-- Summary: Implemented complete Jetpack Compose navigation flow (Splash, Login, CreateAccount, VerifyOtp, PermissionSetup, BatteryOptimization, Home), offline-first DataStore session management (`UserPreferences`), `AuthRepository` with `FakeAuthRepository` supporting debug OTP `123456`, permission explanation cards with required camera warning, OEM battery optimization deep-link guidance, and full Home Dashboard shell with 4 Room-observed sections and quick actions.
+## Stage 2 – Auth, Onboarding, Permission Setup, Home Shell – UNDER AUDIT REVIEW (2026-11-01)
+- Summary: Implemented complete Jetpack Compose navigation flow (Splash, Login, CreateAccount, VerifyOtp, PermissionSetup, BatteryOptimization, Home), deterministic local authentication (`FakeAuthRepository` with salted SHA-256 demo digest, no silent account creation, duplicate prevention, case-insensitive normalization), reactive multi-user session observation, next-24h and 24h missed-dose cutoff windows on Home dashboard, ON_RESUME permission refresh for exact alarms and camera, permission explanation cards with required camera warning, OEM battery optimization guidance, and Home dashboard shell with 4 Room-observed sections and quick actions.
+- Status: Audit Corrections Complete, 81 Tests Passing, Awaiting Human Review and Emulator Run.
 - Files added/changed:
-  - `data/prefs/UserPreferences.kt`
-  - `domain/repository/AuthRepository.kt`, `data/repository/FakeAuthRepository.kt`
+  - `data/prefs/UserPreferences.kt` (password digest storage, preserve device setup flags on logout)
+  - `data/db/dao/Daos.kt` (added `observeUserById` and `getUserByContact` to `UserDao`)
+  - `domain/repository/AuthRepository.kt`, `data/repository/FakeAuthRepository.kt` (deterministic auth, no silent creation, session-based user observation)
   - `core/navigation/Screen.kt`, `core/di/RepositoryModule.kt`, `MainActivity.kt`
   - `feature/auth/AuthViewModel.kt`, `feature/auth/LoginScreen.kt`, `feature/auth/CreateAccountScreen.kt`, `feature/auth/VerifyOtpScreen.kt`
-  - `feature/onboarding/SplashViewModel.kt`, `feature/onboarding/SplashScreen.kt`, `feature/onboarding/PermissionSetupScreen.kt`, `feature/onboarding/BatteryOptimizationScreen.kt`
-  - `feature/home/HomeViewModel.kt`, `feature/home/HomeScreen.kt`
-  - `app/src/main/AndroidManifest.xml`, `app/src/main/res/values/strings.xml`
-  - `app/src/test/java/com/meditrack/app/feature/auth/AuthViewModelTest.kt`
-  - `app/src/test/java/com/meditrack/app/feature/onboarding/SplashViewModelTest.kt`
+  - `feature/onboarding/SplashViewModel.kt`, `feature/onboarding/SplashScreen.kt`, `feature/onboarding/PermissionSetupScreen.kt` (ON_RESUME refresh, persistent camera warning), `feature/onboarding/BatteryOptimizationScreen.kt`
+  - `feature/home/HomeViewModel.kt` (next-24h upcoming, 24h missed late window across midnight), `feature/home/HomeScreen.kt` (unicode safety with `\u2022`, quick action placeholders)
+  - `app/src/main/AndroidManifest.xml` (retained only 7 justified permissions; removed unlisted battery optimization permission), `app/src/main/res/values/strings.xml`
+  - `app/src/test/java/com/meditrack/app/data/repository/FakeAuthRepositoryTest.kt` (10 tests: credentials, password failure, unknown contact, duplicates, OTP, doctor reg, multi-user observation, session/device flags)
+  - `app/src/test/java/com/meditrack/app/feature/home/HomeViewModelTest.kt` (3 tests: midnight boundaries, next-day upcoming, 24h missed cutoff)
+  - `app/src/test/java/com/meditrack/app/feature/auth/AuthViewModelTest.kt` (11 tests)
+  - `app/src/test/java/com/meditrack/app/feature/onboarding/SplashViewModelTest.kt` (4 tests)
   - `docs/verification/STAGE_2_VERIFY.md`
-- Tests breakdown (68 total test methods, all passing):
+- Tests breakdown (81 total test methods, all passing):
   - Stage 0: `AppConfigTest.kt` (3 tests)
   - Stage 1: `RoomDaoTest.kt` (13 tests), `DoseStateMachineTest.kt` (14 tests), `DoseSchedulerTest.kt` (5 tests), `AdherenceCalculatorTest.kt` (4 tests), `LateEntryPolicyTest.kt` (5 tests), `StockCalculatorTest.kt` (9 tests)
-  - Stage 2: `AuthViewModelTest.kt` (11 tests: login validations, failure states, role-specific checks for Doctor, signup to OTP flow, OTP validation), `SplashViewModelTest.kt` (4 tests: unauthenticated, onboarding incomplete, battery guidance unseen, fully onboarded session routing)
+  - Stage 2: `FakeAuthRepositoryTest.kt` (10 tests), `HomeViewModelTest.kt` (3 tests), `AuthViewModelTest.kt` (11 tests), `SplashViewModelTest.kt` (4 tests)
 - Verification Commands Executed:
-  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All 68 unit tests passed)
-  - `.\gradlew.bat assembleDebug` – BUILD SUCCESSFUL
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All 81 unit tests passed in 1m 44s)
+  - `.\gradlew.bat assembleDebug` – BUILD SUCCESSFUL (13s)
   - `.\gradlew.bat lint` – BUILD SUCCESSFUL (Zero lint errors)
 - Strict Guardrails Verified:
-  - Prohibited permissions check: ZERO occurrences of `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, or email permissions.
+  - Prohibited permissions check: ZERO occurrences of `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, or email permissions in manifest or merged manifest.
   - Camera declared with `required="false"` for broad hardware compatibility.
   - Debug Tools screen strictly guarded by `BuildConfig.DEBUG`.
 - Verification Pack: `docs/verification/STAGE_2_VERIFY.md`
-- Next Stage: Stage 3 (Medicine Management & Manual Entry).
+- Next Step: Awaiting user emulator checks and explicit approval before Stage 3.
 
