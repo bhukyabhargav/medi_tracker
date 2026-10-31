@@ -26,12 +26,13 @@
   - `core/di/DatabaseModule.kt`, `core/di/RepositoryModule.kt`
   - `app/schemas/com.meditrack.app.data.db.AppDatabase/1.json`
 - Tests added:
+  - `RoomDaoTest.kt` (13 tests: in-memory Room database on Robolectric covering all 8 DAOs - User, Medicine, DoseEvent, VerificationAttempt, CaregiverLink, DoctorLink, MedicineProposal, NotificationOutbox)
   - `DoseStateMachineTest.kt` (13 tests: every legal and illegal state transition)
   - `DoseSchedulerTest.kt` (5 tests: daily, hourly, specific days, end date cutoff, doctor-stopped flag)
   - `AdherenceCalculatorTest.kt` (4 tests: zero doses, 100% adherence, late-dose example with 93% (4 late), manual unverified)
   - `LateEntryPolicyTest.kt` (5 tests: non-missed rejection, next dose cutoff vs 24h limit, standalone 24h, double-dose safety gap)
   - `StockCalculatorTest.kt` (4 tests: low stock threshold at 3 days, zero stock, hourly estimation, days of supply)
-- Total tests: 34 tests (all passing)
+- Total tests: 47 tests (all passing)
 - Verification Pack: `docs/verification/STAGE_1_VERIFY.md`
 - Decisions / Assumptions: All domain engines kept in pure Kotlin without Android platform dependencies; build output redirected outside OneDrive sync folder to avoid Windows ReparsePoint file locking; Room schema version 1 exported.
 - Known limitations / TODO for later stages: No UI screens added yet (Stage 2: Auth & Onboarding; Stage 3: Add Medicine).

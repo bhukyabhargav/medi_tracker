@@ -49,10 +49,33 @@ $$\text{Adherence \%} = \frac{\text{verifiedTaken (TAKEN + TAKEN\_LATE)}}{\text{
 ---
 
 ## Part B – Automated Tests
-Total tests in project: **34 tests** (all passing).
+Total tests in project: **47 tests** (all passing).
 
+### 1. In-Memory Room Database DAO Tests (`RoomDaoTest`)
+Run with: `.\gradlew.bat testDebugUnitTest --tests "*RoomDaoTest*"`
+
+| Test Name | What It Proves |
+|---|---|
+| `userDao_insertAndRetrieveUser` | Inserts and retrieves user entity by ID |
+| `userDao_observeCurrentUserAndClear` | Observes user changes via Flow with Turbine and verifies clear operation |
+| `medicineDao_insertRetrieveUpdateDelete` | Verifies full CRUD lifecycle and stock update on MedicineDao |
+| `medicineDao_observeActiveExcludesStoppedByDoctor` | Verifies active medicines Flow excludes medicines stopped by doctor |
+| `doseEventDao_insertAndQueryByRange` | Inserts multiple doses and queries across time ranges via Flow |
+| `doseEventDao_getPendingDueAndFutureDoses` | Queries pending doses due now vs future pending doses |
+| `doseEventDao_getLatestVerifiedAndNextScheduled` | Retrieves latest verified dose and next upcoming scheduled dose |
+| `doseEventDao_deleteFuturePendingDoses` | Deletes only future pending doses while preserving past history |
+| `verificationAttemptDao_insertAndQuery` | Verifies persistence of verification attempts and retrieval by dose / medicine |
+| `caregiverLinkDao_insertUpdateAndGetAccepted` | Verifies caregiver link insertion, update, and filtering by ACCEPTED status |
+| `doctorLinkDao_insertAndObserveStatus` | Verifies doctor link persistence and filtering by ACCEPTED status |
+| `medicineProposalDao_insertAndQuery` | Verifies doctor medicine proposals (ADD/EDIT/STOP) insertion, update, and retrieval |
+| `notificationOutboxDao_enqueueAndMarkDelivered` | Verifies outbox persistence of caregiver notifications and delivery flag updates |
+
+### 2. Domain State Machine, Scheduler & Business Logic Tests
 | Test Name | What It Proves | Command to Run |
 |---|---|---|
+| `appConfig_doseWindowAndSnoozeDefaults_areCorrect` | Proves dose window is 60m, snoozes default to [15, 30]m, and max snoozes is 3 | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
+| `appConfig_verificationLimits_areCorrect` | Proves max verification attempts is 3 and late dose window is 24h | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
+| `appConfig_qualityGateAndDetector_areCorrect` | Proves blur, brightness, glare, pHash, OCR match, and stock thresholds are exact | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
 | `pending_to_taken_when_verification_passes` | Proves PENDING moves to TAKEN on valid verification | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
 | `pending_to_skipped_when_skipped` | Proves PENDING moves to SKIPPED when user skips | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
 | `pending_to_unverified_when_photo_attempts_exhausted` | Proves 3 failed attempts move dose to UNVERIFIED | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
