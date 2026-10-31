@@ -171,8 +171,10 @@ class RoomDaoTest {
             assertEquals("Paracetamol", activeList[0].name)
 
             medicineDao.insert(stoppedMed)
-            // observeActive should still only contain the active medicine
-            expectNoEvents()
+            // Table changed so Room re-emits; observeActive must still only contain the active medicine
+            val updatedList = awaitItem()
+            assertEquals(1, updatedList.size)
+            assertEquals("Paracetamol", updatedList[0].name)
             activeList = medicineDao.getById("med_stopped")?.let { listOf(it) } ?: emptyList()
             assertEquals(1, activeList.size)
             assertTrue(activeList[0].stoppedByDoctor)

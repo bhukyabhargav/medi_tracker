@@ -2,9 +2,11 @@ package com.meditrack.app.core.di
 
 import com.meditrack.app.data.repository.CaregiverRepositoryImpl
 import com.meditrack.app.data.repository.DoseRepositoryImpl
+import com.meditrack.app.data.repository.FakeAuthRepository
 import com.meditrack.app.data.repository.MedicineRepositoryImpl
 import com.meditrack.app.data.repository.OutboxRepositoryImpl
 import com.meditrack.app.data.repository.VerificationRepositoryImpl
+import com.meditrack.app.domain.repository.AuthRepository
 import com.meditrack.app.domain.repository.CaregiverRepository
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
@@ -19,6 +21,10 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindAuthRepository(impl: FakeAuthRepository): AuthRepository
 
     @Binds
     @Singleton

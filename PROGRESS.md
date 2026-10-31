@@ -53,3 +53,32 @@
   - **Scheduler DST / Time-Zone Limitation (Accepted Test Deviation)**: Current scheduler unit tests use UTC (`ZoneOffset.UTC`). Although daily and specific-weekday schedules use ZoneId-aware local-time calculations (`LocalTime`, `ZoneId`), a dedicated DST transition test (e.g. spring forward / fall back transitions in a DST-observing time zone) has not yet been added. Exhaustive DST test coverage is not claimed and is documented as an accepted deviation to be tested in Stage 4.
   - **No Alarm Scheduling yet**: Android `AlarmManager` alarms will be wired in Stage 4.
   - **No UI Views yet**: UI screens and forms begin in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).
+
+## Stage 2 – Auth, Onboarding, Permission Setup, Home Shell – DONE (2026-11-01)
+- Summary: Implemented complete Jetpack Compose navigation flow (Splash, Login, CreateAccount, VerifyOtp, PermissionSetup, BatteryOptimization, Home), offline-first DataStore session management (`UserPreferences`), `AuthRepository` with `FakeAuthRepository` supporting debug OTP `123456`, permission explanation cards with required camera warning, OEM battery optimization deep-link guidance, and full Home Dashboard shell with 4 Room-observed sections and quick actions.
+- Files added/changed:
+  - `data/prefs/UserPreferences.kt`
+  - `domain/repository/AuthRepository.kt`, `data/repository/FakeAuthRepository.kt`
+  - `core/navigation/Screen.kt`, `core/di/RepositoryModule.kt`, `MainActivity.kt`
+  - `feature/auth/AuthViewModel.kt`, `feature/auth/LoginScreen.kt`, `feature/auth/CreateAccountScreen.kt`, `feature/auth/VerifyOtpScreen.kt`
+  - `feature/onboarding/SplashViewModel.kt`, `feature/onboarding/SplashScreen.kt`, `feature/onboarding/PermissionSetupScreen.kt`, `feature/onboarding/BatteryOptimizationScreen.kt`
+  - `feature/home/HomeViewModel.kt`, `feature/home/HomeScreen.kt`
+  - `app/src/main/AndroidManifest.xml`, `app/src/main/res/values/strings.xml`
+  - `app/src/test/java/com/meditrack/app/feature/auth/AuthViewModelTest.kt`
+  - `app/src/test/java/com/meditrack/app/feature/onboarding/SplashViewModelTest.kt`
+  - `docs/verification/STAGE_2_VERIFY.md`
+- Tests breakdown (68 total test methods, all passing):
+  - Stage 0: `AppConfigTest.kt` (3 tests)
+  - Stage 1: `RoomDaoTest.kt` (13 tests), `DoseStateMachineTest.kt` (14 tests), `DoseSchedulerTest.kt` (5 tests), `AdherenceCalculatorTest.kt` (4 tests), `LateEntryPolicyTest.kt` (5 tests), `StockCalculatorTest.kt` (9 tests)
+  - Stage 2: `AuthViewModelTest.kt` (11 tests: login validations, failure states, role-specific checks for Doctor, signup to OTP flow, OTP validation), `SplashViewModelTest.kt` (4 tests: unauthenticated, onboarding incomplete, battery guidance unseen, fully onboarded session routing)
+- Verification Commands Executed:
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All 68 unit tests passed)
+  - `.\gradlew.bat assembleDebug` – BUILD SUCCESSFUL
+  - `.\gradlew.bat lint` – BUILD SUCCESSFUL (Zero lint errors)
+- Strict Guardrails Verified:
+  - Prohibited permissions check: ZERO occurrences of `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, or email permissions.
+  - Camera declared with `required="false"` for broad hardware compatibility.
+  - Debug Tools screen strictly guarded by `BuildConfig.DEBUG`.
+- Verification Pack: `docs/verification/STAGE_2_VERIFY.md`
+- Next Stage: Stage 3 (Medicine Management & Manual Entry).
+

@@ -1,10 +1,82 @@
 <resources>
     <string name="app_name">MediTrack</string>
     <string name="home_title">MediTrack</string>
-    <string name="home_placeholder">Welcome to MediTrack</string>
-    <string name="home_placeholder_subtitle">Your dose verification and medicine companion</string>
     <string name="debug_tools_title">Debug Tools</string>
-    <string name="debug_stage_label">MediTrack – Stage 0 build</string>
-    <string name="debug_app_version">Version: 1.0.0 (Stage 0)</string>
-    <string name="debug_tools_empty">No debug tools active for Stage 0. Tools will be added in subsequent stages.</string>
+    <string name="debug_stage_label">MediTrack – Stage 2 build</string>
+    <string name="debug_app_version">Version: 1.0.0 (Stage 2)</string>
+    <string name="debug_tools_empty">No debug tools active for Stage 2. Tools will be added in subsequent stages.</string>
+
+    <!-- Auth Strings -->
+    <string name="login_title">Welcome Back</string>
+    <string name="login_subtitle">Sign in to track and verify your medications</string>
+    <string name="contact_label">Email or Phone Number</string>
+    <string name="password_label">Password</string>
+    <string name="login_button">Sign In</string>
+    <string name="no_account_prompt">Don\'t have an account? Create one</string>
+
+    <string name="create_account_title">Create Account</string>
+    <string name="create_account_subtitle">Join MediTrack to ensure safe, on-time doses</string>
+    <string name="name_label">Full Name</string>
+    <string name="role_label">I am a</string>
+    <string name="role_patient">Patient</string>
+    <string name="role_caregiver">Caregiver</string>
+    <string name="role_doctor">Doctor</string>
+    <string name="doctor_reg_no_label">Doctor Registration Number (Optional)</string>
+    <string name="create_account_button">Send Verification Code</string>
+    <string name="already_have_account_prompt">Already have an account? Sign In</string>
+
+    <string name="otp_title">Verify Account</string>
+    <string name="otp_subtitle">Enter the 6-digit code sent to your contact. (Debug code: 123456)</string>
+    <string name="otp_label">Verification Code</string>
+    <string name="verify_otp_button">Verify &amp; Continue</string>
+
+    <!-- Permissions Strings -->
+    <string name="permission_setup_title">Permission Setup</string>
+    <string name="permission_setup_subtitle">MediTrack requires a few permissions to help you stay on schedule</string>
+    <string name="permission_continue">Continue</string>
+    <string name="permission_grant">Grant</string>
+    <string name="permission_granted">Granted</string>
+
+    <string name="perm_camera_title">Camera (Required)</string>
+    <string name="perm_camera_desc">Required to photograph your medicine strip and verify doses.</string>
+    <string name="perm_camera_denied_warning">Camera permission is required to verify doses with photos. You can continue, but verification will be disabled until granted.</string>
+
+    <string name="perm_notifications_title">Notifications</string>
+    <string name="perm_notifications_desc">Receive dose reminders, missed-dose alerts, and stock updates on time.</string>
+
+    <string name="perm_alarms_title">Exact Alarms</string>
+    <string name="perm_alarms_desc">Ensures reminders fire at the exact minute scheduled, even in low power mode.</string>
+
+    <string name="perm_photos_title">Photos &amp; Documents</string>
+    <string name="perm_photos_desc">MediTrack uses the secure system photo picker. No storage permission needed.</string>
+
+    <string name="perm_contacts_title">Contacts (Optional)</string>
+    <string name="perm_contacts_desc">Easily select family members or caregivers to invite.</string>
+
+    <string name="perm_internet_title">Internet Connection</string>
+    <string name="perm_internet_desc">Backs up proof photos and alerts caregivers when online.</string>
+
+    <!-- Battery Guidance Strings -->
+    <string name="battery_guidance_title">Battery Optimization</string>
+    <string name="battery_guidance_subtitle">Important: Ensure timely medicine alarms</string>
+    <string name="battery_guidance_desc">Some device manufacturers (like Xiaomi, Samsung, Oppo) aggressively sleep background apps, which may delay dose alarms. Disabling battery restrictions for MediTrack ensures your reminders fire reliably.</string>
+    <string name="battery_settings_button">Open Battery Settings</string>
+    <string name="battery_got_it_button">I Understand, Continue</string>
+
+    <!-- Home Dashboard Strings -->
+    <string name="section_today_medicines">Today\'s Medicines</string>
+    <string name="section_upcoming_doses">Upcoming Doses</string>
+    <string name="section_missed_doses">Missed Doses</string>
+    <string name="section_quick_actions">Quick Actions</string>
+
+    <string name="empty_today_medicines">No medicines scheduled for today.</string>
+    <string name="empty_upcoming_doses">No upcoming doses.</string>
+    <string name="empty_missed_doses">No missed doses! Great job staying on track.</string>
+
+    <string name="action_add_medicine">Add Medicine</string>
+    <string name="action_scan">Scan Rx</string>
+    <string name="action_calendar">Calendar</string>
+    <string name="action_history">History</string>
+    <string name="action_caregiver">Caregiver</string>
+    <string name="action_profile">Profile</string>
 </resources>
