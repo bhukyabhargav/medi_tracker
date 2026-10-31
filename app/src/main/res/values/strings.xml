@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">MediTrack</string>
+    <string name="home_title">MediTrack</string>
+    <string name="home_placeholder">Welcome to MediTrack</string>
+    <string name="home_placeholder_subtitle">Your dose verification and medicine companion</string>
+    <string name="debug_tools_title">Debug Tools</string>
+    <string name="debug_stage_label">MediTrack – Stage 0 build</string>
+    <string name="debug_app_version">Version: 1.0.0 (Stage 0)</string>
+    <string name="debug_tools_empty">No debug tools active for Stage 0. Tools will be added in subsequent stages.</string>
+</resources>
