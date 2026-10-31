@@ -1,0 +1,176 @@
+package com.meditrack.app.data.db.dao
+
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Update
+import com.meditrack.app.domain.model.CaregiverLink
+import com.meditrack.app.domain.model.DoctorLink
+import com.meditrack.app.domain.model.DoctorLinkStatus
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.LinkStatus
+import com.meditrack.app.domain.model.Medicine
+import com.meditrack.app.domain.model.MedicineProposal
+import com.meditrack.app.domain.model.NotificationOutbox
+import com.meditrack.app.domain.model.User
+import com.meditrack.app.domain.model.VerificationAttempt
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface UserDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUser(user: User)
+
+    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
+    suspend fun getUserById(id: String): User?
+
+    @Query("SELECT * FROM users LIMIT 1")
+    fun observeCurrentUser(): Flow<User?>
+
+    @Query("DELETE FROM users")
+    suspend fun clearUsers()
+}
+
+@Dao
+interface MedicineDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(medicine: Medicine)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(medicines: List<Medicine>)
+
+    @Update
+    suspend fun update(medicine: Medicine)
+
+    @Delete
+    suspend fun delete(medicine: Medicine)
+
+    @Query("SELECT * FROM medicines WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): Medicine?
+
+    @Query("SELECT * FROM medicines WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<Medicine?>
+
+    @Query("SELECT * FROM medicines ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<Medicine>>
+
+    @Query("SELECT * FROM medicines WHERE stoppedByDoctor = 0 ORDER BY name ASC")
+    fun observeActive(): Flow<List<Medicine>>
+
+    @Query("UPDATE medicines SET currentStock = :newStock WHERE id = :medicineId")
+    suspend fun updateStock(medicineId: String, newStock: Int)
+
+    @Query("DELETE FROM medicines WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface DoseEventDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(doseEvent: DoseEvent)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(doseEvents: List<DoseEvent>)
+
+    @Update
+    suspend fun update(doseEvent: DoseEvent)
+
+    @Query("SELECT * FROM dose_events WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): DoseEvent?
+
+    @Query("SELECT * FROM dose_events WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<DoseEvent?>
+
+    @Query("SELECT * FROM dose_events WHERE scheduledAt >= :startTime AND scheduledAt <= :endTime ORDER BY scheduledAt ASC")
+    fun observeBetween(startTime: Long, endTime: Long): Flow<List<DoseEvent>>
+
+    @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId ORDER BY scheduledAt ASC")
+    fun observeByMedicineId(medicineId: String): Flow<List<DoseEvent>>
+
+    @Query("SELECT * FROM dose_events WHERE status = 'PENDING' AND scheduledAt <= :now ORDER BY scheduledAt ASC")
+    suspend fun getPendingDueDoses(now: Long): List<DoseEvent>
+
+    @Query("SELECT * FROM dose_events WHERE status = 'PENDING' AND scheduledAt >= :now ORDER BY scheduledAt ASC")
+    suspend fun getFuturePendingDoses(now: Long): List<DoseEvent>
+
+    @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND status IN ('TAKEN', 'TAKEN_LATE') ORDER BY scheduledAt DESC LIMIT 1")
+    suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent?
+
+    @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND scheduledAt > :scheduledAt ORDER BY scheduledAt ASC LIMIT 1")
+    suspend fun getNextScheduledDose(medicineId: String, scheduledAt: Long): DoseEvent?
+
+    @Query("DELETE FROM dose_events WHERE medicineId = :medicineId AND status = 'PENDING' AND scheduledAt > :afterTimestamp")
+    suspend fun deleteFuturePendingDoses(medicineId: String, afterTimestamp: Long)
+}
+
+@Dao
+interface VerificationAttemptDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(attempt: VerificationAttempt)
+
+    @Query("SELECT * FROM verification_attempts WHERE doseEventId = :doseEventId ORDER BY createdAt ASC")
+    suspend fun getAttemptsForDose(doseEventId: String): List<VerificationAttempt>
+
+    @Query("SELECT va.* FROM verification_attempts va INNER JOIN dose_events de ON va.doseEventId = de.id WHERE de.medicineId = :medicineId ORDER BY va.createdAt DESC LIMIT :limit")
+    suspend fun getRecentAttemptsForMedicine(medicineId: String, limit: Int = 10): List<VerificationAttempt>
+}
+
+@Dao
+interface CaregiverLinkDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(link: CaregiverLink)
+
+    @Update
+    suspend fun update(link: CaregiverLink)
+
+    @Query("SELECT * FROM caregiver_links WHERE patientId = :patientId")
+    fun observeByPatientId(patientId: String): Flow<List<CaregiverLink>>
+
+    @Query("SELECT * FROM caregiver_links WHERE patientId = :patientId AND status = :status")
+    suspend fun getByStatus(patientId: String, status: LinkStatus = LinkStatus.ACCEPTED): List<CaregiverLink>
+}
+
+@Dao
+interface DoctorLinkDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(link: DoctorLink)
+
+    @Update
+    suspend fun update(link: DoctorLink)
+
+    @Query("SELECT * FROM doctor_links WHERE patientId = :patientId")
+    fun observeByPatientId(patientId: String): Flow<List<DoctorLink>>
+
+    @Query("SELECT * FROM doctor_links WHERE patientId = :patientId AND status = :status")
+    suspend fun getByStatus(patientId: String, status: DoctorLinkStatus = DoctorLinkStatus.ACCEPTED): List<DoctorLink>
+}
+
+@Dao
+interface MedicineProposalDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(proposal: MedicineProposal)
+
+    @Update
+    suspend fun update(proposal: MedicineProposal)
+
+    @Query("SELECT * FROM medicine_proposals WHERE patientId = :patientId ORDER BY createdAt DESC")
+    fun observeByPatientId(patientId: String): Flow<List<MedicineProposal>>
+
+    @Query("SELECT * FROM medicine_proposals WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): MedicineProposal?
+}
+
+@Dao
+interface NotificationOutboxDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(outbox: NotificationOutbox)
+
+    @Query("SELECT * FROM notification_outbox WHERE delivered = 0 ORDER BY createdAt ASC")
+    suspend fun getUndelivered(): List<NotificationOutbox>
+
+    @Query("UPDATE notification_outbox SET delivered = 1 WHERE id = :id")
+    suspend fun markDelivered(id: String)
+}
