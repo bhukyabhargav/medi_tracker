@@ -52,7 +52,7 @@ You are an AI coding agent. Follow this protocol exactly.
 | F11 | Caregiver mode | Invite a caregiver; caregiver gets notifications (missed dose, low stock, unverified dose, late-taken). |
 | F12 | Scan medicine / prescription | Camera + OCR to pre-fill Add Medicine. |
 | F13 | Profile / settings | Edit info, reminder & notification settings, privacy, permissions, logout, delete data. |
-| F14 | **Doctor mode** | A doctor links to a patient (patient consents), **prescribes / changes / stops medicines** for them and **monitors** doses, adherence and proof photos. Doctor-prescribed medicines still need a verified photo for every dose. |
+| F14 | **Doctor mode** | A doctor links to a patient (patient consents), **proposes / changes / stops medicines** for them, and **monitors** doses, adherence and proof photos. Central principle: **The doctor proposes, the patient decides, and MediTrack activates the medicine only after patient acceptance.** Doctor-prescribed medicines still need a verified live photo for every dose. |
 
 ### 1.3 Explicitly OUT OF SCOPE (do NOT build)
 
@@ -61,6 +61,7 @@ You are an AI coding agent. Follow this protocol exactly.
 - ❌ **Location permission** and **Email permission** – do not request or declare them.
 - ❌ Selecting dose photos from the gallery (verification photos must be **live camera only**).
 - ❌ Any claim that the app confirms the patient *swallowed* the pill. It only confirms the pill left the strip.
+- ❌ **Verification of medical licences, registration numbers, medical certificates, or qualification verification** (selecting the Doctor role merely identifies the user's app role; MediTrack does not certify doctors; the patient is responsible for independently choosing a qualified healthcare professional).
 
 > Low stock behaviour is: **notify the caregiver** (and show an alert to the patient). Nothing else.
 
@@ -148,14 +149,14 @@ object AppConfig {
 
 ### 3.1 Entities (Room)
 
-- **User**: `id`, `name`, `email`, `phone`, `role` (`PATIENT` | `CAREGIVER` | `DOCTOR`), `doctorRegistrationNo?` (free text, **not verified** by the app), `createdAt`.
+- **User**: `id`, `name`, `email`, `phone`, `role` (`PATIENT` | `CAREGIVER` | `DOCTOR`), `createdAt`. Selecting `DOCTOR` identifies the user's app role; MediTrack does not verify medical licences, registration certificates, or qualifications.
 - **Medicine**: `id`, `name`, `dosageText`, `pillsPerDose` (Int ≥ 1), `frequencyType`, `timesOfDay` (list of local times), `startDate`, `endDate?`, `foodRelation` (`BEFORE` | `AFTER` | `ANY`), `instructions`, `reminderEnabled`, `initialStock`, `currentStock`, `baselineEmptyCells` (Int, from enrollment photo), `baselinePhotoPath?`, `prescribedByDoctorUid?`, `prescribedByDoctorName?`, `stoppedByDoctor` (Boolean, default false), `createdAt`.
 - **DoseEvent**: one row per scheduled dose. `id`, `medicineId`, `scheduledAt`, `windowEndsAt`, `status` (see 3.2), `takenAt?`, `verifiedPhotoPath?`, `verificationAttempts`, `emptyCellsAfter?`, `snoozeCount`, `lateEntry` (Boolean), `manualUnverified` (Boolean), `updatedAt`.
 - **VerificationAttempt**: `id`, `doseEventId`, `photoPath`, `result` (`PASSED` | `REJECTED`), `rejectReason?`, `perceptualHash`, `createdAt`.
 - **CaregiverLink**: `id`, `patientId`, `caregiverName`, `caregiverContact`, `relationship`, `status` (`PENDING` | `ACCEPTED`), `caregiverUid?`.
-- **DoctorLink**: `id`, `patientId`, `doctorUid?`, `doctorName`, `doctorContact`, `status` (`PENDING` | `ACCEPTED` | `REVOKED`), `createdAt`. A doctor sees **nothing** about a patient unless status is `ACCEPTED`.
-- **MedicineProposal**: `id`, `patientId`, `doctorUid`, `type` (`ADD` | `EDIT` | `STOP`), `medicineId?`, `payloadJson` (the medicine fields being proposed), `status` (`PENDING` | `ACCEPTED` | `DECLINED` | `APPLIED`), `createdAt`, `resolvedAt?`. **A doctor never writes a `Medicine` row directly – only a proposal.** The patient's app turns an accepted proposal into a real change.
-- **NotificationOutbox**: `id`, `type` (see 3.4), `payloadJson`, `createdAt`, `delivered` (Boolean). **Any feature that must notify a caregiver only writes a row here.** A later stage delivers them.
+- **DoctorLink**: `id`, `patientId`, `doctorUid?`, `doctorName`, `doctorContact`, `status` (`PENDING` | `ACCEPTED` | `REVOKED`), `invitationCode?`, `expiresAt?`, `createdAt`, `updatedAt`. A doctor sees **nothing** about a patient unless status is `ACCEPTED`. Revocation immediately terminates doctor access.
+- **MedicineProposal**: `id`, `patientId`, `doctorUid`, `type` (`ADD` | `EDIT` | `STOP`), `medicineId?`, `payloadJson` (the medicine fields being proposed), `status` (`PENDING` | `ACCEPTED` | `DECLINED` | `CLARIFICATION_REQUESTED` | `SUPERSEDED`), `revision` (Int), `clarificationNote?`, `createdAt`, `resolvedAt?`. **A doctor never writes a `Medicine` row directly – only a proposal.** The patient's app turns an accepted proposal into a real change. Revisions create a new version requiring fresh acceptance.
+- **NotificationOutbox**: `id`, `type` (see 3.4), `payloadJson`, `createdAt`, `delivered` (Boolean). **Any feature that must notify a caregiver or doctor/patient only writes a row here.** A later stage delivers them.
 
 ### 3.2 Dose status values and allowed transitions
 
@@ -175,7 +176,7 @@ Each maps to a clear, friendly string shown to the patient (e.g. BLURRY → "The
 
 ### 3.4 Notification types (enum `NotifType`)
 
-`MISSED_DOSE`, `LOW_STOCK`, `DOSE_UNVERIFIED`, `DOSE_TAKEN_LATE`, `CAREGIVER_INVITE`, `DOCTOR_INVITE`, `MEDICINE_PRESCRIBED`, `MEDICINE_CHANGED_BY_DOCTOR`, `MEDICINE_STOPPED_BY_DOCTOR`.
+`MISSED_DOSE`, `LOW_STOCK`, `DOSE_UNVERIFIED`, `DOSE_TAKEN_LATE`, `CAREGIVER_INVITE`, `DOCTOR_INVITE_RECEIVED`, `DOCTOR_INVITE_ACCEPTED`, `DOCTOR_INVITE_DECLINED`, `DOCTOR_INVITE_REVOKED`, `PRESCRIPTION_PROPOSAL_RECEIVED`, `PRESCRIPTION_ACCEPTED`, `PRESCRIPTION_DECLINED`, `PRESCRIPTION_CLARIFICATION_REQUESTED`, `PRESCRIPTION_REVISED`.
 
 ### 3.5 Adherence formula
 
@@ -455,28 +456,31 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 
 **Tasks**
 1. Navigation graph: Splash → (Login | Create Account) → Permission Setup → Home.
-2. **Auth abstraction:** `interface AuthRepository` with `login`, `createAccount`, `verifyOtp`, `currentUser`, `logout`. Create a **`FakeAuthRepository`** (local, in-memory/Room) now. A Firebase implementation comes in Stage 10. Fields: email/phone, password, OTP (fake code `123456` in debug).
-3. Screens: Splash (checks session), Login (Email/Phone, Password, OTP/biometric option), Create Account (Name, Email/Phone, Password, Verify OTP → then Login).
+2. **Auth abstraction:** `interface AuthRepository` with `login`, `createAccount`, `verifyOtp`, `currentUser`, `logout`. Create a **`FakeAuthRepository`** (local, in-memory/Room) now. A Firebase implementation comes in Stage 10. Fields: email/phone, password, role (`PATIENT` | `CAREGIVER` | `DOCTOR`), OTP (fake code `123456` in debug).
+3. **Screens:** Splash (checks session), Login (Email/Phone, Password, OTP option), Create Account (Name, Email/Phone, Password, Role picker [Patient / Caregiver / Doctor], Verify OTP → then Login).
+   - **No Doctor Registration Number:** Remove any requirement for a Doctor Registration Number, medical licence, or registration certificate verification from account creation. Selecting Doctor merely identifies the user's app role; MediTrack does not verify or certify doctors.
+   - **No automatic patient access:** A Doctor account does not automatically grant access to any patient's health information.
+   - **Do NOT implement:** doctor invitations, patient linking, or prescription proposals in Stage 2. These belong in Stage 10 / Stage 10B.
 4. **Permission Setup screen** (one explanation card per permission, each with a Grant button):
    - Notifications (runtime on Android 13+)
-   - Alarms (exact-alarm access: use `USE_EXACT_ALARM`; if unavailable, detect `canScheduleExactAlarms()` and deep-link to the system setting)
+   - Alarms (exact-alarm access: use `SCHEDULE_EXACT_ALARM`; detect `canScheduleExactAlarms()` and deep-link to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`)
    - Camera (**required** – explain "needed to verify each dose"; app must not allow continuing to dose verification without it, but may let the user continue onboarding and re-prompt later)
    - Photos/Files (optional – use the system photo picker; no storage permission needed)
    - Contacts/Phone (optional – for picking a caregiver)
    - Internet (declared in manifest; nothing to request)
    - **Do not** add Location or Email permissions.
-5. Home Dashboard (UI shell reading from Room): sections *Today's Medicines*, *Upcoming Doses*, *Missed Doses*, *Quick Actions* (Add Medicine, Scan, Calendar, History, Caregiver, Profile). Empty states for each.
+5. Home Dashboard (UI shell reading from Room): sections *Today's Medicines*, *Upcoming Doses* (next 24 hours), *Missed Doses* (within 24-hour late window), *Quick Actions* (Add Medicine, Scan, Calendar, History, Caregiver, Profile). Empty states for each.
 6. Add a battery-optimisation guidance screen (shown once after permission setup): explains why reminders may fail on some phones and links to the system battery settings.
-7. Declare permissions in `AndroidManifest.xml`: `POST_NOTIFICATIONS`, `USE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `CAMERA`, `INTERNET`, `USE_FULL_SCREEN_INTENT` (optional), `READ_CONTACTS` (optional). Mark camera hardware `required="false"`.
+7. Declare permissions in `AndroidManifest.xml`: `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `CAMERA`, `INTERNET`, `USE_FULL_SCREEN_INTENT` (optional), `READ_CONTACTS` (optional). Mark camera hardware `required="false"`.
 
 **Acceptance criteria**
-- [ ] New user can create an account (fake), log in, go through permission setup, reach Home.
+- [ ] New user can create an account (fake) with role selection (Patient, Caregiver, Doctor) without medical licence/registration number verification, log in, go through permission setup, reach Home.
 - [ ] Returning user skips straight to Home (session persisted).
 - [ ] Denying optional permissions does not block the flow; denying Camera shows a clear "needed for dose verification" message.
 - [ ] No Location/Email permission anywhere.
-- [ ] ViewModel unit tests for login/create-account validation.
+- [ ] ViewModel unit tests for login/create-account validation (no medical registration number validation).
 
-**Do NOT:** implement real backend auth, medicine screens, or alarms.
+**Do NOT:** implement real backend auth, doctor invitations, patient linking, prescription proposals, medicine screens, or alarms.
 
 **Reference links:**
 - Navigation Compose: https://developer.android.com/develop/ui/compose/navigation
@@ -485,9 +489,9 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 - DataStore: https://developer.android.com/topic/libraries/architecture/datastore
 
 **Verification Pack for this stage** (create `docs/verification/STAGE_2_VERIFY.md` per section 5.3; it must include at least):
-- C: step-by-step: create account with fake OTP `123456` → permissions → Home; then kill and reopen app (should skip login); deny Camera and show the message.
+- C: step-by-step: create account (Patient/Doctor/Caregiver, no registration number required) with fake OTP `123456` → permissions → Home; then kill and reopen app (should skip login); deny Camera and show the message.
 - D: proof commands that Location/Email permissions are absent from the manifest and code.
-- B: ViewModel validation tests (empty fields, bad email, wrong OTP).
+- B: ViewModel validation tests (empty fields, bad email, wrong OTP; confirms no doctor registration number validation).
 
 ---
 
@@ -786,53 +790,115 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 
 ## STAGE 10B – Doctor mode (Branch 10)
 
-**Goal:** A doctor can link to a patient (with the patient's consent), prescribe / change / stop medicines for that patient, and monitor their doses, adherence and proof photos. Every doctor-prescribed dose still needs a verified photo.
+**Goal:** A doctor can link to a patient (with the patient's explicit consent), create prescription proposals for that patient, and monitor their doses, adherence and proof photos. Every doctor-prescribed dose still needs a live verified photo.
 
 🧑 **HUMAN prerequisite:** same Firebase setup as Stage 10. Without `google-services.json`, build everything with Fakes (a fake doctor account and fake link) and list the missing steps.
 
-**Design rules (apply to the whole stage)**
-- A doctor **never writes a `Medicine` row**. A doctor writes a `MedicineProposal`; the **patient's app** applies it. This keeps Room on the patient's device the source of truth and keeps the security rules simple.
-- `ADD` and `EDIT` proposals need the **patient's explicit Accept**. `STOP` proposals are **applied automatically** by the patient's app on the next sync (stopping a medicine is safety-critical and must not wait for approval) and the patient is notified. Record this as a decision in `PROGRESS.md`.
-- Accepted edits change **future doses only** (same rule as Stage 3). History is never rewritten.
-- A doctor is **read-only** for doses, history, stock and proof photos. A doctor can **never** mark a dose taken, change a dose status, change stock, or delete anything.
-- MediTrack does **not verify medical licences** in this version. Patient consent is the only gate. State this plainly in the UI ("MediTrack does not verify doctors") and in the pack.
+### Core Design Principle
 
-**Tasks**
-1. **Role:** add `DOCTOR` to the user role enum (and Room migration with a **migration test**). Create Account gets a role picker (Patient / Caregiver / Doctor). Doctors get their own navigation graph and home screen; patients and caregivers are unchanged. Provide a `FakeDoctorRepository` first; the Firebase implementation uses the Stage 10 backend.
-2. **Linking (patient consent is mandatory):**
-   - Doctor → *Add patient* → enter the patient's email/phone → request sent (`DoctorLink` = `PENDING`).
-   - Patient → Profile → *My doctors* → sees the request → **Accept / Decline**. The patient can also invite a doctor from the same screen; the doctor must accept.
-   - Patient can **Revoke** a doctor at any time → status `REVOKED` → the doctor immediately loses access to that patient's data. Revoking does not delete medicines the doctor already prescribed (they become the patient's own).
-3. **Doctor dashboard:** list of linked patients; per patient: current medicines (with remaining stock), today's doses and statuses, adherence (`AdherenceCalculator`, section 3.5), history (Today/Week/Month), and proof photos (read-only, loaded from Storage). Reuse the Stage 8 view components with a patient picker.
-4. **Prescribe (doctor):** *Add medicine for this patient* uses the same fields as Stage 3 (name, dosage, pills per dose, times, start/end date, food relation, instructions, initial stock). **No enrollment photo** is taken by the doctor – the patient's first verification asks for it (Stage 6, task 7). Saving creates a `MedicineProposal(type = ADD, status = PENDING)`.
-5. **Change / stop (doctor):** *Edit* creates `EDIT` proposal (changed fields only). *Stop* creates a `STOP` proposal. The doctor's screen shows each proposal's state: Pending / Accepted / Declined / Applied, plus "Stop waiting for patient's phone to sync" when relevant.
-6. **Review proposals (patient):** a "Doctor's proposals" card on Home. For `ADD`/`EDIT`: show what changes (old → new), **Accept / Decline**. On Accept of `ADD`: insert the `Medicine` (with `prescribedByDoctorUid/Name`), generate doses with `DoseScheduler`, schedule alarms (Stage 4). On Accept of `EDIT`: apply to future PENDING doses only and reschedule alarms. For `STOP`: set `stoppedByDoctor = true`, remove future PENDING doses and cancel their alarms, keep history, show an info message. Show a "Prescribed by Dr <name>" label on the medicine.
-7. **`ProposalStateMachine`** (pure Kotlin): legal transitions `PENDING → ACCEPTED`, `PENDING → DECLINED`, `ACCEPTED → APPLIED` (after the patient's app has applied it), and for `STOP`: `PENDING → APPLIED`. Everything else is illegal. Unit-test every legal and illegal case.
-8. **Sync & rules:** extend `SyncWorker` for `doctorLinks` and `medicineProposals`. **Security rules** (`firestore.rules`, `storage.rules`): a doctor can read a patient's medicines, doses, adherence data and proof photos **only while a `DoctorLink` with `ACCEPTED` exists**; a doctor can create `medicineProposals` for linked patients only and **cannot write** to `medicines`, `doses`, `proofs` or stock; a patient can read/resolve their own proposals; nobody else can read or write. Include emulator rule tests if feasible.
-9. **Cloud Function** `onCreate(medicineProposals)` and `onCreate(doctorLinks)` → push to the patient with the correct text per `NotifType` (a pure message-builder function, unit-tested):
-   - DOCTOR_INVITE: "<name> wants to be your doctor on MediTrack. Review the request."
-   - MEDICINE_PRESCRIBED: "Dr <name> prescribed <Medicine>. Review and accept."
-   - MEDICINE_CHANGED_BY_DOCTOR: "Dr <name> changed <Medicine>. Review the change."
-   - MEDICINE_STOPPED_BY_DOCTOR: "Dr <name> stopped <Medicine>."
-10. **Delivery of doctor-originated events** reuses the Stage 10 FCM pipeline. Doctors receive **no** push alerts for missed doses in this version (they monitor by opening the app).
-11. **Debug Tools (extend):** "Seed fake doctor + fake linked patient", "Create fake ADD / EDIT / STOP proposal", "Fast-forward proposal sync".
-12. **Disclaimers:** doctor screens and the patient's proposal screens show: "MediTrack is not a medical device and does not replace a prescription or medical advice."
+> **The doctor proposes, the patient decides, and MediTrack activates the medicine only after patient acceptance.**
+>
+> MediTrack will support three account roles: **Patient**, **Doctor**, and **Caregiver**. MediTrack does **not** verify the medical qualification, licence number, registration certificate, or licensing status of a doctor. Selecting the Doctor role only identifies the user's app role. The patient is responsible for independently choosing a qualified healthcare professional. A Doctor account does not automatically grant access to any patient's health information.
+
+### 10.A Doctor–Patient connection and invitation
+- **Invitation options:**
+  - A doctor can invite a patient using the patient's registered email address or phone number.
+  - A patient can also connect by entering a doctor's unique invitation code or scanning an invitation QR code generated by the doctor.
+  - **No public directory:** To protect patient privacy, MediTrack does not expose a public searchable patient directory.
+- **Doctor identity in invitation:** The invitation clearly identifies the doctor using their account name and available contact information.
+- **Consent gating:** The patient can explicitly **Accept** or **Decline**.
+  - A pending or declined invitation grants **zero access** to patient information.
+  - Only an accepted connection (`DoctorLink` status = `ACCEPTED`) grants the doctor specifically permitted patient-data access.
+- **Revocation:** A patient can **Revoke** doctor access at any time. Revocation immediately terminates doctor access through both application logic and Firebase security rules. Revoking does not delete medicines the doctor already prescribed (they become patient-managed).
+- **Security:** Invitations are secure, single-use, and expiring (default 7 days).
+
+### 10.B Doctor dashboard
+- **Connected patients view:** List of patients who have explicitly accepted invitations. Doctors see **no data** for patients with pending, declined, or revoked links.
+- **Per-patient monitoring (read-only):**
+  - Current medicines and stock levels.
+  - Today's doses and statuses.
+  - Upcoming doses and missed doses.
+  - Adherence statistics (`AdherenceCalculator`, section 3.5) and history (Today/Week/Month).
+  - Proof photos (read-only, loaded from Storage).
+  - Prescription proposals and their statuses.
+- **Strict read-only boundary:** Doctors cannot edit patient-owned medicines, verified dose history, stock, or adherence records.
+
+### 10.C Prescription proposal workflow
+- A doctor can create a prescription proposal for an actively connected patient (`DoctorLink` = `ACCEPTED`).
+- **Proposal fields:**
+  - Medicine Name, Dosage, Pills per dose, Frequency (times of day), Duration / Start and End dates, Before/after food instructions, Additional instructions.
+  - **No enrollment photo is taken by the doctor**; the patient captures the baseline enrollment photo upon first intake verification (Stage 6).
+- **Proposal statuses:**
+  - `PENDING`: Waiting for patient review.
+  - `ACCEPTED`: Approved by patient; converted to active medicine.
+  - `DECLINED`: Rejected by patient; archived with no effect on active medicines.
+  - `CLARIFICATION_REQUESTED`: Patient requested additional clarification before deciding.
+  - `SUPERSEDED`: Replaced by a newer revision.
+- **Audit trail:** Each proposal records `id`, `patientId`, `doctorUid`, `createdAt`, proposal contents, `revision` number, and decision audit metadata.
+
+### 10.D Patient prescription approval
+- **Patient review actions:** A patient reviewing a proposal on Home or Profile can:
+  1. **Accept:** Validates proposal fields and converts it into a real active `Medicine` in Room, generates scheduled doses via `DoseScheduler`, schedules reminder alarms (Stage 4), and marks the proposal `ACCEPTED`. The medicine is badged with `"Prescribed by Dr <name>"`.
+  2. **Decline:** Marks the proposal `DECLINED`. A declined proposal **never** affects active medicines, dose scheduling, stock, or adherence.
+  3. **Request Clarification:** Sets status to `CLARIFICATION_REQUESTED` with a recorded clarification note. MediTrack does not introduce a chat system; clarification is represented by this structured status and recorded note.
+- **Safety rules:**
+  - A proposal must **not** create an active `Medicine` or `DoseEvent` while pending.
+  - `STOP` proposals: When a doctor proposes stopping a medicine, the patient is immediately notified. Stopping can be reviewed or applied to cancel future pending doses, while preserving full past dose history.
+  - **Revisions:** If a doctor revises an accepted proposal, it creates a new revision (`revision + 1`) and requires fresh patient acceptance. An existing accepted prescription is never silently overwritten.
+  - Accepted edits affect **future doses only**. Past dose history is never rewritten.
+
+### 10.E Doctor and caregiver permission boundaries
+- **Doctors cannot mark a dose TAKEN.**
+- **Caregivers cannot mark a dose TAKEN.**
+- **Neither doctors nor caregivers can bypass photo verification.** Every dose still requires a live photo verified by the quality gate and detector.
+- **Doctors cannot alter verified dose history, stock, or adherence.**
+- **Caregivers remain strictly read-only.**
+- **Doctors can create prescription proposals only for actively connected patients.**
+- **Patients retain complete ownership and control of their medication records.**
+- **Patients can revoke doctor or caregiver access at any time.**
+- **Enforcement:** Enforced strictly by Firebase Security Rules (`firestore.rules`, `storage.rules`). Client-side UI restrictions alone are insufficient.
+
+### 10.F Data model and backend
+- **Stage 1 model preservation:** Preserves existing Stage 1 `DoctorLink` and `MedicineProposal` Room entities without casual schema alterations.
+- **Firestore collections:**
+  - `doctorLinks/{linkId}`: `{ id, patientUid, doctorUid, doctorName, doctorContact, status ("PENDING"|"ACCEPTED"|"REVOKED"), createdAt, updatedAt }`
+  - `doctorInvitations/{inviteId}`: `{ inviteCode, doctorUid, doctorName, doctorContact, patientContact?, expiresAt, used }`
+  - `medicineProposals/{proposalId}`: `{ id, patientUid, doctorUid, type ("ADD"|"EDIT"|"STOP"), medicineId?, payloadJson, status ("PENDING"|"ACCEPTED"|"DECLINED"|"CLARIFICATION_REQUESTED"|"SUPERSEDED"), revision, clarificationNote?, createdAt, resolvedAt? }`
+  - `medicineProposalRevisions/{revisionId}`: Historical revisions and patient decisions audit log.
+- **Security rules summary:**
+  - `match /doctorLinks/{linkId}`: Patient and doctor can read; patient can update status to ACCEPTED, DECLINED, or REVOKED; doctor can create invitations.
+  - `match /medicineProposals/{proposalId}`: Doctor can create only if actively connected (`status == 'ACCEPTED'`); patient can read and update status; doctor cannot write directly to `medicines` or `doses`.
+  - `match /proofs/{patientUid}/{doseId}.jpg`: Doctor can read only if actively connected; cannot write or delete.
+
+### 10.G Notifications
+Extend the notification outbox (`NotificationOutbox`) and Cloud Functions (`onCreate`) for doctor events:
+- `DOCTOR_INVITE_RECEIVED`: "<name> wants to connect as your doctor on MediTrack. Review the request."
+- `DOCTOR_INVITE_ACCEPTED`: "<patientName> accepted your doctor connection."
+- `DOCTOR_INVITE_DECLINED`: "<patientName> declined your doctor connection."
+- `DOCTOR_INVITE_REVOKED`: "Doctor access has been revoked."
+- `PRESCRIPTION_PROPOSAL_RECEIVED`: "Dr <name> proposed a prescription for <Medicine>. Review and accept."
+- `PRESCRIPTION_ACCEPTED`: "<patientName> accepted the prescription proposal for <Medicine>."
+- `PRESCRIPTION_DECLINED`: "<patientName> declined the prescription proposal for <Medicine>."
+- `PRESCRIPTION_CLARIFICATION_REQUESTED`: "<patientName> requested clarification on <Medicine>."
+- `PRESCRIPTION_REVISED`: "Dr <name> updated the prescription proposal for <Medicine>. Review the new revision."
+- Preserves all existing caregiver notification types (`MISSED_DOSE`, `LOW_STOCK`, `DOSE_UNVERIFIED`, `DOSE_TAKEN_LATE`, `CAREGIVER_INVITE`).
 
 **Acceptance criteria**
-- [ ] A doctor account can be created; it sees only the doctor home and patient list.
-- [ ] A doctor sees **no data** for a patient with a `PENDING`, `DECLINED` or `REVOKED` link (test + manual).
-- [ ] An accepted `ADD` proposal creates the medicine, correct future doses and alarms; a declined one creates nothing.
-- [ ] An accepted `EDIT` changes future doses only; history is untouched.
-- [ ] A `STOP` proposal is applied automatically, removes future PENDING doses and cancels their alarms, and keeps history.
-- [ ] A doctor-prescribed dose still becomes TAKEN only after a passing verification (add a test that tries to bypass it and fails).
-- [ ] A doctor cannot change a dose status, stock or history (rules test + a unit test that no doctor code path calls those use cases).
-- [ ] Each of the 4 new notification types produces the right push text (message-builder unit tests).
-- [ ] Revoking a link removes the doctor's access immediately (rules test or documented manual test).
-- [ ] Room migration test passes; all earlier tests still pass.
-- [ ] App still fully works with no `google-services.json` using Fakes (debug).
-- [ ] **Opens in Android Studio, Gradle Sync succeeds, and Run ▶ launches the app**, including the doctor flow with fakes.
+- [ ] A doctor account can be created without licence or registration-number verification; it accesses only the doctor dashboard and connected patient list.
+- [ ] A doctor sees **no data** for a patient with a `PENDING`, `DECLINED`, or `REVOKED` link (verified by tests + manual check).
+- [ ] An accepted `ADD` proposal creates the medicine, generates future doses and alarms; a declined one creates nothing.
+- [ ] An accepted `EDIT` changes future doses only; past dose history is untouched.
+- [ ] A `STOP` proposal cancels future pending doses and alarms while preserving dose history.
+- [ ] A doctor-prescribed dose still becomes `TAKEN` only after passing live photo verification (verified by bypass test).
+- [ ] Doctors and caregivers cannot mark doses taken, modify stock, or alter history (verified by security rules and unit tests).
+- [ ] Prescription revisions create a new version requiring fresh patient acceptance without silent overwrite.
+- [ ] Clarification requests update proposal status and record clarification notes without requiring a chat system.
+- [ ] Revoking a connection terminates doctor access immediately in app logic and Firebase security rules.
+- [ ] Each doctor and caregiver notification type produces the correct push text.
+- [ ] App still fully works offline and with no `google-services.json` using Fakes (debug).
+- [ ] Opens in Android Studio, Gradle Sync succeeds, and Run ▶ launches the app.
 
-**Do NOT:** build chat or video consultation, e-prescription with legal validity, drug-interaction checking, doctor licence verification, doctor push alerts for missed doses, or any Location / Email permission.
+**Do NOT:** build chat or video consultation, e-prescriptions with legal validity, drug-interaction checking, doctor licence/credential verification, or any Location/Email permission.
 
 **Reference links:**
 - Cloud Firestore security rules: https://firebase.google.com/docs/firestore/security/get-started
@@ -843,11 +909,11 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 - Room migrations: https://developer.android.com/training/data-storage/room/migrating-db-versions
 
 **Verification Pack for this stage** (create `docs/verification/STAGE_10B_VERIFY.md` per section 5.3; it must include at least):
-- A: a flow diagram (doctor → proposal → Firestore → Cloud Function → FCM → patient → Accept → Room → doses/alarms) and a plain-language explanation of why a doctor writes proposals instead of medicines; a table of who can see/do what (patient / caregiver / doctor); state clearly that doctors are **not verified**.
-- B: tests for `ProposalStateMachine` (every legal and illegal transition), accept-ADD generating correct doses, accept-EDIT affecting future doses only, STOP removing future doses and keeping history, access denied for `PENDING`/`REVOKED` links, message text per new notification type, Room migration, and the **bypass test** (doctor-prescribed dose cannot be TAKEN without a passing verification).
-- C: two-account walkthrough (or fake mode): doctor requests link → patient accepts → doctor prescribes → patient accepts → alarm fires → patient verifies with a photo → doctor sees the dose and proof photo; then doctor edits, doctor stops, patient declines a proposal, patient revokes the doctor and the doctor loses access.
-- D: security-rules proof (emulator tests or manual attempts) that a doctor cannot read an unlinked patient and cannot write medicines, doses, stock or proofs.
-- E: limitations (no licence verification, STOP waits for the patient's phone to sync, no doctor alerts).
+- A: Flow diagram (doctor → proposal → Firestore → Cloud Function → FCM → patient → Accept → Room → doses/alarms) and explanation of why doctors write proposals rather than medicines; table of permissions (patient / caregiver / doctor); explicit statement that doctors are **not verified**.
+- B: Tests for `ProposalStateMachine` (all legal and illegal transitions), accept-ADD generating doses, accept-EDIT affecting future doses only, STOP removing future doses and keeping history, access denied for `PENDING`/`DECLINED`/`REVOKED` links, message text per notification type, and the **bypass test** (doctor-prescribed dose cannot be TAKEN without a passing verification).
+- C: Two-account walkthrough: doctor invites patient → patient accepts → doctor proposes prescription → patient requests clarification → doctor revises → patient accepts → dose alarms → patient verifies with photo → doctor monitors dose and proof photo; then patient revokes access and doctor loses all access.
+- D: Security-rules proof (emulator tests or manual attempts) that a doctor cannot read unlinked patients and cannot write medicines, doses, stock, or proofs.
+- E: Documented limitations (no licence verification, no chat system, no legal e-prescribing).
 
 ---
 
@@ -879,19 +945,33 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 
 ## STAGE 12 – Profile, settings, privacy & data deletion (Branch 9)
 
-**Goal:** Settings screen and privacy compliance basics.
+**Goal:** Settings screen, Doctor Mode account management, and privacy compliance basics.
 
 **Tasks**
-1. Profile/Settings screen: View/Edit Personal Information, Medicines, Reminder Settings (default snooze presets, dose window length within allowed range), Notification Settings (per channel + per notification type), Caregiver, Doctors (view / revoke linked doctors), Privacy, Camera permission shortcut, Account Settings.
-   **No Location setting.**
+1. **Profile/Settings screen:** View/Edit Personal Information, Medicines, Reminder Settings (default snooze presets, dose window length within allowed range), Notification Settings (per channel + per notification type), Caregiver, Privacy, Camera permission shortcut, Account Settings.
+   - **Patient-facing settings:**
+     - View connected doctors.
+     - View and respond to pending doctor invitations.
+     - Revoke doctor access at any time.
+     - View pending, accepted, declined, and superseded prescription proposals.
+     - View prescription revision and decision audit history.
+   - **Doctor-facing settings:**
+     - View connected patients.
+     - View pending invitations.
+     - View prescription proposal history and statuses.
+   - **No Location setting.**
 2. **Logout?** YES → logout → Login/Welcome; NO → back to Home.
 3. **Privacy / consent:** first-run consent screen explaining that health data and photos are stored; link to a privacy policy placeholder page; consent flag stored. Clear note: "MediTrack records that a pill left the strip. It cannot confirm you swallowed it, and it is not medical advice."
-4. **Data export & deletion:** "Export my data" (JSON + photos zip) and "Delete my account and data" (deletes local DB/files and calls cloud deletion: Firestore docs, Storage photos, doctor/caregiver links and proposals, auth account). Confirmation dialogs required.
+4. **Data export & deletion:**
+   - **"Export my data":** Generates an archive (JSON + photos zip) containing patient profile, active medicines, dose history, caregiver links, doctor connections, invitations, prescription proposals, and decision audit logs.
+   - **"Delete my account and data":** Permanently deletes local DB/files and executes cloud deletion: Firestore documents (patient data, doctor connections, invitations, prescription proposals, audit history), Storage photos, caregiver links, and auth account, subject to documented retention and deletion policy. Confirmation dialogs required.
 5. Encrypt the Room database (SQLCipher or Android keystore-backed approach – choose and document) and store proof photos in app-private storage only.
 6. Disable screenshots on the verification result and proof-photo screens (`FLAG_SECURE`) – optional but recommended; document the decision.
 
 **Acceptance criteria**
-- [ ] Deletion removes all local data and issues cloud deletion calls (verify with fakes/tests).
+- [ ] Deletion removes all local data and issues cloud deletion calls, including doctor links, invitations, proposals, and audit records (verify with fakes/tests).
+- [ ] Data export includes doctor connections, invitations, prescription proposals, and audit history.
+- [ ] Patient-facing and doctor-facing settings allow managing connections, invitations, proposals, and revocations.
 - [ ] Consent must be given before any data is stored.
 - [ ] Settings changes take effect (dose window, snooze presets) and are covered by tests.
 
@@ -900,8 +980,8 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 - India Digital Personal Data Protection Act, 2023 (MeitY): https://www.meity.gov.in
 
 **Verification Pack for this stage** (create `docs/verification/STAGE_12_VERIFY.md` per section 5.3; it must include at least):
-- B: tests for deletion (local + fake cloud calls), consent gating, settings affecting dose window and snooze presets.
-- C: export data and open the zip; delete account and confirm everything is gone; try using the app without consent.
+- B: tests for deletion (local + fake cloud calls covering doctor links/proposals), consent gating, settings affecting dose window and snooze presets.
+- C: export data and open the zip (verify doctor mode data is included); delete account and confirm everything is gone; try using the app without consent.
 - D: state the encryption approach chosen and how to confirm the DB file is unreadable without the key.
 
 ---
@@ -1056,17 +1136,36 @@ Public blister datasets look like factory/quality-control images; the app will s
 **Tasks**
 1. **Reliability tests (manual checklist in `docs/QA.md`):** alarms with screen off, Doze mode, app killed, reboot, time-zone change, DST change, airplane mode, low battery mode, Xiaomi/Oppo/Vivo/Samsung battery-saver guidance.
 2. **Edge cases:** device clock changed backwards (use monotonic checks where possible; never allow marking a future dose as taken); two medicines at the same time; many medicines (50+) performance; very large photos; camera unavailable; storage full; model missing; process death mid-verification.
-3. **Security review checklist:** no secrets, no logging of sensitive data in release, Firestore/Storage rules tested (including doctor access), backups excluded for sensitive files (`android:allowBackup="false"` or backup rules).
+3. **Security review & permission boundary verification:**
+   - Security review checklist: no secrets, no logging of sensitive data in release, backups excluded for sensitive files (`android:allowBackup="false"` or backup rules).
+   - **Doctor & Caregiver permission boundary verification (automated tests & emulator rules):**
+     1. Unconnected doctors cannot access patient data.
+     2. Pending invitations grant no patient-data access.
+     3. Declined invitations grant no access.
+     4. Accepted invitations grant only permitted access.
+     5. Revoked connections immediately deny further access.
+     6. A doctor cannot create a proposal for an unconnected patient.
+     7. A pending proposal does not create an active medicine or dose events.
+     8. A declined proposal does not change active medication.
+     9. Patient acceptance activates the proposal through the existing medicine workflow.
+     10. A revised proposal requires fresh acceptance.
+     11. Previous accepted versions remain auditable.
+     12. Doctors cannot mark doses TAKEN.
+     13. Caregivers cannot mark doses TAKEN.
+     14. Neither role can bypass photo verification.
+     15. Cross-patient data access is rejected by Firebase security rules.
+     16. Account deletion and data export handle Doctor Mode data correctly.
 4. **Performance:** cold start, scrolling lists, verification latency; add baseline benchmark notes.
 5. **Accessibility pass:** TalkBack labels, large font scale, colour contrast.
 6. **Localisation readiness:** all strings externalised; add at least English; structure ready for Hindi/Bengali.
 7. **Release engineering:** R8/ProGuard rules (keep TFLite/ML Kit/Firebase), signing config via `local.properties`/env (no keys in repo), version codes, app icon, adaptive icon, Play-store listing text draft, **data-safety form notes**, and a **health-app/exact-alarm declaration** note (🧑 HUMAN submits to Google Play).
-8. **Disclaimers:** in-app and store listing – not a medical device, not medical advice, verification shows the pill left the strip only.
+8. **Disclaimers:** in-app and store listing – not a medical device, not medical advice, verification shows the pill left the strip only; MediTrack does not verify doctors or certifications.
 9. Final run of `scripts/check.sh`; update `docs/ARCHITECTURE.md` and write `docs/USER_GUIDE.md`.
 
 **Acceptance criteria**
 - [ ] `docs/QA.md` checklist filled with results; failures listed with owners.
 - [ ] All unit tests pass; lint has no errors.
+- [ ] All 16 doctor and caregiver permission boundary tests pass (security rules + unit tests).
 - [ ] Release build (`assembleRelease`) succeeds with minification and runs the full flow.
 - [ ] **Fresh-clone test:** clone the repo into an empty folder, open in Android Studio, sync, press Run ▶ on a clean emulator → app launches and the full end-to-end script in the Verification Pack passes. Document the exact steps and result.
 - [ ] Final `PROGRESS.md` lists every stage DONE and every open limitation.
@@ -1075,9 +1174,11 @@ Public blister datasets look like factory/quality-control images; the app will s
 - Google Play Console: https://play.google.com/console
 - Shrink/obfuscate with R8: https://developer.android.com/build/shrink-code
 - Android Studio: https://developer.android.com/studio
+- Firebase Emulator security rules testing: https://firebase.google.com/docs/rules/unit-testing
 
 **Verification Pack for this stage** (create `docs/verification/STAGE_14_VERIFY.md` per section 5.3; it must include at least):
-- C: the full end-to-end acceptance script covering all features in one run-through, with expected results.
+- B: automated tests report covering the 16 permission boundary and Doctor Mode safety cases, including emulator rules tests.
+- C: the full end-to-end acceptance script covering all features in one run-through, with expected results (patient, caregiver, and doctor flows).
 - D: a signed-off checklist from `docs/QA.md`; a summary table of all stage packs and total test count.
 - E: consolidated list of every open limitation and risk across stages.
 
