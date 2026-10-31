@@ -15,8 +15,9 @@
 - Decisions / Assumptions: Embedded JDK (JBR) used; Gradle 8.11.1; google-services.json handled gracefully when absent; package-by-feature layout strictly followed; Logcat tag `MediTrack` configured.
 - Known limitations / TODO for later stages: No domain entities or database tables yet (Stage 1).
 
-## Stage 1 – Domain model, database & state machine – DONE (2026-11-01)
+## Stage 1 – Domain model, database & state machine – SIGNED OFF (2026-11-01)
 - Summary: Implemented all 8 Room database entities, DAOs, TypeConverters, AppDatabase with schema export, repository interfaces and implementations with Flow streams, DoseStateMachine, pure-Kotlin DoseScheduler, AdherenceCalculator, LateEntryPolicy with double-dose guard, StockCalculator, and Hilt DI modules.
+- Status: Signed Off (Implemented & Verified with Accepted DST Test Deviation).
 - Files added/changed:
   - `domain/model/Enums.kt`, `domain/model/Entities.kt` (User, Medicine, DoseEvent, VerificationAttempt, CaregiverLink, DoctorLink, MedicineProposal, NotificationOutbox)
   - `data/db/Converters.kt`, `data/db/dao/Daos.kt`, `data/db/AppDatabase.kt`
@@ -25,14 +26,30 @@
   - `domain/usecase/DoseScheduler.kt`, `domain/usecase/AdherenceCalculator.kt`, `domain/usecase/LateEntryPolicy.kt`, `domain/usecase/StockCalculator.kt`
   - `core/di/DatabaseModule.kt`, `core/di/RepositoryModule.kt`
   - `app/schemas/com.meditrack.app.data.db.AppDatabase/1.json`
-- Tests added:
-  - `RoomDaoTest.kt` (13 tests: in-memory Room database on Robolectric covering all 8 DAOs - User, Medicine, DoseEvent, VerificationAttempt, CaregiverLink, DoctorLink, MedicineProposal, NotificationOutbox)
-  - `DoseStateMachineTest.kt` (13 tests: every legal and illegal state transition)
-  - `DoseSchedulerTest.kt` (5 tests: daily, hourly, specific days, end date cutoff, doctor-stopped flag)
-  - `AdherenceCalculatorTest.kt` (4 tests: zero doses, 100% adherence, late-dose example with 93% (4 late), manual unverified)
-  - `LateEntryPolicyTest.kt` (5 tests: non-missed rejection, next dose cutoff vs 24h limit, standalone 24h, double-dose safety gap)
-  - `StockCalculatorTest.kt` (4 tests: low stock threshold at 3 days, zero stock, hourly estimation, days of supply)
-- Total tests: 47 tests (all passing)
+- Tests breakdown (53 total test methods, all passing):
+  - **Stage 0 Tests (3 tests)**:
+    - `AppConfigTest.kt` (3 tests)
+  - **Stage 1 Tests (50 tests)**:
+    - `RoomDaoTest.kt` (13 tests: in-memory Room database on Robolectric covering all 8 DAOs – User, Medicine, DoseEvent, VerificationAttempt, CaregiverLink, DoctorLink, MedicineProposal, NotificationOutbox)
+    - `DoseStateMachineTest.kt` (14 tests: 13 scenario tests covering individual legal/illegal transitions, plus 1 matrix test verifying all 36 combinations: 7 legal and 29 illegal)
+    - `DoseSchedulerTest.kt` (5 tests: daily, hourly, specific days, end date cutoff, doctor-stopped flag)
+    - `AdherenceCalculatorTest.kt` (4 tests: zero doses, 100% adherence, late-dose example with 93% (4 late), manual unverified)
+    - `LateEntryPolicyTest.kt` (5 tests: non-missed rejection, next dose cutoff vs 24h limit, standalone 24h, double-dose safety gap)
+    - `StockCalculatorTest.kt` (9 tests: low stock threshold at 3 days, zero stock, hourly estimation, days of supply, empty daily schedule, empty specific weekdays, duplicate weekdays, invalid weekdays 0/8, and duplicate scheduled times)
+- DoseStateMachine Transition Matrix:
+  - 6 States × 6 Events Matrix (36 combinations): 7 legal, 29 illegal verified by test.
+- StockCalculator Improvements Verified:
+  - Empty daily schedules do not assume one dose per day (yields 0.0 pills/day).
+  - Specific weekdays count only unique valid weekday values (1–7).
+  - Duplicate scheduled times are deduplicated for daily and specific-day frequencies.
+  - Empty or invalid specific-day schedules produce zero estimated consumption.
+- Verification Commands Executed:
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All 53 unit tests passed)
+  - `.\gradlew.bat assembleDebug` – BUILD SUCCESSFUL
+  - `.\gradlew.bat lint` – BUILD SUCCESSFUL
 - Verification Pack: `docs/verification/STAGE_1_VERIFY.md`
 - Decisions / Assumptions: All domain engines kept in pure Kotlin without Android platform dependencies; build output redirected outside OneDrive sync folder to avoid Windows ReparsePoint file locking; Room schema version 1 exported.
-- Known limitations / TODO for later stages: No UI screens added yet (Stage 2: Auth & Onboarding; Stage 3: Add Medicine).
+- Known limitations & Accepted Deviations:
+  - **Scheduler DST / Time-Zone Limitation (Accepted Test Deviation)**: Current scheduler unit tests use UTC (`ZoneOffset.UTC`). Although daily and specific-weekday schedules use ZoneId-aware local-time calculations (`LocalTime`, `ZoneId`), a dedicated DST transition test (e.g. spring forward / fall back transitions in a DST-observing time zone) has not yet been added. Exhaustive DST test coverage is not claimed and is documented as an accepted deviation to be tested in Stage 4.
+  - **No Alarm Scheduling yet**: Android `AlarmManager` alarms will be wired in Stage 4.
+  - **No UI Views yet**: UI screens and forms begin in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).

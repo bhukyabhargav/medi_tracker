@@ -146,4 +146,66 @@ class DoseStateMachineTest {
         val result = DoseStateMachine.transition(DoseStatus.UNVERIFIED, DoseTransitionEvent.Skip)
         assertTrue(result.isFailure)
     }
+
+    // --- EXHAUSTIVE STATE X EVENT MATRIX TEST ---
+
+    @Test
+    fun exhaustive_state_machine_matrix_covers_all_legal_and_illegal_transitions() {
+        val sampleVerifyPassed = DoseTransitionEvent.VerifyPassed("/proofs/dose.jpg", 1, 1000L)
+        val sampleLateVerifyPassed = DoseTransitionEvent.LateVerifyPassed("/proofs/late.jpg", 2, 2000L)
+
+        val allEvents: List<DoseTransitionEvent> = listOf(
+            sampleVerifyPassed,
+            DoseTransitionEvent.Skip,
+            DoseTransitionEvent.VerificationFailedExhausted,
+            DoseTransitionEvent.WindowExpired,
+            sampleLateVerifyPassed,
+            DoseTransitionEvent.ReportManualUnverified
+        )
+
+        // Exact expected mapping for all legal transitions: (CurrentStatus, EventClass) -> ResultStatus
+        val legalTransitions: Map<Pair<DoseStatus, Class<out DoseTransitionEvent>>, DoseStatus> = mapOf(
+            Pair(DoseStatus.PENDING, sampleVerifyPassed.javaClass) to DoseStatus.TAKEN,
+            Pair(DoseStatus.PENDING, DoseTransitionEvent.Skip::class.java) to DoseStatus.SKIPPED,
+            Pair(DoseStatus.PENDING, DoseTransitionEvent.VerificationFailedExhausted::class.java) to DoseStatus.UNVERIFIED,
+            Pair(DoseStatus.PENDING, DoseTransitionEvent.WindowExpired::class.java) to DoseStatus.MISSED,
+            Pair(DoseStatus.UNVERIFIED, DoseTransitionEvent.WindowExpired::class.java) to DoseStatus.MISSED,
+            Pair(DoseStatus.MISSED, sampleLateVerifyPassed.javaClass) to DoseStatus.TAKEN_LATE,
+            Pair(DoseStatus.MISSED, DoseTransitionEvent.ReportManualUnverified::class.java) to DoseStatus.MISSED
+        )
+
+        var legalTested = 0
+        var illegalTested = 0
+
+        for (status in DoseStatus.values()) {
+            for (event in allEvents) {
+                val expectedLegalStatus = legalTransitions[Pair(status, event.javaClass)]
+                val result = DoseStateMachine.transition(status, event)
+
+                if (expectedLegalStatus != null) {
+                    legalTested++
+                    assertTrue(
+                        "Expected success for legal transition ($status + ${event.javaClass.simpleName})",
+                        result.isSuccess
+                    )
+                    assertEquals(
+                        "Unexpected result for ($status + ${event.javaClass.simpleName})",
+                        expectedLegalStatus,
+                        result.getOrNull()
+                    )
+                } else {
+                    illegalTested++
+                    assertTrue(
+                        "Expected failure for illegal transition ($status + ${event.javaClass.simpleName})",
+                        result.isFailure
+                    )
+                }
+            }
+        }
+
+        // Verify total combinations tested: 6 states * 6 events = 36 combinations (7 legal, 29 illegal)
+        assertEquals(7, legalTested)
+        assertEquals(29, illegalTested)
+        assertEquals(36, legalTested + illegalTested)
+    }
 }

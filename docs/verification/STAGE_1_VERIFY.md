@@ -1,5 +1,7 @@
 # Verification Pack: Stage 1 – Domain Model, Database & State Machine
 
+> **Status: Implemented, Verified & Signed Off (with Accepted DST Test Deviation)**
+
 ## Part A – Plain-Language Explanation ("How it works")
 Stage 1 implements the complete data layer and business logic engine for MediTrack without adding any UI yet.
 
@@ -9,8 +11,8 @@ The app persists all data locally across 8 specialized tables:
 - **`medicines`**: Medicine name, dosage, scheduling frequency, pill count per dose, and stock tracking.
 - **`dose_events`**: Each scheduled dose instance with its 60-minute intake window, current status, and photo proof path.
 - **`verification_attempts`**: Audit trail of every photo verification attempt.
-- **`caregiver_links`** & **`doctor_links`**: Connected caregiver and doctor relations with status flags.
-- **`medicine_proposals`**: Proposals submitted by linked doctors (ADD/EDIT/STOP) pending patient review.
+- **`caregiver_links`** & **`doctor_links`**: Connected caregiver and doctor relations with status flags (`PENDING`, `ACCEPTED`, `REVOKED`).
+- **`medicine_proposals`**: Proposals submitted by linked doctors (`ADD`, `EDIT`, `STOP`) pending patient review.
 - **`notification_outbox`**: Queue for caregiver alert events (missed doses, low stock) to be synced online.
 
 ### 2. The Dose State Machine
@@ -29,7 +31,7 @@ stateDiagram-v2
     TAKEN_LATE --> [*]
     SKIPPED --> [*]
 ```
-Any illegal transition (such as skipping a dose that was already taken, or jumping directly from pending to taken late) is immediately rejected with an exception.
+Any illegal transition (such as skipping a dose that was already taken, or jumping directly from pending to taken late) is immediately rejected with an exception (`IllegalDoseTransitionException`).
 
 ### 3. Worked Adherence Example
 Adherence strictly follows the formula from Section 3.5:
@@ -49,9 +51,23 @@ $$\text{Adherence \%} = \frac{\text{verifiedTaken (TAKEN + TAKEN\_LATE)}}{\text{
 ---
 
 ## Part B – Automated Tests
-Total tests in project: **47 tests** (all passing).
+Across the entire MediTrack project, there are **53 automated test methods** across 7 test files, all passing:
+- **Stage 0 (`AppConfigTest.kt`)**: **3 test methods**
+- **Stage 1 Domain & Database Tests**: **50 test methods**
+  - `RoomDaoTest.kt`: 13 test methods
+  - `DoseStateMachineTest.kt`: 14 test methods (13 discrete tests + 1 comprehensive matrix test)
+  - `DoseSchedulerTest.kt`: 5 test methods
+  - `AdherenceCalculatorTest.kt`: 4 test methods
+  - `LateEntryPolicyTest.kt`: 5 test methods
+  - `StockCalculatorTest.kt`: 9 test methods
 
-### 1. In-Memory Room Database DAO Tests (`RoomDaoTest`)
+### 1. Verification Commands & Execution Status
+All three core verification commands pass with zero errors:
+1. `.\gradlew.bat testDebugUnitTest` – **BUILD SUCCESSFUL** (All 53 unit tests executed and passed).
+2. `.\gradlew.bat assembleDebug` – **BUILD SUCCESSFUL** (Debug APK compiled and packaged cleanly).
+3. `.\gradlew.bat lint` – **BUILD SUCCESSFUL** (Zero lint errors detected).
+
+### 2. In-Memory Room Database DAO Tests (`RoomDaoTest` – 13 Tests)
 Run with: `.\gradlew.bat testDebugUnitTest --tests "*RoomDaoTest*"`
 
 | Test Name | What It Proves |
@@ -70,43 +86,78 @@ Run with: `.\gradlew.bat testDebugUnitTest --tests "*RoomDaoTest*"`
 | `medicineProposalDao_insertAndQuery` | Verifies doctor medicine proposals (ADD/EDIT/STOP) insertion, update, and retrieval |
 | `notificationOutboxDao_enqueueAndMarkDelivered` | Verifies outbox persistence of caregiver notifications and delivery flag updates |
 
-### 2. Domain State Machine, Scheduler & Business Logic Tests
-| Test Name | What It Proves | Command to Run |
-|---|---|---|
-| `appConfig_doseWindowAndSnoozeDefaults_areCorrect` | Proves dose window is 60m, snoozes default to [15, 30]m, and max snoozes is 3 | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
-| `appConfig_verificationLimits_areCorrect` | Proves max verification attempts is 3 and late dose window is 24h | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
-| `appConfig_qualityGateAndDetector_areCorrect` | Proves blur, brightness, glare, pHash, OCR match, and stock thresholds are exact | `.\gradlew.bat testDebugUnitTest --tests "*AppConfigTest*"` |
-| `pending_to_taken_when_verification_passes` | Proves PENDING moves to TAKEN on valid verification | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `pending_to_skipped_when_skipped` | Proves PENDING moves to SKIPPED when user skips | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `pending_to_unverified_when_photo_attempts_exhausted` | Proves 3 failed attempts move dose to UNVERIFIED | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `pending_to_missed_when_window_expires` | Proves expiring window marks PENDING dose as MISSED | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `unverified_to_missed_when_window_expires` | Proves expiring window marks UNVERIFIED dose as MISSED | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `missed_to_taken_late_when_late_verification_passes` | Proves MISSED dose transitions to TAKEN_LATE with photo | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `missed_to_missed_when_reported_manual_unverified` | Proves manual report keeps status MISSED with unverified flag | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `taken_cannot_transition_to_any_state` | **Negative test**: Proves TAKEN doses cannot be altered | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `taken_late_cannot_transition_to_any_state` | **Negative test**: Proves TAKEN_LATE doses cannot be altered | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `skipped_cannot_transition_to_any_state` | **Negative test**: Proves SKIPPED doses cannot be altered | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `pending_cannot_transition_to_taken_late` | **Negative test**: Proves late intake cannot bypass missed state | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `missed_cannot_transition_to_on_time_taken` | **Negative test**: Proves missed doses cannot be marked on-time | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `unverified_cannot_transition_to_skipped` | **Negative test**: Proves unverified doses cannot be skipped | `.\gradlew.bat testDebugUnitTest --tests "*DoseStateMachineTest*"` |
-| `daily_frequency_generates_exact_doses_per_day` | Proves daily scheduler creates doses with 60m windows | `.\gradlew.bat testDebugUnitTest --tests "*DoseSchedulerTest*"` |
-| `hourly_frequency_generates_doses_at_expected_intervals` | Proves hourly scheduler generates doses every X hours | `.\gradlew.bat testDebugUnitTest --tests "*DoseSchedulerTest*"` |
-| `specific_days_generates_doses_only_on_configured_weekdays` | Proves specific days scheduler only schedules on allowed days | `.\gradlew.bat testDebugUnitTest --tests "*DoseSchedulerTest*"` |
-| `respects_end_date_cutoff` | Proves doses after medicine end date are never generated | `.\gradlew.bat testDebugUnitTest --tests "*DoseSchedulerTest*"` |
-| `stopped_by_doctor_generates_no_doses` | **Negative test**: Proves stopped medicines generate zero doses | `.\gradlew.bat testDebugUnitTest --tests "*DoseSchedulerTest*"` |
-| `zero_closed_doses_returns_null_and_dash` | Proves 0 closed doses returns null percentage and "—" | `.\gradlew.bat testDebugUnitTest --tests "*AdherenceCalculatorTest*"` |
-| `all_verified_taken_returns_100_percent` | Proves all taken doses yield 100% adherence | `.\gradlew.bat testDebugUnitTest --tests "*AdherenceCalculatorTest*"` |
-| `adherence_calculation_with_late_doses_and_missed` | Proves adherence math: 46 taken, 4 late, 4 missed = 93% | `.\gradlew.bat testDebugUnitTest --tests "*AdherenceCalculatorTest*"` |
-| `manual_unverified_counts_as_missed_and_never_as_taken` | Proves manual unverified does not count in numerator | `.\gradlew.bat testDebugUnitTest --tests "*AdherenceCalculatorTest*"` |
-| `non_missed_dose_cannot_be_logged_late` | **Negative test**: Proves non-missed doses cannot be logged late | `.\gradlew.bat testDebugUnitTest --tests "*LateEntryPolicyTest*"` |
-| `next_scheduled_dose_is_earlier_than_24_hours_wins` | Proves late entry is locked once next scheduled dose arrives | `.\gradlew.bat testDebugUnitTest --tests "*LateEntryPolicyTest*"` |
-| `max_hours_24h_is_earlier_than_next_scheduled_dose_wins` | Proves late entry is locked after 24 hours | `.\gradlew.bat testDebugUnitTest --tests "*LateEntryPolicyTest*"` |
-| `no_future_dose_uses_24h_limit` | Proves standalone doses use standard 24h limit | `.\gradlew.bat testDebugUnitTest --tests "*LateEntryPolicyTest*"` |
-| `double_dose_guard_calculates_correct_safety_gap` | Proves double dose warning triggers when within safety gap | `.\gradlew.bat testDebugUnitTest --tests "*LateEntryPolicyTest*"` |
-| `daily_frequency_detects_low_stock_below_3_days_threshold` | Proves low stock triggers when remaining < 3 days supply | `.\gradlew.bat testDebugUnitTest --tests "*StockCalculatorTest*"` |
-| `zero_stock_is_always_low` | Proves stock of 0 is flagged low | `.\gradlew.bat testDebugUnitTest --tests "*StockCalculatorTest*"` |
-| `hourly_frequency_correctly_estimates_daily_consumption` | Proves hourly stock consumption rate calculation | `.\gradlew.bat testDebugUnitTest --tests "*StockCalculatorTest*"` |
-| `days_of_supply_remaining_calculation` | Proves days-of-supply remaining math | `.\gradlew.bat testDebugUnitTest --tests "*StockCalculatorTest*"` |
+### 3. State Machine Transition Matrix (`DoseStateMachineTest` – 14 Tests)
+The state machine transition logic is tested both through 13 targeted scenario tests and an exhaustive matrix test.
+
+#### Transition Matrix Verification (6 States × 6 Events = 36 Combinations)
+The domain model defines 6 `DoseStatus` states and 6 `DoseTransitionEvent` types, yielding a total of **36 combinations**:
+- **6 States**: `PENDING`, `TAKEN`, `SKIPPED`, `UNVERIFIED`, `MISSED`, `TAKEN_LATE`
+- **6 Events**: `VerifyPassed`, `Skip`, `VerificationFailedExhausted`, `WindowExpired`, `LateVerifyPassed`, `ReportManualUnverified`
+- **7 Legal Combinations** (all verified by tests to assert `result.isSuccess` and exact expected destination state):
+  1. `(PENDING, VerifyPassed) -> TAKEN`
+  2. `(PENDING, Skip) -> SKIPPED`
+  3. `(PENDING, VerificationFailedExhausted) -> UNVERIFIED`
+  4. `(PENDING, WindowExpired) -> MISSED`
+  5. `(UNVERIFIED, WindowExpired) -> MISSED`
+  6. `(MISSED, LateVerifyPassed) -> TAKEN_LATE`
+  7. `(MISSED, ReportManualUnverified) -> MISSED`
+- **29 Illegal Combinations** (all verified by tests to assert `result.isFailure` with `IllegalDoseTransitionException`).
+
+#### Test Methods in `DoseStateMachineTest.kt`:
+| Test Name | What It Proves |
+|---|---|
+| `pending_to_taken_when_verification_passes` | PENDING moves to TAKEN on valid verification |
+| `pending_to_skipped_when_skipped` | PENDING moves to SKIPPED when user skips |
+| `pending_to_unverified_when_photo_attempts_exhausted` | 3 failed attempts move dose to UNVERIFIED |
+| `pending_to_missed_when_window_expires` | Expiring window marks PENDING dose as MISSED |
+| `unverified_to_missed_when_window_expires` | Expiring window marks UNVERIFIED dose as MISSED |
+| `missed_to_taken_late_when_late_verification_passes` | MISSED dose transitions to TAKEN_LATE with photo |
+| `missed_to_missed_when_reported_manual_unverified` | Manual report keeps status MISSED with unverified flag |
+| `taken_cannot_transition_to_any_state` | Terminal state TAKEN rejects transition attempts |
+| `taken_late_cannot_transition_to_any_state` | Terminal state TAKEN_LATE rejects transition attempts |
+| `skipped_cannot_transition_to_any_state` | Terminal state SKIPPED rejects transition attempts |
+| `pending_cannot_transition_to_taken_late` | Late verification rejected from PENDING state |
+| `missed_cannot_transition_to_on_time_taken` | On-time verification rejected from MISSED state |
+| `unverified_cannot_transition_to_skipped` | Skip rejected from UNVERIFIED state |
+| `exhaustive_state_machine_matrix_covers_all_legal_and_illegal_transitions` | Automated matrix test executing all 36 state × event combinations (7 legal, 29 illegal) |
+
+### 4. Stock Calculator Coverage (`StockCalculatorTest` – 9 Tests)
+The stock estimation engine is tested across 9 comprehensive test methods verifying low-stock boundaries and frequency schedules:
+
+| Test Name | What It Proves |
+|---|---|
+| `daily_frequency_detects_low_stock_below_3_days_threshold` | Triggers low stock when remaining < 3 days supply (`pillsPerDay * 3`) |
+| `zero_stock_is_always_low` | Stock of 0 pills is unconditionally flagged as low |
+| `hourly_frequency_correctly_estimates_daily_consumption` | Hourly frequency (`24 / intervalHours * pillsPerDose`) calculates accurate rates |
+| `days_of_supply_remaining_calculation` | Validates remaining whole days calculation (`currentStock / dailyConsumption`) |
+| `empty_daily_schedule_yields_zero_pills_per_day_and_zero_supply` | Empty daily schedule does not assume one dose/day; yields 0.0 pills/day and 0 supply |
+| `empty_specific_weekdays_yields_zero_pills_per_day_and_zero_supply` | Empty or null specific-weekday schedules produce 0.0 estimated consumption |
+| `duplicate_weekdays_are_counted_once` | Duplicate weekdays (e.g. `[1, 1, 2, 2, 2]`) count each unique active day only once |
+| `invalid_weekdays_are_filtered_out` | Out-of-range weekday numbers (e.g. `0`, `8`, negatives) are ignored; only `1..7` count |
+| `duplicate_scheduled_times_are_counted_once` | Duplicate scheduled times of day are deduplicated for accurate dose estimation |
+
+### 5. Other Domain Logic Tests (14 Tests)
+- **`AppConfigTest.kt` (3 tests)**:
+  - `appConfig_doseWindowAndSnoozeDefaults_areCorrect`
+  - `appConfig_verificationLimits_areCorrect`
+  - `appConfig_qualityGateAndDetector_areCorrect`
+- **`DoseSchedulerTest.kt` (5 tests)**:
+  - `daily_frequency_generates_exact_doses_per_day`
+  - `hourly_frequency_generates_doses_at_expected_intervals`
+  - `specific_days_generates_doses_only_on_configured_weekdays`
+  - `respects_end_date_cutoff`
+  - `stopped_by_doctor_generates_no_doses`
+- **`AdherenceCalculatorTest.kt` (4 tests)**:
+  - `zero_closed_doses_returns_null_and_dash`
+  - `all_verified_taken_returns_100_percent`
+  - `adherence_calculation_with_late_doses_and_missed`
+  - `manual_unverified_counts_as_missed_and_never_as_taken`
+- **`LateEntryPolicyTest.kt` (5 tests)**:
+  - `non_missed_dose_cannot_be_logged_late`
+  - `next_scheduled_dose_is_earlier_than_24_hours_wins`
+  - `max_hours_24h_is_earlier_than_next_scheduled_dose_wins`
+  - `no_future_dose_uses_24h_limit`
+  - `double_dose_guard_calculates_correct_safety_gap`
 
 ---
 
@@ -119,27 +170,36 @@ Run with: `.\gradlew.bat testDebugUnitTest --tests "*RoomDaoTest*"`
 | `LateEntryPolicy` | Missed dose at 10:00, next dose at 22:00, check at 23:00 | `canLogLate = false` (locked because next scheduled dose arrived) |
 | `StockCalculator` | Current stock = 5 pills, daily consumption = 2 pills/day | `isLow = true` (5 < 2 * 3) |
 | `StockCalculator` | Current stock = 6 pills, daily consumption = 2 pills/day | `isLow = false` (6 >= 6 boundary) |
+| `StockCalculator` | Daily medicine with empty `timesOfDay` | `estimatePillsPerDay = 0.0`, `daysOfSupplyRemaining = 0` |
+| `StockCalculator` | Specific days with `daysOfWeek = [0, 1, 7, 8]` | Valid days `[1, 7]` (2 days counted, 0 and 8 ignored) |
 
 ---
 
 ## Part D – Evidence Checklist
-- [x] Room database `AppDatabase` created with all 8 entities.
+- [x] Room database `AppDatabase` created with all 8 entities (`users`, `medicines`, `dose_events`, `verification_attempts`, `caregiver_links`, `doctor_links`, `medicine_proposals`, `notification_outbox`).
 - [x] Room schema exported to `app/schemas/com.meditrack.app.data.db.AppDatabase/1.json`.
 - [x] TypeConverters created for `List<LocalTime>`, `List<Int>`, and all enums.
 - [x] Repositories implemented: `MedicineRepository`, `DoseRepository`, `VerificationRepository`, `CaregiverRepository`, `OutboxRepository`.
-- [x] `DoseStateMachine` unit-tested for all legal and illegal transitions.
-- [x] `DoseScheduler` unit-tested for all frequencies, start/end dates, and doctor-stopped flag.
+- [x] `DoseStateMachine` unit-tested across the transition matrix (7 legal and 29 illegal transitions verified).
+- [x] `DoseScheduler` unit-tested for all frequencies, start/end dates, and doctor-stopped flag (tests currently use UTC; DST transitions noted as limitation).
 - [x] `AdherenceCalculator` unit-tested for worked examples, zero doses, and manual-unverified cases.
 - [x] `LateEntryPolicy` unit-tested for 24h limit, next-dose cutoff, and double-dose guard.
-- [x] `StockCalculator` unit-tested for threshold and supply calculations.
+- [x] `StockCalculator` unit-tested across 9 tests for threshold, supply calculations, empty daily schedules, empty/null specific days, duplicate weekdays, invalid weekdays (0/8), and duplicate scheduled times.
 - [x] Hilt modules (`DatabaseModule`, `RepositoryModule`) provide dependencies.
 - [x] Zero Android UI code added.
 
 ---
 
-## Part E – Known Limitations & Risks
-- **No Alarm Scheduling yet**: Alarms for scheduled doses will be wired in Stage 4.
-- **No UI Views yet**: UI forms and dashboard integration will start in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).
+## Part E – Known Limitations & Accepted Deviations
+1. **Scheduler DST / Time-Zone Limitation (Accepted Test Deviation)**:
+   - Current scheduler tests execute in UTC (`ZoneOffset.UTC`).
+   - Daily and specific-weekday schedules utilize ZoneId-aware local-time calculations (`LocalTime`, `ZoneId`).
+   - No dedicated DST transition test (e.g., clocks moving forward 1 hour or back 1 hour in a DST-observing time zone like `America/New_York`) has been added yet.
+   - **Exhaustive DST test coverage is not claimed** and is documented as an accepted deviation to be verified when background worker alarms are wired in Stage 4.
+2. **No Alarm Scheduling yet**:
+   - Actual Android `AlarmManager` triggers and alarms for scheduled doses will be wired in Stage 4.
+3. **No UI Views yet**:
+   - UI forms and dashboard screens start in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).
 
 ---
 
