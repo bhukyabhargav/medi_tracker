@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -226,11 +227,19 @@ class MainActivity : ComponentActivity() {
                         composable(
                             route = Screen.Verification.route,
                             arguments = listOf(navArgument("doseId") { type = NavType.StringType })
-                        ) {
+                        ) { backStackEntry ->
+                            val capturedPhotoPath = backStackEntry.savedStateHandle
+                                .getStateFlow<String?>("captured_photo_path", null)
+                                .collectAsState().value
+
                             VerificationStubScreen(
                                 onNavigateBack = { navController.popBackStack() },
                                 onNavigateToCapture = { doseId ->
                                     navController.navigate(Screen.Capture.createRoute(doseId))
+                                },
+                                capturedPhotoPath = capturedPhotoPath,
+                                onClearCapturedPhoto = {
+                                    backStackEntry.savedStateHandle.remove<String>("captured_photo_path")
                                 }
                             )
                         }
@@ -247,6 +256,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onPhotoVerifiedQuality = { photoPath, pHash, metrics ->
+                                    navController.previousBackStackEntry
+                                        ?.savedStateHandle
+                                        ?.set("captured_photo_path", photoPath)
                                     navController.popBackStack()
                                 }
                             )

@@ -1,0 +1,263 @@
+package com.meditrack.app.feature.verification.pipeline
+
+import android.graphics.Bitmap
+import com.meditrack.app.core.config.AppConfig
+import com.meditrack.app.data.prefs.UserPreferences
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.NotifType
+import com.meditrack.app.domain.model.NotificationOutbox
+import com.meditrack.app.domain.model.RejectReason
+import com.meditrack.app.domain.model.VerificationAttempt
+import com.meditrack.app.domain.model.VerificationResultType
+import com.meditrack.app.domain.repository.CaregiverRepository
+import com.meditrack.app.domain.repository.DoseRepository
+import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.repository.OutboxRepository
+import com.meditrack.app.domain.repository.VerificationRepository
+import com.meditrack.app.domain.statemachine.DoseStateMachine
+import com.meditrack.app.domain.statemachine.DoseTransitionEvent
+import com.meditrack.app.domain.usecase.LateEntryPolicy
+import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import com.meditrack.app.feature.verification.quality.PerceptualHasher
+import kotlinx.coroutines.flow.first
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+sealed interface CoordinatorResult {
+    data class Success(
+        val emptyCellsAfter: Int,
+        val isLate: Boolean = false,
+        val message: String
+    ) : CoordinatorResult
+
+    data class Failed(
+        val reason: RejectReason,
+        val attemptsRemaining: Int,
+        val friendlyMessage: String?
+    ) : CoordinatorResult
+
+    data class Exhausted(
+        val reason: RejectReason,
+        val friendlyMessage: String
+    ) : CoordinatorResult
+
+    data class WindowExpired(
+        val message: String
+    ) : CoordinatorResult
+
+    data class Error(
+        val message: String
+    ) : CoordinatorResult
+}
+
+@Singleton
+class VerificationCoordinator @Inject constructor(
+    private val doseRepository: DoseRepository,
+    private val medicineRepository: MedicineRepository,
+    private val verificationRepository: VerificationRepository,
+    private val caregiverRepository: CaregiverRepository,
+    private val outboxRepository: OutboxRepository,
+    private val userPreferences: UserPreferences,
+    private val verificationPipeline: VerificationPipeline,
+    private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
+    private val alarmScheduler: AlarmScheduler
+) {
+
+    suspend fun verify(
+        doseId: String,
+        photoPath: String,
+        bitmap: Bitmap,
+        now: Long = System.currentTimeMillis()
+    ): CoordinatorResult {
+        val dose = doseRepository.getById(doseId)
+            ?: return CoordinatorResult.Error("Dose not found: $doseId")
+
+        if (dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE) {
+            return CoordinatorResult.Error("This dose has already been verified as TAKEN.")
+        }
+        if (dose.status == DoseStatus.SKIPPED) {
+            return CoordinatorResult.Error("This dose was marked as SKIPPED.")
+        }
+
+        val medicine = medicineRepository.getById(dose.medicineId)
+            ?: return CoordinatorResult.Error("Medicine not found for dose: ${dose.medicineId}")
+
+        // 1. Gather historical pHashes for duplicate detection
+        val recentAttempts = verificationRepository.getRecentAttemptsForMedicine(medicine.id, limit = 20)
+        val existingHashes = recentAttempts.map { it.perceptualHash }.filter { it != 0L }
+
+        // 2. Query last verified empty cell count
+        val latestVerified = doseRepository.getLatestVerifiedDose(medicine.id)
+        val lastVerifiedEmptyCells = latestVerified?.emptyCellsAfter
+
+        // 3. Compute pHash for this attempt
+        val currentHash = PerceptualHasher.computeHash(bitmap)
+
+        // 4. Run VerificationPipeline
+        val pipelineResult = verificationPipeline.verify(
+            bitmap = bitmap,
+            medicine = medicine,
+            lastVerifiedEmptyCells = lastVerifiedEmptyCells,
+            existingHashes = existingHashes,
+            currentHashOverride = currentHash
+        )
+
+        // 5. Record attempt record in VerificationRepository
+        val attemptRecord = VerificationAttempt(
+            id = "attempt_${UUID.randomUUID()}",
+            doseEventId = doseId,
+            photoPath = photoPath,
+            result = if (pipelineResult.passed) VerificationResultType.PASSED else VerificationResultType.REJECTED,
+            rejectReason = pipelineResult.rejectReason,
+            perceptualHash = currentHash,
+            createdAt = now
+        )
+        verificationRepository.recordAttempt(attemptRecord)
+
+        // 6. Handle Outcome
+        if (pipelineResult.passed) {
+            val emptyCells = pipelineResult.emptyCellsAfter ?: (lastVerifiedEmptyCells ?: medicine.baselineEmptyCells) + medicine.pillsPerDose
+
+            // Check if intake window already expired mid-verification
+            if (now > dose.windowEndsAt && dose.status != DoseStatus.MISSED) {
+                // Window expired: transition to MISSED and route to late dose check
+                val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
+                val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, now)
+                return if (canLate) {
+                    recordLateDose(dose, photoPath, emptyCells, now)
+                } else {
+                    doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = now))
+                    CoordinatorResult.WindowExpired("The intake window expired before verification completed.")
+                }
+            }
+
+            if (dose.status == DoseStatus.MISSED) {
+                // Late dose flow
+                val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
+                val canLate = LateEntryPolicy.canLogLate(dose, nextDose?.scheduledAt, now)
+                return if (canLate) {
+                    recordLateDose(dose, photoPath, emptyCells, now)
+                } else {
+                    CoordinatorResult.Error("Late entry cutoff passed. Dose remains MISSED.")
+                }
+            }
+
+            // Standard on-time PASS: Call RecordVerifiedDoseUseCase
+            val recordResult = recordVerifiedDoseUseCase(
+                doseId = doseId,
+                photoPath = photoPath,
+                emptyCellsAfter = emptyCells,
+                takenAt = now
+            )
+
+            return if (recordResult.isSuccess) {
+                CoordinatorResult.Success(
+                    emptyCellsAfter = emptyCells,
+                    isLate = false,
+                    message = "Dose recorded ✔"
+                )
+            } else {
+                CoordinatorResult.Error(recordResult.exceptionOrNull()?.message ?: "Failed to record verified dose")
+            }
+        } else {
+            // Pipeline REJECTED: Count attempt strikes
+            val reason = pipelineResult.rejectReason ?: RejectReason.WRONG_PILL_COUNT
+            val newAttempts = dose.verificationAttempts + 1
+
+            if (newAttempts < AppConfig.MAX_VERIFICATION_ATTEMPTS) {
+                // Retake allowed
+                val updatedDose = dose.copy(
+                    verificationAttempts = newAttempts,
+                    updatedAt = now
+                )
+                doseRepository.update(updatedDose)
+
+                return CoordinatorResult.Failed(
+                    reason = reason,
+                    attemptsRemaining = AppConfig.MAX_VERIFICATION_ATTEMPTS - newAttempts,
+                    friendlyMessage = pipelineResult.friendlyMessage
+                )
+            } else {
+                // 3 strikes exhausted: Transition to UNVERIFIED
+                val transitionResult = DoseStateMachine.transition(
+                    currentStatus = dose.status,
+                    event = DoseTransitionEvent.VerificationFailedExhausted
+                )
+
+                val updatedDose = dose.copy(
+                    status = transitionResult.getOrDefault(DoseStatus.UNVERIFIED),
+                    verificationAttempts = newAttempts,
+                    updatedAt = now
+                )
+                doseRepository.update(updatedDose)
+                alarmScheduler.cancelDoseAlarm(doseId)
+
+                // Enqueue DOSE_UNVERIFIED outbox event if caregiver connected
+                val currentUserId = userPreferences.currentUserId.first()
+                val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
+                if (hasCaregiver) {
+                    val outboxEvent = NotificationOutbox(
+                        id = "outbox_${UUID.randomUUID()}",
+                        type = NotifType.DOSE_UNVERIFIED,
+                        payloadJson = """{"doseId":"$doseId","medicineId":"${dose.medicineId}","reason":"${reason.name}"}""",
+                        createdAt = now,
+                        delivered = false
+                    )
+                    outboxRepository.enqueue(outboxEvent)
+                }
+
+                return CoordinatorResult.Exhausted(
+                    reason = reason,
+                    friendlyMessage = "We couldn't verify this dose. Your caregiver has been notified."
+                )
+            }
+        }
+    }
+
+    private suspend fun recordLateDose(
+        dose: DoseEvent,
+        photoPath: String,
+        emptyCellsAfter: Int,
+        now: Long
+    ): CoordinatorResult {
+        val updatedDose = dose.copy(
+            status = DoseStatus.TAKEN_LATE,
+            takenAt = now,
+            verifiedPhotoPath = photoPath,
+            emptyCellsAfter = emptyCellsAfter,
+            lateEntry = true,
+            updatedAt = now
+        )
+        doseRepository.update(updatedDose)
+        alarmScheduler.cancelDoseAlarm(dose.id)
+
+        // Decrement stock
+        val medicine = medicineRepository.getById(dose.medicineId)
+        if (medicine != null) {
+            val newStock = maxOf(0, medicine.currentStock - medicine.pillsPerDose)
+            medicineRepository.updateStock(medicine.id, newStock)
+        }
+
+        // Enqueue DOSE_TAKEN_LATE outbox notification if caregiver connected
+        val currentUserId = userPreferences.currentUserId.first()
+        if (currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)) {
+            val outboxEvent = NotificationOutbox(
+                id = "outbox_${UUID.randomUUID()}",
+                type = NotifType.DOSE_TAKEN_LATE,
+                payloadJson = """{"doseId":"${dose.id}","medicineId":"${dose.medicineId}","takenAt":$now}""",
+                createdAt = now,
+                delivered = false
+            )
+            outboxRepository.enqueue(outboxEvent)
+        }
+
+        return CoordinatorResult.Success(
+            emptyCellsAfter = emptyCellsAfter,
+            isLate = true,
+            message = "Late dose recorded ✔"
+        )
+    }
+}

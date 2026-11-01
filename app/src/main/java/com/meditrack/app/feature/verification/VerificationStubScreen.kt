@@ -3,6 +3,8 @@ package com.meditrack.app.feature.verification
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,15 +20,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Snooze
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -46,18 +54,32 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.BuildConfig
 import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun VerificationStubScreen(
     onNavigateBack: () -> Unit,
     onNavigateToCapture: (String) -> Unit = {},
+    capturedPhotoPath: String? = null,
+    onClearCapturedPhoto: () -> Unit = {},
     viewModel: VerificationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(capturedPhotoPath) {
+        if (!capturedPhotoPath.isNullOrBlank()) {
+            if (uiState.needsBaselinePhoto) {
+                viewModel.recordBaselineEnrollment(capturedPhotoPath)
+            } else {
+                viewModel.processCapturedPhoto(capturedPhotoPath)
+            }
+            onClearCapturedPhoto()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -166,12 +188,12 @@ fun VerificationStubScreen(
                                 color = MaterialTheme.colorScheme.outline
                             )
                             Text(
-                                text = "Status: ${dose.status.name} (Snoozes: ${dose.snoozeCount})",
+                                text = "Status: ${dose.status.name} • Attempts: ${dose.verificationAttempts} / 3",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = when (dose.status) {
                                     DoseStatus.TAKEN, DoseStatus.TAKEN_LATE -> Color(0xFF2E7D32)
-                                    DoseStatus.MISSED -> MaterialTheme.colorScheme.error
+                                    DoseStatus.MISSED, DoseStatus.UNVERIFIED -> MaterialTheme.colorScheme.error
                                     DoseStatus.SKIPPED -> MaterialTheme.colorScheme.outline
                                     else -> MaterialTheme.colorScheme.primary
                                 }
@@ -180,209 +202,282 @@ fun VerificationStubScreen(
                     }
                 }
 
-                // Stage 4 Release vs Debug check
-                if (BuildConfig.DEBUG) {
+                // If medicine lacks baseline photo: request enrollment photo first
+                if (uiState.needsBaselinePhoto) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Baseline Photo Required",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Enrollment was skipped for this medicine. Please photograph your full blister strip before verifying intake.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { onNavigateToCapture(viewModel.doseId) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Photograph Baseline Strip")
+                            }
+                        }
+                    }
+                }
+
+                // Analyzing indicator
+                if (uiState.isAnalyzing) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer
                     ) {
                         Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.Top
+                            modifier = Modifier.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
                             Column {
                                 Text(
-                                    text = "Stage 4 Verification Stub",
+                                    text = "Analyzing Blister Strip...",
                                     fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    style = MaterialTheme.typography.titleSmall
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "CameraX ML blister verification will be implemented in Stages 5 & 6. Use the controls below to simulate verification or adjust the dose.",
+                                    text = "Checking quality, OCR & cell ledger...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }
                     }
+                }
 
-                    if (uiState.isSuccess) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFE8F5E9)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF2E7D32),
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Dose Verified as TAKEN",
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF1B5E20)
-                                    )
-                                    Text(
-                                        text = "Pill stock decremented by ${medicine?.pillsPerDose ?: 1}. Alarm and missed timers cleared.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF2E7D32)
-                                    )
-                                }
-                            }
-                        }
-
-                        Button(
-                            onClick = onNavigateBack,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Done")
-                        }
-                    } else if (uiState.isSnoozed) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Snooze,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = uiState.infoMessage ?: "Dose snoozed successfully.",
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = onNavigateBack,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Done")
-                        }
-                    } else if (uiState.isSkipped) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = "Dose marked as SKIPPED.",
-                                modifier = Modifier.padding(16.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Button(
-                            onClick = onNavigateBack,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Done")
-                        }
-                    } else {
-                        if (uiState.errorMessage != null) {
-                            Text(
-                                text = uiState.errorMessage ?: "",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-
-                        Button(
-                            onClick = { onNavigateToCapture(viewModel.doseId) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Take Live Blister Photo")
-                        }
-
-                        OutlinedButton(
-                            onClick = { viewModel.simulateVerifiedTake() },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !uiState.isSimulating
-                        ) {
-                            if (uiState.isSimulating) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Text("Simulate Verified Intake (Stub)")
-                            }
-                        }
-
+                // Success Result State
+                if (uiState.isSuccess) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE8F5E9)
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedButton(
-                                onClick = { viewModel.snooze(15) },
-                                modifier = Modifier.weight(1f),
-                                enabled = !uiState.isSimulating
-                            ) {
-                                Text("Snooze 15m")
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF2E7D32),
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = uiState.infoMessage ?: "Dose recorded ✔",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1B5E20)
+                                )
+                                Text(
+                                    text = "Intake verified. Stock updated to ${medicine?.currentStock}.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF2E7D32)
+                                )
                             }
-
-                            OutlinedButton(
-                                onClick = { viewModel.snooze(30) },
-                                modifier = Modifier.weight(1f),
-                                enabled = !uiState.isSimulating
-                            ) {
-                                Text("Snooze 30m")
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = { viewModel.skip() },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !uiState.isSimulating
-                        ) {
-                            Text("Skip Dose")
                         }
                     }
-                } else {
-                    // Release mode
+
+                    Button(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Return to Home")
+                    }
+                } else if (uiState.isExhausted) {
+                    // 3-Strikes Exhausted (UNVERIFIED)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Verification Attempts Exhausted",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    text = "We couldn't verify this dose after 3 attempts. Your caregiver has been notified.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Done")
+                    }
+                } else if (uiState.isFailed) {
+                    // Rejection with retries left
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFF3E0)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color(0xFFE65100),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Verification Rejected (${uiState.rejectReason?.name})",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFBF360C)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = uiState.errorMessage ?: "Verification check failed.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFBF360C)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${uiState.attemptsRemaining} attempt(s) remaining.",
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color(0xFFE65100)
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = { onNavigateToCapture(viewModel.doseId) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Retake Photo")
+                    }
+                } else if (!uiState.isSuccess && !uiState.needsBaselinePhoto) {
+                    // Normal Pending verification controls
+                    Button(
+                        onClick = { onNavigateToCapture(viewModel.doseId) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isAnalyzing,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Take Live Blister Photo")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.snooze(15) },
+                            modifier = Modifier.weight(1f),
+                            enabled = !uiState.isAnalyzing
+                        ) {
+                            Text("Snooze 15m")
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.snooze(30) },
+                            modifier = Modifier.weight(1f),
+                            enabled = !uiState.isAnalyzing
+                        ) {
+                            Text("Snooze 30m")
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.skip() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isAnalyzing
+                    ) {
+                        Text("Skip Dose")
+                    }
+                }
+
+                // Debug Tools: Force Detector Result menu
+                if (BuildConfig.DEBUG && !uiState.isSuccess && !uiState.isExhausted) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Verification not available yet",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Debug: Force Detector Result",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Override fake detector output to test verification pathways:",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                ForceDetectorBehavior.entries.forEach { behavior ->
+                                    FilterChip(
+                                        selected = uiState.forcedBehavior == behavior,
+                                        onClick = { viewModel.setForcedDetectorBehavior(behavior) },
+                                        label = { Text(behavior.name.removePrefix("FORCE_").lowercase().replace('_', ' ')) }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.simulateVerifiedTake() },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !uiState.isSimulating
+                            ) {
+                                Text("Simulate Verified Intake (Bypass)")
+                            }
                         }
                     }
                 }
