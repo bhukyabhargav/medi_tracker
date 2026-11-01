@@ -118,6 +118,15 @@ class VerificationViewModel @Inject constructor(
                 return@launch
             }
 
+            val dose = doseRepository.getById(doseId)
+            val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
+            if (medicine != null) {
+                val latestVerified = doseRepository.getLatestVerifiedDose(medicine.id)
+                val prevEmpty = latestVerified?.emptyCellsAfter ?: medicine.baselineEmptyCells
+                fakeStripDetector.mockPreviousEmptyCellsCount = prevEmpty
+                fakeStripDetector.mockEmptyCellsCount = prevEmpty + medicine.pillsPerDose
+            }
+
             val result = verificationCoordinator.verify(
                 doseId = doseId,
                 photoPath = photoPath,

@@ -19,6 +19,7 @@ class FakeStripDetector @Inject constructor() : StripDetector {
 
     var behavior: ForceDetectorBehavior = ForceDetectorBehavior.DEFAULT
     var mockEmptyCellsCount: Int = 1
+    var mockPreviousEmptyCellsCount: Int = 0
     var mockTotalCellsCount: Int = 10
     var mockStripFullyInFrame: Boolean = true
 
@@ -34,8 +35,8 @@ class FakeStripDetector @Inject constructor() : StripDetector {
         }
 
         val emptyCount = when (behavior) {
-            ForceDetectorBehavior.FORCE_PILLS_NOT_REMOVED -> 0
-            ForceDetectorBehavior.FORCE_WRONG_COUNT -> 5
+            ForceDetectorBehavior.FORCE_PILLS_NOT_REMOVED -> mockPreviousEmptyCellsCount
+            ForceDetectorBehavior.FORCE_WRONG_COUNT -> mockEmptyCellsCount + 2
             ForceDetectorBehavior.FORCE_PASS -> mockEmptyCellsCount
             else -> mockEmptyCellsCount
         }
