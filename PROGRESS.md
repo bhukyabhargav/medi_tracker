@@ -118,3 +118,47 @@
 - Verification Pack: `docs/verification/STAGE_3_VERIFY.md`
 - Next Step: Ready to begin Stage 4 (Reminders & Missed-Dose Engine).
 
+## Stage 4 – Reminders & Missed-Dose Engine – SIGNED OFF (2026-11-01)
+- Summary: Implemented AlarmManager exact reminder scheduling (`AlarmScheduler`), `ReminderReceiver`, `BootReceiver` for device reboot rescheduling, dose window management, snoozing (`15m`, `30m` presets, max 3 snoozes), missed dose transitions via `DoseStateMachine`, notifications, and `RecordVerifiedDoseUseCase`.
+- Files added/changed:
+  - `feature/reminder/alarm/AlarmScheduler.kt`
+  - `feature/reminder/receiver/ReminderReceiver.kt`, `BootReceiver.kt`
+  - `domain/usecase/RecordVerifiedDoseUseCase.kt`
+  - `docs/verification/STAGE_4_VERIFY.md`
+- Tests: `AlarmSchedulerTest.kt`, `BootReceiverTest.kt`
+
+## Stage 5 – Camera Capture & Image Quality Gate – SIGNED OFF (2026-11-01)
+- Summary: Implemented CameraX live capture with blister framing guide, pure-Kotlin `ImageQualityGate` (blur Laplacian variance $\ge 100$, brightness $[40..220]$, glare fraction $\le 0.08$), 64-bit difference hashing (`PerceptualHasher`), secure JPEG storage (`ProofStorage`), and debug dataset collection (`DatasetCollector`).
+- Files added/changed:
+  - `feature/verification/CaptureScreen.kt`
+  - `feature/verification/quality/ImageQualityGate.kt`, `PerceptualHasher.kt`, `ProofStorage.kt`
+  - `feature/verification/data/DatasetCollector.kt`
+  - `docs/verification/STAGE_5_VERIFY.md`
+- Tests: `ImageQualityGateTest.kt`, `PerceptualHasherTest.kt`
+
+## Stage 6 – Verification Pipeline & Taken Integration – COMPLETED & REVISED (2026-11-02)
+- Summary: Implemented 4-step dose verification pipeline (`VerificationPipeline`), dual strip detectors (`FakeStripDetector` in debug, `TfliteStripDetector` skeleton in release), `VerificationCoordinator` with 3-strike retry counter and caregiver outbox notification, baseline enrollment prompt, and taken integration.
+- Architectural Update: Completely removed OCR-based medicine-name matching from the dose-verification workflow. Medicine identity is established directly from the scheduled `Medicine` and `DoseEvent` records, preventing verification rejections from unreadable, cropped, or folded strip packaging.
+- 4-Step Verification Sequence:
+  1. Quality Gate (`BLURRY`, `TOO_DARK`, `TOO_BRIGHT`, `GLARE` – free retakes)
+  2. Duplicate Photo Check (`DUPLICATE_PHOTO`)
+  3. Strip Cell Detection (`STRIP_NOT_FULLY_VISIBLE`)
+  4. Baseline Compare Ledger Rule (`PILLS_NOT_REMOVED`, `WRONG_PILL_COUNT`, or PASS)
+- Files added/changed:
+  - `feature/verification/pipeline/DetectorModels.kt` (removed `MedicineNameReader`, `nameUnconfirmed`, `detectedText`)
+  - `feature/verification/pipeline/FakeStripDetector.kt`, `TfliteStripDetector.kt`
+  - `feature/verification/pipeline/VerificationPipeline.kt` (removed `MedicineNameReader` dependency and OCR step)
+  - `feature/verification/pipeline/VerificationCoordinator.kt`
+  - `feature/verification/di/VerificationModule.kt` (removed `provideMedicineNameReader`)
+  - `feature/verification/VerificationStubScreen.kt`, `VerificationViewModel.kt`
+  - `docs/verification/STAGE_6_VERIFY.md`
+- Removed files:
+  - `feature/verification/pipeline/NameMatcher.kt`
+  - `feature/verification/pipeline/MlKitNameReader.kt`
+  - `test/.../pipeline/NameMatcherTest.kt`
+- Tests: `VerificationPipelineTest.kt`, `VerificationCoordinatorTest.kt`, `TfliteStripDetectorTest.kt` (146 total unit tests passing)
+- Verification Commands:
+  - `.\gradlew.bat testDebugUnitTest` – 146/146 Passing
+  - `.\gradlew.bat lintDebug` – Clean
+  - `.\gradlew.bat assembleDebug` – Clean build
+

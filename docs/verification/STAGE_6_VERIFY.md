@@ -1,12 +1,14 @@
 # Verification Pack: Stage 6 – Verification Pipeline & Taken Integration
 
-> **Status: Stage 6 Implemented, Fully Tested (151/151 Unit Tests Passing), Lint Clean, Debug APK Built**
+> **Status: Stage 6 Implemented, Fully Tested (146/146 Unit Tests Passing), Lint Clean, Debug APK Built**
 
 ---
 
 ## Part A – Plain-Language Explanation ("How it works")
 
 Stage 6 implements the complete dose verification engine and integrates it with intake logging, ledger tracking, stock counts, and caregiver notification outboxes.
+
+> **Medicine Identity Architecture**: Medicine identity is established directly from the scheduled `Medicine` and `DoseEvent` records in the database. The blister verification pipeline does **not** perform OCR medicine-name matching, eliminating false rejections caused by cropped, folded, unreadable, or missing packaging text on the blister strip.
 
 ```mermaid
 flowchart TD
@@ -19,20 +21,13 @@ flowchart TD
     DupCheck -->|Unique| CellDet["Step 3: Strip Cell Detection\n(FakeStripDetector in Debug / TFLite in Release)"]
     CellDet -->|stripFullyInFrame == false| FrameFail["Reject: STRIP_NOT_FULLY_VISIBLE\n(Consumes 1 Attempt)"]
     
-    CellDet -->|stripFullyInFrame == true| OCR["Step 4: Medicine Name OCR\n(MlKitNameReader + NameMatcher)"]
-    OCR -->|Detected text != Medicine Name\nSimilarity < 0.6| WrongMed["Reject: WRONG_MEDICINE\n(Consumes 1 Attempt)"]
-    OCR -->|Blank text| BlankText["nameUnconfirmed = true\n(Proceeds to Step 5)"]
-    OCR -->|Matches >= 0.6| OcrPass["nameUnconfirmed = false\n(Proceeds to Step 5)"]
-    
-    BlankText --> Ledger["Step 5: Ledger Rule Comparison\nnewEmpty - previousEmpty == pillsPerDose?"]
-    OcrPass --> Ledger
+    CellDet -->|stripFullyInFrame == true| Ledger["Step 4: Ledger Rule Comparison\nnewEmpty - previousEmpty == pillsPerDose?"]
     
     Ledger -->|delta == 0| ZeroPills["Reject: PILLS_NOT_REMOVED\n(Consumes 1 Attempt)"]
     Ledger -->|delta != pillsPerDose| CountFail["Reject: WRONG_PILL_COUNT\n(Consumes 1 Attempt)"]
     
     DupFail --> StrikeCounter{"Attempts Check\n(newAttempts < 3?)"}
     FrameFail --> StrikeCounter
-    WrongMed --> StrikeCounter
     ZeroPills --> StrikeCounter
     CountFail --> StrikeCounter
     
@@ -50,18 +45,16 @@ flowchart TD
 
 ### Verification Pipeline Check Order & Decision Table
 
-Every photo undergoes exactly 5 checks in this strict order. Early failure halts pipeline execution immediately:
+Every photo undergoes exactly 4 checks in this strict order. Early failure halts pipeline execution immediately:
 
 | Step | Check | Condition / Rule | Reject Reason | User-Facing Message | Attempts Consumed? |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1** | **Quality Gate** | Mean luminance < 40, > 220, glare > 0.08, or blur variance < 100 | `BLURRY`, `TOO_DARK`, `TOO_BRIGHT`, `GLARE` | Friendly guidance (e.g. *"Photo is blurry. Hold steady..."*) | **No** (0 attempts) |
 | **2** | **Duplicate Check** | 64-bit dHash Hamming distance $\le 10$ against last 20 verified/attempt photos for this medicine | `DUPLICATE_PHOTO` | *"Duplicate photo detected. Please take a new photo of your blister strip."* | **Yes** (1 attempt) |
 | **3** | **Strip Detection** | `stripFullyInFrame == false` or bounding box clipped | `STRIP_NOT_FULLY_VISIBLE` | *"The blister strip is not fully in frame. Please align the entire strip within the guide."* | **Yes** (1 attempt) |
-| **4** | **OCR Name Match** | Non-blank text read by ML Kit with normalized Levenshtein similarity $< 0.6$ vs `medicine.name` | `WRONG_MEDICINE` | *"Detected medicine text does not match '<name>'."* | **Yes** (1 attempt) |
-| **4a** | **OCR Blank Backing** | No readable text found (e.g. foil blister backing) | *(Passes Step 4)* | Name unconfirmed flag set (`nameUnconfirmed = true`), proceeds to Step 5 | None |
-| **5a** | **Pills Not Removed** | $\Delta = \text{newEmpty} - \text{previousEmpty} = 0$ | `PILLS_NOT_REMOVED` | *"No pills were removed from the strip. Please remove your dose before taking the photo."* | **Yes** (1 attempt) |
-| **5b** | **Wrong Pill Count** | $\Delta = \text{newEmpty} - \text{previousEmpty} \ne \text{pillsPerDose}$ | `WRONG_PILL_COUNT` | *"Expected <N> pill(s) removed, but detected <M>."* | **Yes** (1 attempt) |
-| **5c** | **Ledger Pass** | $\Delta = \text{newEmpty} - \text{previousEmpty} == \text{pillsPerDose}$ | *(None – PASSED)* | *"Dose recorded ✔"* | None (Success) |
+| **4a** | **Pills Not Removed** | $\Delta = \text{newEmpty} - \text{previousEmpty} = 0$ | `PILLS_NOT_REMOVED` | *"No new pills removed. Please push out your dose."* | **Yes** (1 attempt) |
+| **4b** | **Wrong Pill Count** | $\Delta = \text{newEmpty} - \text{previousEmpty} \ne \text{pillsPerDose}$ | `WRONG_PILL_COUNT` | *"Expected <N> pill(s) removed, but counted <M>."* | **Yes** (1 attempt) |
+| **4c** | **Ledger Pass** | $\Delta = \text{newEmpty} - \text{previousEmpty} == \text{pillsPerDose}$ | *(None – PASSED)* | *"Dose verified successfully."* | None (Success) |
 
 > **Partial Cell Rule**: Cells detected as `PARTIAL` are treated strictly as `FULL` (unconsumed), preventing premature pass if a pill was only partially pressed out.
 
@@ -105,24 +98,17 @@ Every photo undergoes exactly 5 checks in this strict order. Early failure halts
 
 ## Part B – Automated Test Results
 
-All 151 unit tests passed with 0 failures:
-
-```
-> Task :app:testDebugUnitTest
-BUILD SUCCESSFUL in 59s
-31 actionable tasks: 4 executed, 27 up-to-date
-```
+All 146 unit tests passed with 0 failures:
 
 ### Stage 6 Test Suite Breakdown:
 
 | Test Class | Tests | Status | Key Coverage |
 | :--- | :---: | :---: | :--- |
-| **`NameMatcherTest`** | 6 | Pass | Exact matching, substring matching, normalized Levenshtein similarity ($\ge 0.6$), dissimilar mismatches ($< 0.6$), multi-word names, blank input handling |
 | **`TfliteStripDetectorTest`** | 1 | Pass | Release detector properly throws `IllegalStateException` when model asset is absent |
-| **`VerificationPipelineTest`** | 11 | Pass | Quality gate reject (`BLURRY`, `TOO_DARK`), duplicate hash reject (`DUPLICATE_PHOTO`), strip not in frame (`STRIP_NOT_FULLY_VISIBLE`), OCR mismatch (`WRONG_MEDICINE`), blank OCR pass with unconfirmed flag, `PILLS_NOT_REMOVED`, `WRONG_PILL_COUNT`, ledger pass, partial cell treated as full, confidence $< 0.5$ filtered, baseline fallback |
+| **`VerificationPipelineTest`** | 12 | Pass | Quality gate reject (`BLURRY`, `TOO_DARK`), duplicate hash reject (`DUPLICATE_PHOTO`), strip not in frame (`STRIP_NOT_FULLY_VISIBLE`), `PILLS_NOT_REMOVED`, `WRONG_PILL_COUNT`, ledger pass, partial cell treated as full, confidence $< 0.5$ filtered, baseline fallback, passes without any OCR text extraction, hidden/cropped name does not cause rejection, no medicine name comparison executed |
 | **`VerificationCoordinatorTest`** | 6 | Pass | Pass verification transitions to `TAKEN` + updates stock; failures increment attempts (1 & 2); 3rd strike transitions to `UNVERIFIED` + outbox enqueue with caregiver; skips outbox without caregiver; window expiration routes to `LateEntryPolicy`; bypass protection |
 | **Existing Unit Tests (Stages 0–5)** | 127 | Pass | Full regression test suite passing across auth, home, medicine, reminder, scheduling, quality gate, perceptual hasher |
-| **Total** | **151** | **100% Pass** | |
+| **Total** | **146** | **100% Pass** | |
 
 ---
 

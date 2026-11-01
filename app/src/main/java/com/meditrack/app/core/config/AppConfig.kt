@@ -26,9 +26,6 @@ object AppConfig {
     // Duplicate photo detection
     const val PHASH_MAX_HAMMING_DISTANCE = 5
 
-    // Medicine-name match
-    const val NAME_MATCH_MIN_SIMILARITY = 0.6
-
     // Stock
     const val LOW_STOCK_DAYS_THRESHOLD = 3        // low when remaining pills < pillsPerDay * this
 }

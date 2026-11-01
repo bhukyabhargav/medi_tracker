@@ -11,8 +11,7 @@ import javax.inject.Singleton
 
 @Singleton
 class VerificationPipeline @Inject constructor(
-    private val stripDetector: StripDetector,
-    private val medicineNameReader: MedicineNameReader
+    private val stripDetector: StripDetector
 ) {
 
     /**
@@ -20,8 +19,7 @@ class VerificationPipeline @Inject constructor(
      * 1. Quality gate (BLURRY / TOO_DARK / TOO_BRIGHT / GLARE)
      * 2. Duplicate check (DUPLICATE_PHOTO)
      * 3. Cell detection (STRIP_NOT_FULLY_VISIBLE)
-     * 4. Medicine match (WRONG_MEDICINE or nameUnconfirmed)
-     * 5. Baseline compare ledger rule (PILLS_NOT_REMOVED / WRONG_PILL_COUNT / PASS)
+     * 4. Baseline compare ledger rule (PILLS_NOT_REMOVED / WRONG_PILL_COUNT / PASS)
      */
     suspend fun verify(
         bitmap: Bitmap,
@@ -66,25 +64,7 @@ class VerificationPipeline @Inject constructor(
 
         val validCells = detection.cells.filter { it.confidence >= AppConfig.DETECTOR_MIN_CONFIDENCE }
 
-        // Step 4: Medicine name match (OCR)
-        val detectedText = medicineNameReader.readText(bitmap)
-        var nameUnconfirmed = false
-
-        if (detectedText.isNotBlank()) {
-            val matches = NameMatcher.matches(detectedText, medicine.name)
-            if (!matches) {
-                return VerificationResult(
-                    passed = false,
-                    rejectReason = RejectReason.WRONG_MEDICINE,
-                    detectedText = detectedText,
-                    friendlyMessage = "Detected medicine text does not match '${medicine.name}'."
-                )
-            }
-        } else {
-            nameUnconfirmed = true
-        }
-
-        // Step 5: Baseline compare (Ledger rule)
+        // Step 4: Baseline compare (Ledger rule)
         // previousEmpty = emptyCellsAfter of the last verified dose for this medicine, or baselineEmptyCells if none
         val previousEmpty = lastVerifiedEmptyCells ?: medicine.baselineEmptyCells
 
@@ -97,8 +77,6 @@ class VerificationPipeline @Inject constructor(
                 VerificationResult(
                     passed = true,
                     emptyCellsAfter = newEmpty,
-                    nameUnconfirmed = nameUnconfirmed,
-                    detectedText = detectedText,
                     friendlyMessage = "Dose verified successfully."
                 )
             }

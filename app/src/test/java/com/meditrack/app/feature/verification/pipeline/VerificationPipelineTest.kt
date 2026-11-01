@@ -26,7 +26,6 @@ import java.time.LocalTime
 class VerificationPipelineTest {
 
     private val stripDetector: StripDetector = mockk(relaxed = true)
-    private val medicineNameReader: MedicineNameReader = mockk(relaxed = true)
     private lateinit var pipeline: VerificationPipeline
 
     private val sampleMedicine = Medicine(
@@ -45,7 +44,7 @@ class VerificationPipelineTest {
 
     @Before
     fun setUp() {
-        pipeline = VerificationPipeline(stripDetector, medicineNameReader)
+        pipeline = VerificationPipeline(stripDetector)
     }
 
     private fun createSharpBitmap(): Bitmap {
@@ -76,7 +75,6 @@ class VerificationPipelineTest {
         assertFalse(result.passed)
         assertEquals(RejectReason.BLURRY, result.rejectReason)
         coVerify(exactly = 0) { stripDetector.detect(any()) }
-        coVerify(exactly = 0) { medicineNameReader.readText(any()) }
     }
 
     @Test
@@ -113,7 +111,7 @@ class VerificationPipelineTest {
     }
 
     @Test
-    fun stripNotFullyInFrame_failsCheck_andDoesNotCallOcr() = runTest {
+    fun stripNotFullyInFrame_failsCheck() = runTest {
         val sharpBitmap = createSharpBitmap()
         coEvery { stripDetector.detect(any()) } returns Detection(
             cells = emptyList(),
@@ -124,67 +122,6 @@ class VerificationPipelineTest {
 
         assertFalse(result.passed)
         assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
-        coVerify(exactly = 0) { medicineNameReader.readText(any()) }
-    }
-
-    @Test
-    fun wrongMedicineName_failsOcrCheck() = runTest {
-        val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
-                Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true
-        )
-        coEvery { medicineNameReader.readText(any()) } returns "Ibuprofen 400mg"
-
-        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
-
-        assertFalse(result.passed)
-        assertEquals(RejectReason.WRONG_MEDICINE, result.rejectReason)
-        assertEquals("Ibuprofen 400mg", result.detectedText)
-    }
-
-    @Test
-    fun blankOcr_passesWith_nameUnconfirmedTrue() = runTest {
-        val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
-                Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true
-        )
-        // Blank OCR (e.g. blank blister foil)
-        coEvery { medicineNameReader.readText(any()) } returns ""
-
-        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
-
-        assertTrue(result.passed)
-        assertTrue(result.nameUnconfirmed)
-        assertNull(result.rejectReason)
-        assertEquals(1, result.emptyCellsAfter)
-    }
-
-    @Test
-    fun matchingOcr_passesWith_nameUnconfirmedFalse() = runTest {
-        val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
-                Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true
-        )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol Tablets 500mg"
-
-        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
-
-        assertTrue(result.passed)
-        assertFalse(result.nameUnconfirmed)
-        assertNull(result.rejectReason)
-        assertEquals(1, result.emptyCellsAfter)
     }
 
     @Test
@@ -198,7 +135,6 @@ class VerificationPipelineTest {
             ),
             stripFullyInFrame = true
         )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol"
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -219,7 +155,6 @@ class VerificationPipelineTest {
             ),
             stripFullyInFrame = true
         )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol"
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -240,7 +175,6 @@ class VerificationPipelineTest {
             ),
             stripFullyInFrame = true
         )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol"
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -261,7 +195,6 @@ class VerificationPipelineTest {
             ),
             stripFullyInFrame = true
         )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol"
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -284,11 +217,67 @@ class VerificationPipelineTest {
             ),
             stripFullyInFrame = true
         )
-        coEvery { medicineNameReader.readText(any()) } returns "Paracetamol"
 
         val result = pipeline.verify(sharpBitmap, medWithBaseline, lastVerifiedEmptyCells = null)
 
         assertTrue(result.passed)
         assertEquals(3, result.emptyCellsAfter)
+    }
+
+    @Test
+    fun photograph_passesVerification_withoutAnyMedicineNameOcr() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Standard valid strip detection: 1 empty, 1 full. Delta = 1 == pillsPerDose
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f)
+            ),
+            stripFullyInFrame = true
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        // Passes strictly based on quality, uniqueness, framing, and ledger delta
+        assertTrue("Verification must pass without any OCR text extraction", result.passed)
+        assertNull(result.rejectReason)
+        assertEquals(1, result.emptyCellsAfter)
+    }
+
+    @Test
+    fun hiddenOrCroppedOrUnreadableMedicineName_cannotCauseRejection() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Blister strip with no visible text / cropped text
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.90f),
+                Cell(state = CellState.FULL, confidence = 0.90f)
+            ),
+            stripFullyInFrame = true
+        )
+
+        // The pipeline does not inspect or require printed text
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertTrue("Cropped or unreadable name on strip must not reject", result.passed)
+        assertNull(result.rejectReason)
+    }
+
+    @Test
+    fun noMedicineNameComparison_isExecutedDuringDoseVerification() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f)
+            ),
+            stripFullyInFrame = true
+        )
+
+        // Medicine name could be anything; scheduled medicine identity comes from DB record
+        val medicineWithUnusualName = sampleMedicine.copy(name = "X99 Special Formula Complex")
+        val result = pipeline.verify(sharpBitmap, medicineWithUnusualName, lastVerifiedEmptyCells = 0)
+
+        assertTrue(result.passed)
+        assertEquals(1, result.emptyCellsAfter)
     }
 }

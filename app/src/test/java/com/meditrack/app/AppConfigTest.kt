@@ -29,7 +29,6 @@ class AppConfigTest {
         assertEquals(0.08, AppConfig.GLARE_PIXEL_FRACTION_MAX, 0.001)
         assertEquals(0.5f, AppConfig.DETECTOR_MIN_CONFIDENCE, 0.001f)
         assertEquals(5, AppConfig.PHASH_MAX_HAMMING_DISTANCE)
-        assertEquals(0.6, AppConfig.NAME_MATCH_MIN_SIMILARITY, 0.001)
         assertEquals(3, AppConfig.LOW_STOCK_DAYS_THRESHOLD)
     }
 }

@@ -255,7 +255,7 @@ fun VerificationStubScreen(
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 Text(
-                                    text = "Checking quality, OCR & cell ledger...",
+                                    text = "Checking quality & blister cell ledger...",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
