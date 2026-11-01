@@ -284,4 +284,40 @@ class VerificationCoordinatorTest {
         assertEquals(DoseStatus.TAKEN_LATE, doseSlot.captured.status)
         assertTrue(doseSlot.captured.lateEntry)
     }
+
+    @Test
+    fun modelNotInstalled_returnsGracefulUnavailableMessage_andDoesNotMarkDoseTaken() = runTest {
+        coEvery {
+            verificationPipeline.verify(
+                bitmap = any(),
+                medicine = any(),
+                lastVerifiedEmptyCells = any(),
+                existingHashes = any(),
+                currentHashOverride = any()
+            )
+        } throws IllegalStateException("Model assets/strip_detector.tflite not installed.")
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = now)
+
+        assertTrue(result is CoordinatorResult.Error)
+        val error = result as CoordinatorResult.Error
+        assertTrue(error.message.contains("temporarily unavailable"))
+
+        // Dose is NOT marked TAKEN, stock NOT decremented
+        coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
+        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+    }
+
+    @Test
+    fun bypassAttempt_onUnverifiedDose_failsStateTransition() = runTest {
+        // A dose in UNVERIFIED status cannot be marked TAKEN by RecordVerifiedDoseUseCase
+        val unverifiedDose = sampleDose.copy(status = DoseStatus.UNVERIFIED)
+        coEvery { doseRepository.getById("dose_abc") } returns unverifiedDose
+
+        val bypassResult = recordVerifiedDoseUseCase("dose_abc", "/path/photo.jpg", 1, now)
+
+        assertTrue(bypassResult.isFailure)
+        coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
+        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+    }
 }

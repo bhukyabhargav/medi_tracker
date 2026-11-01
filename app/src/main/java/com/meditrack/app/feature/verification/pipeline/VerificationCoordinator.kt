@@ -97,13 +97,19 @@ class VerificationCoordinator @Inject constructor(
         val currentHash = PerceptualHasher.computeHash(bitmap)
 
         // 4. Run VerificationPipeline
-        val pipelineResult = verificationPipeline.verify(
-            bitmap = bitmap,
-            medicine = medicine,
-            lastVerifiedEmptyCells = lastVerifiedEmptyCells,
-            existingHashes = existingHashes,
-            currentHashOverride = currentHash
-        )
+        val pipelineResult = try {
+            verificationPipeline.verify(
+                bitmap = bitmap,
+                medicine = medicine,
+                lastVerifiedEmptyCells = lastVerifiedEmptyCells,
+                existingHashes = existingHashes,
+                currentHashOverride = currentHash
+            )
+        } catch (e: IllegalStateException) {
+            return CoordinatorResult.Error("Verification temporarily unavailable. ${e.message ?: ""}".trim())
+        } catch (e: Exception) {
+            return CoordinatorResult.Error("Verification temporarily unavailable: ${e.message ?: "Unknown error"}")
+        }
 
         // 5. Record attempt record in VerificationRepository
         val attemptRecord = VerificationAttempt(
