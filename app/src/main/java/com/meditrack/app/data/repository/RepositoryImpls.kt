@@ -53,6 +53,12 @@ class DoseRepositoryImpl @Inject constructor(
     override suspend fun getPendingDueDoses(now: Long): List<DoseEvent> =
         doseEventDao.getPendingDueDoses(now)
 
+    override suspend fun getFuturePendingDoses(now: Long): List<DoseEvent> =
+        doseEventDao.getFuturePendingDoses(now)
+
+    override suspend fun getOverduePendingDoses(now: Long): List<DoseEvent> =
+        doseEventDao.getOverduePendingDoses(now)
+
     override suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent? =
         doseEventDao.getLatestVerifiedDose(medicineId)
 

@@ -102,6 +102,9 @@ interface DoseEventDao {
     @Query("SELECT * FROM dose_events WHERE status = 'PENDING' AND scheduledAt >= :now ORDER BY scheduledAt ASC")
     suspend fun getFuturePendingDoses(now: Long): List<DoseEvent>
 
+    @Query("SELECT * FROM dose_events WHERE status IN ('PENDING', 'UNVERIFIED') AND windowEndsAt <= :now ORDER BY windowEndsAt ASC")
+    suspend fun getOverduePendingDoses(now: Long): List<DoseEvent>
+
     @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND status IN ('TAKEN', 'TAKEN_LATE') ORDER BY scheduledAt DESC LIMIT 1")
     suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent?
 

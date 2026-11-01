@@ -1,0 +1,95 @@
+package com.meditrack.app.domain.usecase
+
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.FoodRelation
+import com.meditrack.app.domain.model.FrequencyType
+import com.meditrack.app.domain.model.Medicine
+import com.meditrack.app.domain.repository.DoseRepository
+import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
+import io.mockk.slot
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.time.LocalTime
+
+class RecordVerifiedDoseUseCaseTest {
+
+    private val doseRepository: DoseRepository = mockk(relaxed = true)
+    private val medicineRepository: MedicineRepository = mockk(relaxed = true)
+    private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
+
+    private lateinit var useCase: RecordVerifiedDoseUseCase
+
+    private val sampleMedicine = Medicine(
+        id = "med_1",
+        name = "Metformin",
+        dosageText = "500mg",
+        pillsPerDose = 2,
+        frequencyType = FrequencyType.DAILY,
+        timesOfDay = listOf(LocalTime.of(8, 0)),
+        startDate = 1000L,
+        foodRelation = FoodRelation.AFTER,
+        initialStock = 60,
+        currentStock = 50
+    )
+
+    private val sampleDose = DoseEvent(
+        id = "dose_1",
+        medicineId = "med_1",
+        scheduledAt = 2000L,
+        windowEndsAt = 5600L,
+        status = DoseStatus.PENDING,
+        updatedAt = 1000L
+    )
+
+    @Before
+    fun setup() {
+        useCase = RecordVerifiedDoseUseCase(doseRepository, medicineRepository, alarmScheduler)
+    }
+
+    @Test
+    fun recordVerifiedDose_transitionsToTaken_decrementsStock_andCancelsAlarm() = runTest {
+        coEvery { doseRepository.getById("dose_1") } returns sampleDose
+        coEvery { medicineRepository.getById("med_1") } returns sampleMedicine
+
+        val updatedDoseSlot = slot<DoseEvent>()
+        coEvery { doseRepository.update(capture(updatedDoseSlot)) } returns Unit
+
+        val result = useCase("dose_1", photoPath = "path/photo.jpg", emptyCellsAfter = 1, takenAt = 2500L)
+
+        assertTrue(result.isSuccess)
+        val saved = updatedDoseSlot.captured
+        assertEquals(DoseStatus.TAKEN, saved.status)
+        assertEquals(2500L, saved.takenAt)
+        assertEquals("path/photo.jpg", saved.verifiedPhotoPath)
+        assertEquals(1, saved.emptyCellsAfter)
+
+        // Decrements 50 - 2 = 48
+        coVerify { medicineRepository.updateStock("med_1", 48) }
+        coVerify { alarmScheduler.cancelDoseAlarm("dose_1") }
+    }
+
+    @Test
+    fun recordVerifiedDose_failsWhenDoseNotFound() = runTest {
+        coEvery { doseRepository.getById("non_existent") } returns null
+
+        val result = useCase("non_existent")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun recordVerifiedDose_failsWhenAlreadyTaken() = runTest {
+        val alreadyTakenDose = sampleDose.copy(status = DoseStatus.TAKEN)
+        coEvery { doseRepository.getById("dose_1") } returns alreadyTakenDose
+
+        val result = useCase("dose_1")
+        assertTrue(result.isFailure)
+    }
+}

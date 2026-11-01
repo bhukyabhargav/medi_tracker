@@ -4,6 +4,7 @@ import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -12,12 +13,13 @@ import javax.inject.Singleton
 @Singleton
 class SaveMedicineUseCase @Inject constructor(
     private val medicineRepository: MedicineRepository,
-    private val doseRepository: DoseRepository
+    private val doseRepository: DoseRepository,
+    private val alarmScheduler: AlarmScheduler
 ) {
 
     /**
-     * Inserts a new medicine, sets currentStock = initialStock, and generates
-     * upcoming DoseEvents for a rolling 7-day window.
+     * Inserts a new medicine, sets currentStock = initialStock, generates
+     * upcoming DoseEvents for a rolling 7-day window, and schedules alarms.
      */
     suspend fun saveNewMedicine(
         medicine: Medicine,
@@ -46,6 +48,9 @@ class SaveMedicineUseCase @Inject constructor(
 
         if (doses.isNotEmpty()) {
             doseRepository.insertAll(doses)
+            for (dose in doses) {
+                alarmScheduler.scheduleDoseAlarm(dose)
+            }
         }
 
         return doses
@@ -53,7 +58,7 @@ class SaveMedicineUseCase @Inject constructor(
 
     /**
      * Updates an existing medicine, deletes future PENDING doses only (preserving past history),
-     * and regenerates future doses for the rolling window.
+     * regenerates future doses for the rolling window, and schedules alarms.
      */
     suspend fun updateMedicine(
         updatedMedicine: Medicine,
@@ -63,6 +68,12 @@ class SaveMedicineUseCase @Inject constructor(
         medicineRepository.update(updatedMedicine)
 
         val now = System.currentTimeMillis()
+        // Cancel alarms for future pending doses before deleting
+        val existingFuture = doseRepository.getFuturePendingDoses(now).filter { it.medicineId == updatedMedicine.id }
+        for (oldDose in existingFuture) {
+            alarmScheduler.cancelDoseAlarm(oldDose.id)
+        }
+
         // Removes future PENDING doses; keeps all past doses and verified history
         doseRepository.deleteFuturePendingDoses(updatedMedicine.id, now)
 
@@ -87,17 +98,24 @@ class SaveMedicineUseCase @Inject constructor(
 
         if (newFutureDoses.isNotEmpty()) {
             doseRepository.insertAll(newFutureDoses)
+            for (dose in newFutureDoses) {
+                alarmScheduler.scheduleDoseAlarm(dose)
+            }
         }
 
         return newFutureDoses
     }
 
     /**
-     * Deletes a medicine: removes future PENDING doses while preserving past history,
+     * Deletes a medicine: cancels alarms, removes future PENDING doses while preserving past history,
      * and removes the medicine record.
      */
     suspend fun deleteMedicine(medicineId: String) {
         val now = System.currentTimeMillis()
+        val existingFuture = doseRepository.getFuturePendingDoses(now).filter { it.medicineId == medicineId }
+        for (oldDose in existingFuture) {
+            alarmScheduler.cancelDoseAlarm(oldDose.id)
+        }
         doseRepository.deleteFuturePendingDoses(medicineId, now)
         val medicine = medicineRepository.getById(medicineId)
         if (medicine != null) {

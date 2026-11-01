@@ -7,6 +7,7 @@ import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -26,13 +27,14 @@ class SaveMedicineUseCaseTest {
 
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val doseRepository: DoseRepository = mockk(relaxed = true)
+    private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
     private lateinit var useCase: SaveMedicineUseCase
 
     private val zoneId = ZoneId.of("UTC")
 
     @Before
     fun setup() {
-        useCase = SaveMedicineUseCase(medicineRepository, doseRepository)
+        useCase = SaveMedicineUseCase(medicineRepository, doseRepository, alarmScheduler)
     }
 
     private fun createSampleMedicine(

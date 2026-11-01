@@ -43,7 +43,7 @@ object DoseScheduler {
             FrequencyType.SPECIFIC_DAYS -> generateSpecificDaysTimes(medicine, effectiveStart, effectiveEnd, zoneId)
         }
 
-        val windowDurationMillis = AppConfig.DOSE_WINDOW_MINUTES * MILLIS_PER_MINUTE
+        val windowDurationMillis = AppConfig.effectiveDoseWindowMinutes * MILLIS_PER_MINUTE
 
         return scheduledTimes.sorted().map { scheduledAt ->
             DoseEvent(

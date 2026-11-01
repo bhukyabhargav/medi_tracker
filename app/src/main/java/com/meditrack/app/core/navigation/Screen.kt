@@ -19,4 +19,7 @@ sealed class Screen(val route: String) {
     data object DoseListDebug : Screen("dose_list_debug/{medicineId}") {
         fun createRoute(medicineId: String) = "dose_list_debug/$medicineId"
     }
+    data object Verification : Screen("verification/{doseId}") {
+        fun createRoute(doseId: String) = "verification/$doseId"
+    }
 }

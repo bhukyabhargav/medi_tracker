@@ -27,6 +27,8 @@ interface DoseRepository {
     suspend fun insertAll(doseEvents: List<DoseEvent>)
     suspend fun update(doseEvent: DoseEvent)
     suspend fun getPendingDueDoses(now: Long): List<DoseEvent>
+    suspend fun getFuturePendingDoses(now: Long): List<DoseEvent>
+    suspend fun getOverduePendingDoses(now: Long): List<DoseEvent>
     suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent?
     suspend fun getNextScheduledDose(medicineId: String, scheduledAt: Long): DoseEvent?
     suspend fun deleteFuturePendingDoses(medicineId: String, afterTimestamp: Long)

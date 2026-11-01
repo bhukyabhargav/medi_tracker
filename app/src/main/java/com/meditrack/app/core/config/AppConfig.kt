@@ -3,6 +3,9 @@ package com.meditrack.app.core.config
 object AppConfig {
     // Dose window
     const val DOSE_WINDOW_MINUTES = 60            // time after scheduled time before a dose becomes MISSED
+    var debugDoseWindowMinutes: Int? = null       // Fast-testing override for human/emulator verification
+    val effectiveDoseWindowMinutes: Int
+        get() = debugDoseWindowMinutes ?: DOSE_WINDOW_MINUTES
     val SNOOZE_PRESETS_MINUTES = listOf(15, 30)   // plus custom (list cannot be const)
     const val MAX_SNOOZES_PER_DOSE = 3
 

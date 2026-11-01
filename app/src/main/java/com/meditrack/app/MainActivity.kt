@@ -1,11 +1,15 @@
 package com.meditrack.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -24,6 +28,8 @@ import com.meditrack.app.feature.home.HomeScreen
 import com.meditrack.app.feature.onboarding.BatteryOptimizationScreen
 import com.meditrack.app.feature.onboarding.PermissionSetupScreen
 import com.meditrack.app.feature.onboarding.SplashScreen
+import com.meditrack.app.feature.reminder.receiver.ReminderReceiver
+import com.meditrack.app.feature.verification.VerificationStubScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -33,8 +39,13 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var authRepository: AuthRepository
 
+    private val pendingDoseId = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        handleIntent(intent)
+
         setContent {
             MediTrackTheme {
                 Surface(
@@ -42,6 +53,14 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
+                    val targetDoseId by pendingDoseId
+
+                    LaunchedEffect(targetDoseId) {
+                        targetDoseId?.let { doseId ->
+                            navController.navigate(Screen.Verification.createRoute(doseId))
+                            pendingDoseId.value = null
+                        }
+                    }
 
                     NavHost(
                         navController = navController,
@@ -197,6 +216,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        composable(
+                            route = Screen.Verification.route,
+                            arguments = listOf(navArgument("doseId") { type = NavType.StringType })
+                        ) {
+                            VerificationStubScreen(
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
                         if (BuildConfig.DEBUG) {
                             composable(Screen.DebugTools.route) {
                                 DebugToolsScreen(
@@ -209,6 +237,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val doseId = intent?.getStringExtra(ReminderReceiver.EXTRA_DOSE_ID)
+        if (!doseId.isNullOrBlank()) {
+            pendingDoseId.value = doseId
         }
     }
 }
