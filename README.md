@@ -508,11 +508,11 @@ The human will open the project in **Android Studio** and press **Run ▶** afte
 6. Flow end states: "SAVE MEDICINE" → "MEDICINE ADDED" → Back to Home.
 
 **Acceptance criteria**
-- [ ] Adding a medicine creates correct future DoseEvents (verify in a unit test and manually in the app).
-- [ ] Edit changes future doses only.
-- [ ] Baseline photo saved and referenced; skipping is allowed.
-- [ ] Home dashboard shows today's doses from the DB.
-- [ ] Unit tests for validation and dose generation integration.
+- [x] Adding a medicine creates correct future DoseEvents (verify in a unit test and manually in the app).
+- [x] Edit changes future doses only.
+- [x] Baseline photo saved and referenced; skipping is allowed.
+- [x] Home dashboard shows today's doses from the DB.
+- [x] Unit tests for validation and dose generation integration.
 
 **Do NOT:** schedule alarms yet (Stage 4).
 

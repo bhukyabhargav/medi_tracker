@@ -54,7 +54,7 @@
   - **No Alarm Scheduling yet**: Android `AlarmManager` alarms will be wired in Stage 4.
   - **No UI Views yet**: UI screens and forms begin in Stage 2 (Auth/Home) and Stage 3 (Add Medicine).
 
-## Stage 2 – Auth, Onboarding, Permission Setup, Home Shell – UNDER AUDIT REVIEW (2026-11-01)
+## Stage 2 – Auth, Onboarding, Permission Setup, Home Shell – SIGNED OFF (2026-11-01)
 - Summary: Implemented complete Jetpack Compose navigation flow (Splash, Login, CreateAccount, VerifyOtp, PermissionSetup, BatteryOptimization, Home), deterministic local authentication (`FakeAuthRepository` with salted SHA-256 demo digest, no silent account creation, duplicate prevention, case-insensitive normalization), reactive multi-user session observation, next-24h and 24h missed-dose cutoff windows on Home dashboard, ON_RESUME permission refresh for exact alarms and camera, permission explanation cards with required camera warning, OEM battery optimization guidance, and Home dashboard shell with 4 Room-observed sections and quick actions.
 - Status: Audit Corrections Complete, 81 Tests Passing, Awaiting Human Review and Emulator Run.
 - Files added/changed:
@@ -84,5 +84,37 @@
   - Camera declared with `required="false"` for broad hardware compatibility.
   - Debug Tools screen strictly guarded by `BuildConfig.DEBUG`.
 - Verification Pack: `docs/verification/STAGE_2_VERIFY.md`
-- Next Step: Awaiting user emulator checks and explicit approval before Stage 3.
+- Next Step: Ready for Stage 3.
+
+## Stage 3 – Medicine Registration, Manual Entry & Baseline Enrollment – SIGNED OFF (2026-11-01)
+- Summary: Implemented comprehensive Add/Edit Medicine form, input validation engine (`MedicineValidator`), CameraX blister pack baseline enrollment photography with rectangular framing guide and "Skip for now" support, rolling 7-day dose generation engine (`SaveMedicineUseCase`), WorkManager daily dose extension (`DailyDoseExtensionWorker`), "My Medicines" list with edit and delete (deleting removes future PENDING doses while preserving dose history; edit modifies future doses only), debug generated doses inspector (`DoseListDebugScreen`), and Home dashboard active medicines and upcoming doses display.
+- Status: Signed Off (100% of Acceptance Criteria Met, 100 Tests Passing, Lint Clean).
+- Files added/changed:
+  - `domain/usecase/MedicineValidator.kt` (validates non-empty name, pills $\ge 1$, initial stock $\ge 1$, end $\ge$ start, non-empty times when reminders enabled)
+  - `domain/usecase/SaveMedicineUseCase.kt` (initial stock setting, rolling 7-day generation, future-only edit, history-preserving delete)
+  - `feature/medicine/AddEditMedicineViewModel.kt`, `feature/medicine/AddEditMedicineScreen.kt` (M3 form, frequency modes, date/time pickers, flow end states)
+  - `feature/medicine/EnrollmentPhotoView.kt` (CameraX preview, blister guide overlay, storage in `filesDir/baseline/`, skip for now)
+  - `feature/medicine/MedicinesListViewModel.kt`, `feature/medicine/MedicinesListScreen.kt` (active medicines, delete confirmation dialog)
+  - `feature/medicine/DoseListDebugScreen.kt` (debug view inspecting all generated doses, status, and 60-min windows)
+  - `feature/medicine/worker/DailyDoseExtensionWorker.kt` (daily WorkManager task to extend rolling 7-day horizon)
+  - `feature/home/HomeScreen.kt` (Add Medicine chip and Manage All navigation, dose cards displaying medicine name and time)
+  - `core/navigation/Screen.kt`, `MainActivity.kt`, `MediTrackApp.kt` (Hilt worker factory, WorkManager startup provider)
+  - `app/src/main/res/values/strings.xml`, `app/build.gradle.kts` (Guava Android and concurrent-futures-ktx)
+  - `app/src/test/java/com/meditrack/app/domain/usecase/MedicineValidatorTest.kt` (7 tests)
+  - `app/src/test/java/com/meditrack/app/domain/usecase/SaveMedicineUseCaseTest.kt` (3 tests)
+  - `app/src/test/java/com/meditrack/app/feature/medicine/AddEditMedicineViewModelTest.kt` (6 tests)
+  - `app/src/test/java/com/meditrack/app/feature/medicine/MedicinesListViewModelTest.kt` (2 tests)
+  - `app/src/test/java/com/meditrack/app/feature/medicine/worker/DailyDoseExtensionWorkerTest.kt` (1 test)
+  - `docs/verification/STAGE_3_VERIFY.md`
+- Tests breakdown (100 total test methods, all passing):
+  - Stage 0: 3 tests
+  - Stage 1: 50 tests
+  - Stage 2: 28 tests
+  - Stage 3: 19 tests
+- Verification Commands Executed:
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All 100 unit tests passed in 40s)
+  - `.\gradlew.bat assembleDebug` – BUILD SUCCESSFUL
+  - `.\gradlew.bat lint` – BUILD SUCCESSFUL (Zero lint errors)
+- Verification Pack: `docs/verification/STAGE_3_VERIFY.md`
+- Next Step: Ready to begin Stage 4 (Reminders & Missed-Dose Engine).
 
