@@ -265,7 +265,11 @@ fun CaptureScreen(
                             val preview = Preview.Builder().build().also {
                                 it.setSurfaceProvider(previewView.surfaceProvider)
                             }
-                            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                            val cameraSelector = when {
+                                cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                                cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                                else -> CameraSelector.DEFAULT_BACK_CAMERA
+                            }
                             try {
                                 cameraProvider.unbindAll()
                                 camera = cameraProvider.bindToLifecycle(
@@ -361,7 +365,14 @@ fun CaptureScreen(
                                     object : ImageCapture.OnImageCapturedCallback() {
                                         override fun onCaptureSuccess(image: ImageProxy) {
                                             try {
-                                                val bitmap = image.toBitmap()
+                                                val rawBitmap = image.toBitmap()
+                                                val rotation = image.imageInfo.rotationDegrees
+                                                val bitmap = if (rotation != 0) {
+                                                    val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
+                                                    Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+                                                } else {
+                                                    rawBitmap
+                                                }
                                                 image.close()
 
                                                 // Run ImageQualityGate
