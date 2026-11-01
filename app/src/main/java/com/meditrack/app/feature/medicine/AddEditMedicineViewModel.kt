@@ -1,0 +1,238 @@
+package com.meditrack.app.feature.medicine
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.FoodRelation
+import com.meditrack.app.domain.model.FrequencyType
+import com.meditrack.app.domain.model.Medicine
+import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.usecase.MedicineValidator
+import com.meditrack.app.domain.usecase.SaveMedicineUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.util.UUID
+import javax.inject.Inject
+
+enum class AddEditStep {
+    FORM,
+    ENROLLMENT_PHOTO,
+    SUCCESS
+}
+
+data class AddEditMedicineUiState(
+    val name: String = "",
+    val dosageText: String = "",
+    val pillsPerDose: Int = 1,
+    val initialStock: Int = 10,
+    val frequencyType: FrequencyType = FrequencyType.DAILY,
+    val timesOfDay: List<LocalTime> = listOf(LocalTime.of(8, 0)),
+    val intervalHours: Int = 6,
+    val daysOfWeek: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7),
+    val startDate: Long = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+    val endDate: Long? = null,
+    val foodRelation: FoodRelation = FoodRelation.ANY,
+    val instructions: String = "",
+    val reminderEnabled: Boolean = true,
+    val baselinePhotoPath: String? = null,
+    val isEditing: Boolean = false,
+    val editingMedicineId: String? = null,
+    val currentStep: AddEditStep = AddEditStep.FORM,
+    val errorMessage: String? = null,
+    val isLoading: Boolean = false,
+    val savedDoses: List<DoseEvent> = emptyList()
+)
+
+@HiltViewModel
+class AddEditMedicineViewModel @Inject constructor(
+    private val medicineRepository: MedicineRepository,
+    private val saveMedicineUseCase: SaveMedicineUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(AddEditMedicineUiState())
+    val uiState: StateFlow<AddEditMedicineUiState> = _uiState.asStateFlow()
+
+    fun loadMedicine(medicineId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val medicine = medicineRepository.getById(medicineId)
+            if (medicine != null) {
+                _uiState.update {
+                    it.copy(
+                        name = medicine.name,
+                        dosageText = medicine.dosageText,
+                        pillsPerDose = medicine.pillsPerDose,
+                        initialStock = medicine.initialStock,
+                        frequencyType = medicine.frequencyType,
+                        timesOfDay = medicine.timesOfDay.ifEmpty { listOf(LocalTime.of(8, 0)) },
+                        intervalHours = medicine.intervalHours ?: 6,
+                        daysOfWeek = medicine.daysOfWeek ?: listOf(1, 2, 3, 4, 5, 6, 7),
+                        startDate = medicine.startDate,
+                        endDate = medicine.endDate,
+                        foodRelation = medicine.foodRelation,
+                        instructions = medicine.instructions,
+                        reminderEnabled = medicine.reminderEnabled,
+                        baselinePhotoPath = medicine.baselinePhotoPath,
+                        isEditing = true,
+                        editingMedicineId = medicine.id,
+                        isLoading = false,
+                        errorMessage = null
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(isLoading = false, errorMessage = "Medicine not found") }
+            }
+        }
+    }
+
+    fun onNameChange(name: String) = _uiState.update { it.copy(name = name, errorMessage = null) }
+    fun onDosageChange(dosage: String) = _uiState.update { it.copy(dosageText = dosage, errorMessage = null) }
+    fun onPillsPerDoseChange(pills: Int) = _uiState.update { it.copy(pillsPerDose = maxOf(1, pills), errorMessage = null) }
+    fun onInitialStockChange(stock: Int) = _uiState.update { it.copy(initialStock = maxOf(1, stock), errorMessage = null) }
+    fun onFrequencyTypeChange(type: FrequencyType) = _uiState.update { it.copy(frequencyType = type, errorMessage = null) }
+    fun onIntervalHoursChange(hours: Int) = _uiState.update { it.copy(intervalHours = maxOf(1, hours), errorMessage = null) }
+    fun onFoodRelationChange(food: FoodRelation) = _uiState.update { it.copy(foodRelation = food, errorMessage = null) }
+    fun onInstructionsChange(instr: String) = _uiState.update { it.copy(instructions = instr, errorMessage = null) }
+    fun onReminderToggle(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }
+    fun onStartDateChange(startMillis: Long) = _uiState.update { it.copy(startDate = startMillis, errorMessage = null) }
+    fun onEndDateChange(endMillis: Long?) = _uiState.update { it.copy(endDate = endMillis, errorMessage = null) }
+
+    fun addTimeOfDay(time: LocalTime) {
+        _uiState.update { state ->
+            if (!state.timesOfDay.contains(time)) {
+                state.copy(timesOfDay = (state.timesOfDay + time).sorted(), errorMessage = null)
+            } else {
+                state
+            }
+        }
+    }
+
+    fun removeTimeOfDay(time: LocalTime) {
+        _uiState.update { state ->
+            val updated = state.timesOfDay.filter { it != time }
+            state.copy(timesOfDay = updated, errorMessage = null)
+        }
+    }
+
+    fun toggleDayOfWeek(day: Int) {
+        _uiState.update { state ->
+            val days = state.daysOfWeek.toMutableList()
+            if (days.contains(day)) {
+                if (days.size > 1) days.remove(day)
+            } else {
+                days.add(day)
+                days.sort()
+            }
+            state.copy(daysOfWeek = days, errorMessage = null)
+        }
+    }
+
+    fun validateForm(): Boolean {
+        val state = _uiState.value
+        val result = MedicineValidator.validate(
+            name = state.name,
+            pillsPerDose = state.pillsPerDose,
+            startDate = state.startDate,
+            endDate = state.endDate,
+            reminderEnabled = state.reminderEnabled,
+            timesOfDay = state.timesOfDay,
+            initialStock = state.initialStock
+        )
+        return when (result) {
+            is MedicineValidator.ValidationResult.Valid -> {
+                _uiState.update { it.copy(errorMessage = null) }
+                true
+            }
+            is MedicineValidator.ValidationResult.Invalid -> {
+                _uiState.update { it.copy(errorMessage = result.errorMessage) }
+                false
+            }
+        }
+    }
+
+    fun onContinueToPhoto() {
+        if (validateForm()) {
+            _uiState.update { it.copy(currentStep = AddEditStep.ENROLLMENT_PHOTO) }
+        }
+    }
+
+    fun onBackToForm() {
+        _uiState.update { it.copy(currentStep = AddEditStep.FORM) }
+    }
+
+    fun onPhotoCaptured(photoPath: String) {
+        _uiState.update { it.copy(baselinePhotoPath = photoPath) }
+    }
+
+    fun onSkipPhoto() {
+        _uiState.update { it.copy(baselinePhotoPath = null) }
+        saveMedicine()
+    }
+
+    fun onConfirmPhotoAndSave() {
+        saveMedicine()
+    }
+
+    fun saveDirectlyIfEditing() {
+        if (validateForm()) {
+            saveMedicine()
+        }
+    }
+
+    private fun saveMedicine() {
+        val state = _uiState.value
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            try {
+                val medicineId = state.editingMedicineId ?: "med_${UUID.randomUUID()}"
+                val medicine = Medicine(
+                    id = medicineId,
+                    name = state.name.trim(),
+                    dosageText = state.dosageText.trim(),
+                    pillsPerDose = state.pillsPerDose,
+                    frequencyType = state.frequencyType,
+                    timesOfDay = state.timesOfDay,
+                    intervalHours = if (state.frequencyType == FrequencyType.HOURLY) state.intervalHours else null,
+                    daysOfWeek = if (state.frequencyType == FrequencyType.SPECIFIC_DAYS) state.daysOfWeek else null,
+                    startDate = state.startDate,
+                    endDate = state.endDate,
+                    foodRelation = state.foodRelation,
+                    instructions = state.instructions.trim(),
+                    reminderEnabled = state.reminderEnabled,
+                    initialStock = state.initialStock,
+                    currentStock = state.initialStock,
+                    baselineEmptyCells = 0,
+                    baselinePhotoPath = state.baselinePhotoPath
+                )
+
+                val generatedDoses = if (state.isEditing) {
+                    saveMedicineUseCase.updateMedicine(medicine)
+                } else {
+                    saveMedicineUseCase.saveNewMedicine(medicine)
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        savedDoses = generatedDoses,
+                        currentStep = AddEditStep.SUCCESS
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "Failed to save medicine: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+}

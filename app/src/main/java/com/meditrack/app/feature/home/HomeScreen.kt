@@ -60,6 +60,8 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun HomeScreen(
     onNavigateToDebugTools: () -> Unit,
+    onNavigateToAddMedicine: () -> Unit = {},
+    onNavigateToMedicinesList: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -138,12 +140,24 @@ fun HomeScreen(
                 item {
                     SectionHeader(title = stringResource(R.string.section_quick_actions))
                     Spacer(modifier = Modifier.height(8.dp))
-                    QuickActionsRow()
+                    QuickActionsRow(
+                        onNavigateToAddMedicine = onNavigateToAddMedicine,
+                        onNavigateToMedicinesList = onNavigateToMedicinesList
+                    )
                 }
 
                 // Section 2: Today's Medicines
                 item {
-                    SectionHeader(title = stringResource(R.string.section_today_medicines))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SectionHeader(title = stringResource(R.string.section_today_medicines))
+                        androidx.compose.material3.TextButton(onClick = onNavigateToMedicinesList) {
+                            Text(text = "Manage All", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     if (uiState.activeMedicines.isEmpty()) {
                         EmptyCard(
@@ -155,6 +169,7 @@ fun HomeScreen(
                             uiState.activeMedicines.forEach { medicine ->
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                    onClick = onNavigateToMedicinesList,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -308,9 +323,14 @@ fun EmptyCard(
 }
 
 @Composable
-fun QuickActionsRow() {
+fun QuickActionsRow(
+    onNavigateToAddMedicine: () -> Unit = {},
+    onNavigateToMedicinesList: () -> Unit = {}
+) {
+    val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val actions = listOf(
-        Pair(Icons.Default.AddCircle, stringResource(R.string.action_add_medicine)),
+        Pair(Icons.Default.AddCircle, addMedicineLabel),
+        Pair(Icons.Default.Medication, "My Medicines"),
         Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
         Pair(Icons.Default.CalendarMonth, stringResource(R.string.action_calendar)),
         Pair(Icons.Default.History, stringResource(R.string.action_history)),
@@ -324,6 +344,13 @@ fun QuickActionsRow() {
         items(actions) { (icon, label) ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                onClick = {
+                    when (label) {
+                        addMedicineLabel -> onNavigateToAddMedicine()
+                        "My Medicines" -> onNavigateToMedicinesList()
+                        else -> {}
+                    }
+                },
                 modifier = Modifier.padding(vertical = 4.dp)
             ) {
                 Row(

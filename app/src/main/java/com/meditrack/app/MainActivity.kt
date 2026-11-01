@@ -126,7 +126,74 @@ class MainActivity : ComponentActivity() {
                                     if (BuildConfig.DEBUG) {
                                         navController.navigate(Screen.DebugTools.route)
                                     }
+                                },
+                                onNavigateToAddMedicine = {
+                                    navController.navigate(Screen.AddMedicine.route)
+                                },
+                                onNavigateToMedicinesList = {
+                                    navController.navigate(Screen.MedicinesList.route)
                                 }
+                            )
+                        }
+
+                        composable(Screen.MedicinesList.route) {
+                            com.meditrack.app.feature.medicine.MedicinesListScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToAddMedicine = { navController.navigate(Screen.AddMedicine.route) },
+                                onNavigateToEditMedicine = { medId ->
+                                    navController.navigate(Screen.EditMedicine.createRoute(medId))
+                                },
+                                onNavigateToViewDoses = { medId ->
+                                    navController.navigate(Screen.DoseListDebug.createRoute(medId))
+                                }
+                            )
+                        }
+
+                        composable(Screen.AddMedicine.route) {
+                            com.meditrack.app.feature.medicine.AddEditMedicineScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToHome = {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Home.route) { inclusive = true }
+                                    }
+                                },
+                                onNavigateToMedicinesList = {
+                                    navController.navigate(Screen.MedicinesList.route) {
+                                        popUpTo(Screen.Home.route)
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.EditMedicine.route,
+                            arguments = listOf(navArgument("medicineId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val medId = backStackEntry.arguments?.getString("medicineId")
+                            com.meditrack.app.feature.medicine.AddEditMedicineScreen(
+                                medicineId = medId,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToHome = {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Home.route) { inclusive = true }
+                                    }
+                                },
+                                onNavigateToMedicinesList = {
+                                    navController.navigate(Screen.MedicinesList.route) {
+                                        popUpTo(Screen.Home.route)
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.DoseListDebug.route,
+                            arguments = listOf(navArgument("medicineId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val medId = backStackEntry.arguments?.getString("medicineId") ?: ""
+                            com.meditrack.app.feature.medicine.DoseListDebugScreen(
+                                medicineId = medId,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
 

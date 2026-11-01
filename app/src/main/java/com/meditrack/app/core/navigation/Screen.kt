@@ -11,4 +11,12 @@ sealed class Screen(val route: String) {
     data object BatteryGuidance : Screen("battery_guidance")
     data object Home : Screen("home")
     data object DebugTools : Screen("debug_tools")
+    data object MedicinesList : Screen("medicines_list")
+    data object AddMedicine : Screen("add_medicine")
+    data object EditMedicine : Screen("edit_medicine/{medicineId}") {
+        fun createRoute(medicineId: String) = "edit_medicine/$medicineId"
+    }
+    data object DoseListDebug : Screen("dose_list_debug/{medicineId}") {
+        fun createRoute(medicineId: String) = "dose_list_debug/$medicineId"
+    }
 }
