@@ -216,6 +216,7 @@ fun HomeScreen(
                                 val timeStr = DateTimeFormatter.ofPattern("hh:mm a")
                                     .withZone(ZoneId.systemDefault())
                                     .format(Instant.ofEpochMilli(dose.scheduledAt))
+                                val medName = uiState.activeMedicines.find { it.id == dose.medicineId }?.name ?: "Scheduled Dose"
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                                     modifier = Modifier.fillMaxWidth()
@@ -225,7 +226,7 @@ fun HomeScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = timeStr,
+                                            text = "$medName \u2022 $timeStr",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -257,6 +258,7 @@ fun HomeScreen(
                                 val timeStr = DateTimeFormatter.ofPattern("hh:mm a")
                                     .withZone(ZoneId.systemDefault())
                                     .format(Instant.ofEpochMilli(dose.scheduledAt))
+                                val medName = uiState.activeMedicines.find { it.id == dose.medicineId }?.name ?: "Dose"
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                                     modifier = Modifier.fillMaxWidth()
@@ -266,7 +268,7 @@ fun HomeScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Missed: $timeStr",
+                                            text = "Missed: $medName \u2022 $timeStr",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onErrorContainer
