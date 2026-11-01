@@ -159,6 +159,27 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToVerification = { doseId ->
                                     navController.navigate(Screen.Verification.createRoute(doseId))
+                                },
+                                onNavigateToHistory = {
+                                    navController.navigate(Screen.History.route)
+                                },
+                                onNavigateToCalendar = {
+                                    navController.navigate(Screen.Calendar.route)
+                                }
+                            )
+                        }
+
+                        composable(Screen.History.route) {
+                            com.meditrack.app.feature.history.HistoryScreen(
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(Screen.Calendar.route) {
+                            com.meditrack.app.feature.calendar.CalendarScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToVerification = { doseId ->
+                                    navController.navigate(Screen.Verification.createRoute(doseId))
                                 }
                             )
                         }

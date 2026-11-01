@@ -11,6 +11,8 @@ import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.model.RejectReason
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.usecase.LateEntryPolicy
+import com.meditrack.app.domain.usecase.RecordManualUnverifiedUseCase
 import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
 import com.meditrack.app.domain.usecase.SkipDoseUseCase
 import com.meditrack.app.domain.usecase.SnoozeDoseUseCase
@@ -39,6 +41,13 @@ data class VerificationUiState(
     val isSnoozed: Boolean = false,
     val isSkipped: Boolean = false,
     val isSimulating: Boolean = false,
+    val isLateMode: Boolean = false,
+    val canLogLate: Boolean = true,
+    val isLocked: Boolean = false,
+    val showDoubleDoseWarning: Boolean = false,
+    val isWithinDoubleDoseGap: Boolean = false,
+    val doubleDoseConfirmed: Boolean = false,
+    val isManualUnverified: Boolean = false,
     val rejectReason: RejectReason? = null,
     val attemptsRemaining: Int = AppConfig.MAX_VERIFICATION_ATTEMPTS,
     val errorMessage: String? = null,
@@ -52,6 +61,7 @@ class VerificationViewModel @Inject constructor(
     private val doseRepository: DoseRepository,
     private val medicineRepository: MedicineRepository,
     private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
+    private val recordManualUnverifiedUseCase: RecordManualUnverifiedUseCase,
     private val snoozeDoseUseCase: SnoozeDoseUseCase,
     private val skipDoseUseCase: SkipDoseUseCase,
     private val alarmScheduler: AlarmScheduler,
@@ -78,6 +88,17 @@ class VerificationViewModel @Inject constructor(
                 val attemptsUsed = dose.verificationAttempts
                 val remaining = (AppConfig.MAX_VERIFICATION_ATTEMPTS - attemptsUsed).coerceAtLeast(0)
 
+                val now = System.currentTimeMillis()
+                val isMissed = dose.status == DoseStatus.MISSED
+                val nextDose = doseRepository.getNextScheduledDose(dose.medicineId, dose.scheduledAt)
+                val canLate = if (isMissed) LateEntryPolicy.canLogLate(dose, nextDose?.scheduledAt, now) else true
+                val isLocked = isMissed && !canLate
+                val isWithinSafetyGap = if (isMissed && nextDose != null) {
+                    LateEntryPolicy.isWithinDoubleDoseSafetyGap(dose.scheduledAt, nextDose.scheduledAt, now)
+                } else {
+                    false
+                }
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -87,12 +108,59 @@ class VerificationViewModel @Inject constructor(
                         isSuccess = dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE,
                         isSkipped = dose.status == DoseStatus.SKIPPED,
                         isExhausted = dose.status == DoseStatus.UNVERIFIED,
+                        isLateMode = isMissed,
+                        canLogLate = canLate,
+                        isLocked = isLocked,
+                        isWithinDoubleDoseGap = isWithinSafetyGap,
+                        isManualUnverified = dose.manualUnverified,
                         attemptsRemaining = remaining
                     )
                 }
             } else {
                 _uiState.update {
                     it.copy(isLoading = false, errorMessage = "Dose not found: $doseId")
+                }
+            }
+        }
+    }
+
+    fun confirmDoubleDoseWarning() {
+        _uiState.update { it.copy(showDoubleDoseWarning = false, doubleDoseConfirmed = true) }
+    }
+
+    fun dismissDoubleDoseWarning() {
+        _uiState.update { it.copy(showDoubleDoseWarning = false) }
+    }
+
+    fun requestCapturePhoto(onProceed: () -> Unit) {
+        val state = _uiState.value
+        if (state.isWithinDoubleDoseGap && !state.doubleDoseConfirmed) {
+            _uiState.update { it.copy(showDoubleDoseWarning = true) }
+        } else {
+            onProceed()
+        }
+    }
+
+    fun recordManualUnverified() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val result = recordManualUnverifiedUseCase(doseId)
+            if (result.isSuccess) {
+                val updatedDose = doseRepository.getById(doseId)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        dose = updatedDose,
+                        isManualUnverified = true,
+                        infoMessage = "Marked as taken (unverified)"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to report without photo"
+                    )
                 }
             }
         }

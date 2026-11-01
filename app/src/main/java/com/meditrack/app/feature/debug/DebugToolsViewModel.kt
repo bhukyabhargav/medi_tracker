@@ -183,4 +183,106 @@ class DebugToolsViewModel @Inject constructor(
             }
         }
     }
+
+    fun seedSampleHistory() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            try {
+                val now = System.currentTimeMillis()
+                val activeMeds = medicineRepository.observeActive().first()
+                var med = activeMeds.firstOrNull()
+                if (med == null) {
+                    med = Medicine(
+                        id = "seed_med_${UUID.randomUUID()}",
+                        name = "Amoxicillin 500mg",
+                        dosageText = "500mg",
+                        pillsPerDose = 1,
+                        frequencyType = FrequencyType.DAILY,
+                        timesOfDay = listOf(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                        startDate = now - (30L * 24 * 60 * 60 * 1000L),
+                        foodRelation = FoodRelation.AFTER,
+                        initialStock = 100,
+                        currentStock = 54
+                    )
+                    medicineRepository.insert(med)
+                }
+
+                // Create 50 closed doses across past 25 days:
+                // 42 TAKEN, 4 TAKEN_LATE, 4 MISSED (1 manualUnverified)
+                // Total verifiedTaken = 46. Closed = 50. Adherence = 92% (4 late).
+                val sampleDoses = mutableListOf<DoseEvent>()
+                var doseIdx = 0
+
+                for (dayOffset in 25 downTo 1) {
+                    val dayBaseTime = now - (dayOffset * 24 * 60 * 60 * 1000L)
+                    
+                    // Dose 1 of the day (morning)
+                    if (doseIdx < 50) {
+                        val scheduledTime = dayBaseTime + (9 * 60 * 60 * 1000L)
+                        val status = when (doseIdx) {
+                            42, 43, 44, 45 -> DoseStatus.TAKEN_LATE
+                            46, 47, 48 -> DoseStatus.MISSED
+                            49 -> DoseStatus.MISSED // manual unverified
+                            else -> DoseStatus.TAKEN
+                        }
+                        sampleDoses.add(
+                            DoseEvent(
+                                id = "seed_dose_${UUID.randomUUID()}",
+                                medicineId = med.id,
+                                scheduledAt = scheduledTime,
+                                windowEndsAt = scheduledTime + (60 * 60 * 1000L),
+                                status = status,
+                                takenAt = if (status == DoseStatus.TAKEN || status == DoseStatus.TAKEN_LATE) scheduledTime + 15 * 60 * 1000L else null,
+                                lateEntry = status == DoseStatus.TAKEN_LATE,
+                                manualUnverified = doseIdx == 49,
+                                updatedAt = scheduledTime
+                            )
+                        )
+                        doseIdx++
+                    }
+
+                    // Dose 2 of the day (evening)
+                    if (doseIdx < 50) {
+                        val scheduledTime = dayBaseTime + (21 * 60 * 60 * 1000L)
+                        val status = when (doseIdx) {
+                            42, 43, 44, 45 -> DoseStatus.TAKEN_LATE
+                            46, 47, 48 -> DoseStatus.MISSED
+                            49 -> DoseStatus.MISSED
+                            else -> DoseStatus.TAKEN
+                        }
+                        sampleDoses.add(
+                            DoseEvent(
+                                id = "seed_dose_${UUID.randomUUID()}",
+                                medicineId = med.id,
+                                scheduledAt = scheduledTime,
+                                windowEndsAt = scheduledTime + (60 * 60 * 1000L),
+                                status = status,
+                                takenAt = if (status == DoseStatus.TAKEN || status == DoseStatus.TAKEN_LATE) scheduledTime + 15 * 60 * 1000L else null,
+                                lateEntry = status == DoseStatus.TAKEN_LATE,
+                                manualUnverified = false,
+                                updatedAt = scheduledTime
+                            )
+                        )
+                        doseIdx++
+                    }
+                }
+
+                doseRepository.insertAll(sampleDoses)
+
+                _uiState.update {
+                    it.copy(
+                        isActionInProgress = false,
+                        statusMessage = "Seeded 50 sample doses (42 taken, 4 late, 4 missed -> 92% adherence) across past 25 days"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isActionInProgress = false,
+                        statusMessage = "Error seeding history: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
 }

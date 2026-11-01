@@ -25,4 +25,6 @@ sealed class Screen(val route: String) {
     data object Capture : Screen("capture/{doseId}") {
         fun createRoute(doseId: String) = "capture/$doseId"
     }
+    data object History : Screen("history")
+    data object Calendar : Screen("calendar")
 }

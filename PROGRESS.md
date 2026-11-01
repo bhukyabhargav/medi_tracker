@@ -162,3 +162,27 @@
   - `.\gradlew.bat lintDebug` – Clean
   - `.\gradlew.bat assembleDebug` – Clean build
 
+## Stage 7 – Late Dose Entry – COMPLETED (2026-11-02)
+- Summary: Implemented comprehensive late-dose intake workflow for missed doses on Home and Calendar. Missed doses display "I took this late" button when within allowable late window (`LateEntryPolicy.canLogLate(...)`), or "Locked" when expired. Opening late verification runs full Stage 6 pipeline. On pass, transitions `MISSED -> TAKEN_LATE` using photo capture timestamp as `takenAt`, decrements medicine stock, sets `lateEntry = true`, and enqueues `DOSE_TAKEN_LATE` in `NotificationOutbox` for connected caregivers. Added double-dose safety guard requiring explicit confirmation if next dose of same medicine is scheduled within safety gap ($\max(1\text{h}, 25\%\text{ of interval})$). Added "Reported without photo" option (`RecordManualUnverifiedUseCase`) setting `manualUnverified = true` while keeping status `MISSED` with zero stock decrement and exclusion from adherence numerator.
+- Files added/changed:
+  - `domain/usecase/RecordManualUnverifiedUseCase.kt`
+  - `feature/verification/VerificationViewModel.kt` (late mode, double-dose guard, manual unverified)
+  - `feature/verification/VerificationStubScreen.kt` (double-dose warning dialog, locked state, manual unverified dialog)
+  - `feature/home/HomeScreen.kt` (missed dose cards show "I took this late", "Locked", or "Reported without photo")
+  - `docs/verification/STAGE_7_VERIFY.md`
+- Tests added:
+  - `LateDoseVerificationTest.kt` (5 tests: allowed/locked boundaries, double-dose safety gap, TAKEN_LATE transition + outbox event + capture time, manualUnverified invariance, adherence calculations)
+
+## Stage 8 – History & Calendar – COMPLETED (2026-11-02)
+- Summary: Implemented read-only audit views over the dose log with adherence and calendar visualization. History screen features time-range selector (Today, Past 7 Days, Past 30 Days), Adherence summary card (`Medication Adherence: 92% (4 late)` with count breakdown), dose list with status chips (Taken, Taken Late, Missed, Skipped, Unverified, Reported without photo), and dose details dialog with Coil proof photo rendering from private storage. Calendar screen features monthly grid with color-coded day dots (Green: all taken, Orange: some late/unverified, Red: missed, Grey: none), date selection displaying scheduled doses with food instructions, late dose intake button / locked badge, and dose detail dialog with "Back to Calendar" navigation. Added "Seed 30 Days of Sample Data" debug tool in Debug Tools screen.
+- Files added/changed:
+  - `feature/history/HistoryViewModel.kt`, `HistoryScreen.kt`
+  - `feature/calendar/CalendarViewModel.kt`, `CalendarScreen.kt`
+  - `feature/debug/DebugToolsViewModel.kt`, `DebugToolsScreen.kt` (added `seedSampleHistory()` button)
+  - `core/navigation/Screen.kt`, `MainActivity.kt`
+  - `docs/verification/STAGE_8_VERIFY.md`
+- Tests added:
+  - `HistoryViewModelTest.kt` (4 tests: empty state, time range queries for Today/Week/Month, 92% adherence with 4 late on seeded data, item selection)
+  - `CalendarViewModelTest.kt` (3 tests: computeDayStatus dot color priority rules, month pagination, date selection with late entry lock state)
+
+

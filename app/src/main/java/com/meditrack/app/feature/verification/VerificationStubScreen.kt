@@ -23,10 +23,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,11 +43,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -69,6 +75,65 @@ fun VerificationStubScreen(
     viewModel: VerificationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showManualUnverifiedDialog by remember { mutableStateOf(false) }
+
+    if (uiState.showDoubleDoseWarning) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissDoubleDoseWarning() },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Double-Dose Warning") },
+            text = {
+                Text(
+                    "Your next dose of ${uiState.medicine?.name ?: "this medicine"} is scheduled soon. " +
+                    "Check with your doctor before taking this one. Only proceed if you already took this dose earlier."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.confirmDoubleDoseWarning()
+                        onNavigateToCapture(viewModel.doseId)
+                    }
+                ) {
+                    Text("I already took it")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissDoubleDoseWarning() }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showManualUnverifiedDialog) {
+        AlertDialog(
+            onDismissRequest = { showManualUnverifiedDialog = false },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+            title = { Text("Report Without Photo?") },
+            text = {
+                Text(
+                    "This will record that you took this dose, but it will remain unverified " +
+                    "and will not count toward your adherence score."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showManualUnverifiedDialog = false
+                        viewModel.recordManualUnverified()
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualUnverifiedDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     LaunchedEffect(capturedPhotoPath) {
         if (!capturedPhotoPath.isNullOrBlank()) {
@@ -392,46 +457,124 @@ fun VerificationStubScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Retake Photo")
                     }
+                } else if (uiState.isLocked) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Late Entry Period Expired",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "The allowable late entry cutoff for this dose has ended. This dose is locked as Missed.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                } else if (uiState.isManualUnverified) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFF3E0)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = Color(0xFFE65100)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Reported without photo",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFE65100),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "Recorded in history as manual unverified (status remains Missed).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFE65100)
+                                )
+                            }
+                        }
+                    }
                 } else if (!uiState.isSuccess && !uiState.needsBaselinePhoto) {
-                    // Normal Pending verification controls
+                    // Photo Verification Button
                     Button(
-                        onClick = { onNavigateToCapture(viewModel.doseId) },
+                        onClick = {
+                            viewModel.requestCapturePhoto {
+                                onNavigateToCapture(viewModel.doseId)
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.isAnalyzing,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Take Live Blister Photo")
+                        Text(if (uiState.isLateMode) "Capture Late Blister Photo" else "Take Live Blister Photo")
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    if (uiState.isLateMode) {
+                        // Late Mode option: Mark as taken (unverified)
                         OutlinedButton(
-                            onClick = { viewModel.snooze(15) },
-                            modifier = Modifier.weight(1f),
+                            onClick = { showManualUnverifiedDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
                             enabled = !uiState.isAnalyzing
                         ) {
-                            Text("Snooze 15m")
+                            Text("Mark as taken (unverified)")
+                        }
+                    } else {
+                        // Pending Mode: Snooze & Skip options
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.snooze(15) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !uiState.isAnalyzing
+                            ) {
+                                Text("Snooze 15m")
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.snooze(30) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !uiState.isAnalyzing
+                            ) {
+                                Text("Snooze 30m")
+                            }
                         }
 
                         OutlinedButton(
-                            onClick = { viewModel.snooze(30) },
-                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.skip() },
+                            modifier = Modifier.fillMaxWidth(),
                             enabled = !uiState.isAnalyzing
                         ) {
-                            Text("Snooze 30m")
+                            Text("Skip Dose")
                         }
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.skip() },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !uiState.isAnalyzing
-                    ) {
-                        Text("Skip Dose")
                     }
                 }
 

@@ -305,6 +305,50 @@ fun DebugToolsScreen(
                     }
                 }
             }
+
+            Text(
+                text = "History & Calendar (Stage 8)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Control 5: Seed Sample History
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Seed 30 Days of Sample History",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Seeds 50 doses (42 taken, 4 late, 4 missed -> 92% adherence)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.seedSampleHistory() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isActionInProgress
+                    ) {
+                        Text("Seed 30 Days of Sample Data")
+                    }
+                }
+            }
         }
     }
 }

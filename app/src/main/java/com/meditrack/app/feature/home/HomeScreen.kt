@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -21,12 +22,15 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.BuildConfig
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.R
+import com.meditrack.app.domain.usecase.LateEntryPolicy
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -63,6 +68,8 @@ fun HomeScreen(
     onNavigateToAddMedicine: () -> Unit = {},
     onNavigateToMedicinesList: () -> Unit = {},
     onNavigateToVerification: (String) -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
+    onNavigateToCalendar: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -143,7 +150,9 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     QuickActionsRow(
                         onNavigateToAddMedicine = onNavigateToAddMedicine,
-                        onNavigateToMedicinesList = onNavigateToMedicinesList
+                        onNavigateToMedicinesList = onNavigateToMedicinesList,
+                        onNavigateToHistory = onNavigateToHistory,
+                        onNavigateToCalendar = onNavigateToCalendar
                     )
                 }
 
@@ -256,11 +265,17 @@ fun HomeScreen(
                         )
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val now = System.currentTimeMillis()
                             uiState.missedDoses.forEach { dose ->
                                 val timeStr = DateTimeFormatter.ofPattern("hh:mm a")
                                     .withZone(ZoneId.systemDefault())
                                     .format(Instant.ofEpochMilli(dose.scheduledAt))
                                 val medName = uiState.activeMedicines.find { it.id == dose.medicineId }?.name ?: "Dose"
+                                val nextDoseTime = uiState.upcomingDoses
+                                    .filter { it.medicineId == dose.medicineId && it.scheduledAt > dose.scheduledAt }
+                                    .minByOrNull { it.scheduledAt }?.scheduledAt
+                                val canLate = LateEntryPolicy.canLogLate(dose, nextDoseTime, now)
+
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                                     modifier = Modifier.fillMaxWidth()
@@ -269,12 +284,45 @@ fun HomeScreen(
                                         modifier = Modifier.padding(16.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = "Missed: $medName \u2022 $timeStr",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Missed: $medName \u2022 $timeStr",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            if (dose.manualUnverified) {
+                                                Text(
+                                                    text = "Reported without photo",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                        }
+
+                                        if (canLate && !dose.manualUnverified) {
+                                            Button(
+                                                onClick = { onNavigateToVerification(dose.id) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                            ) {
+                                                Text("I took this late")
+                                            }
+                                        } else {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Lock,
+                                                    contentDescription = "Locked",
+                                                    tint = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Locked",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -329,15 +377,20 @@ fun EmptyCard(
 @Composable
 fun QuickActionsRow(
     onNavigateToAddMedicine: () -> Unit = {},
-    onNavigateToMedicinesList: () -> Unit = {}
+    onNavigateToMedicinesList: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
+    onNavigateToCalendar: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
+    val calendarLabel = stringResource(R.string.action_calendar)
+    val historyLabel = stringResource(R.string.action_history)
+
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
         Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
-        Pair(Icons.Default.CalendarMonth, stringResource(R.string.action_calendar)),
-        Pair(Icons.Default.History, stringResource(R.string.action_history)),
+        Pair(Icons.Default.CalendarMonth, calendarLabel),
+        Pair(Icons.Default.History, historyLabel),
         Pair(Icons.Default.People, stringResource(R.string.action_caregiver)),
         Pair(Icons.Default.Person, stringResource(R.string.action_profile))
     )
@@ -352,6 +405,8 @@ fun QuickActionsRow(
                     when (label) {
                         addMedicineLabel -> onNavigateToAddMedicine()
                         "My Medicines" -> onNavigateToMedicinesList()
+                        calendarLabel -> onNavigateToCalendar()
+                        historyLabel -> onNavigateToHistory()
                         else -> {}
                     }
                 },
