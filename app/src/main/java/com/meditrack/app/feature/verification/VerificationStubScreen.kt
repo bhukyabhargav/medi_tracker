@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MedicalServices
@@ -53,6 +54,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun VerificationStubScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToCapture: (String) -> Unit = {},
     viewModel: VerificationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -310,19 +312,27 @@ fun VerificationStubScreen(
                         }
 
                         Button(
+                            onClick = { onNavigateToCapture(viewModel.doseId) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Take Live Blister Photo")
+                        }
+
+                        OutlinedButton(
                             onClick = { viewModel.simulateVerifiedTake() },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !uiState.isSimulating,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            enabled = !uiState.isSimulating
                         ) {
                             if (uiState.isSimulating) {
                                 CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(20.dp),
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Text("Simulate Verified Intake")
+                                Text("Simulate Verified Intake (Stub)")
                             }
                         }
 

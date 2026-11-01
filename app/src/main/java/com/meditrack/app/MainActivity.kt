@@ -228,7 +228,27 @@ class MainActivity : ComponentActivity() {
                             arguments = listOf(navArgument("doseId") { type = NavType.StringType })
                         ) {
                             VerificationStubScreen(
-                                onNavigateBack = { navController.popBackStack() }
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToCapture = { doseId ->
+                                    navController.navigate(Screen.Capture.createRoute(doseId))
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.Capture.route,
+                            arguments = listOf(navArgument("doseId") { type = NavType.StringType })
+                        ) {
+                            com.meditrack.app.feature.verification.CaptureScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateHome = {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Home.route) { inclusive = true }
+                                    }
+                                },
+                                onPhotoVerifiedQuality = { photoPath, pHash, metrics ->
+                                    navController.popBackStack()
+                                }
                             )
                         }
 

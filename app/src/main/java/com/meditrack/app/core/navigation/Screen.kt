@@ -22,4 +22,7 @@ sealed class Screen(val route: String) {
     data object Verification : Screen("verification/{doseId}") {
         fun createRoute(doseId: String) = "verification/$doseId"
     }
+    data object Capture : Screen("capture/{doseId}") {
+        fun createRoute(doseId: String) = "capture/$doseId"
+    }
 }

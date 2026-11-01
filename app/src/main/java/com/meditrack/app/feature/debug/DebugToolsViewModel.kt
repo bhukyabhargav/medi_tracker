@@ -1,5 +1,6 @@
 package com.meditrack.app.feature.debug
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.core.config.AppConfig
@@ -12,7 +13,9 @@ import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import com.meditrack.app.feature.verification.dataset.DatasetCollector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,12 +29,15 @@ import javax.inject.Inject
 data class DebugToolsUiState(
     val isShortWindowEnabled: Boolean = false,
     val windowMinutes: Int = AppConfig.DOSE_WINDOW_MINUTES,
+    val isDataCollectionEnabled: Boolean = false,
+    val datasetCount: Int = 0,
     val statusMessage: String? = null,
     val isActionInProgress: Boolean = false
 )
 
 @HiltViewModel
 class DebugToolsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val medicineRepository: MedicineRepository,
     private val doseRepository: DoseRepository,
     private val alarmScheduler: AlarmScheduler,
@@ -41,7 +47,9 @@ class DebugToolsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         DebugToolsUiState(
             isShortWindowEnabled = AppConfig.debugDoseWindowMinutes != null,
-            windowMinutes = AppConfig.effectiveDoseWindowMinutes
+            windowMinutes = AppConfig.effectiveDoseWindowMinutes,
+            isDataCollectionEnabled = DatasetCollector.isDataCollectionEnabled,
+            datasetCount = DatasetCollector.getSampleCount(context)
         )
     )
     val uiState: StateFlow<DebugToolsUiState> = _uiState.asStateFlow()
@@ -61,6 +69,39 @@ class DebugToolsViewModel @Inject constructor(
         }
     }
 
+    fun toggleDataCollection(enable: Boolean) {
+        DatasetCollector.isDataCollectionEnabled = enable
+        _uiState.update {
+            it.copy(
+                isDataCollectionEnabled = enable,
+                datasetCount = DatasetCollector.getSampleCount(context),
+                statusMessage = if (enable) "Data collection mode ENABLED (Stage 5/13)" else "Data collection mode DISABLED"
+            )
+        }
+    }
+
+    fun exportDatasetZip() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            val zip = DatasetCollector.exportDatasetZip(context)
+            if (zip != null) {
+                _uiState.update {
+                    it.copy(
+                        isActionInProgress = false,
+                        statusMessage = "Dataset exported to: ${zip.name} (${zip.length() / 1024} KB)"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isActionInProgress = false,
+                        statusMessage = "Dataset folder is empty or export failed."
+                    )
+                }
+            }
+        }
+    }
+
     fun triggerAlarmNow() {
         viewModelScope.launch {
             _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
@@ -70,7 +111,6 @@ class DebugToolsViewModel @Inject constructor(
 
                 var med = activeMeds.firstOrNull()
                 if (med == null) {
-                    // Create test medicine if none exist
                     med = Medicine(
                         id = "debug_med_${UUID.randomUUID()}",
                         name = "Debug Aspirin 81mg",
@@ -97,7 +137,6 @@ class DebugToolsViewModel @Inject constructor(
                 )
                 doseRepository.insert(testDose)
 
-                // Trigger in 1 second
                 alarmScheduler.scheduleDoseAlarm(testDose, triggerAtMillis = now + 1000L)
 
                 _uiState.update {

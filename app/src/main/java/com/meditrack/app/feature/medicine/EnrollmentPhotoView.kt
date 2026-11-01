@@ -122,6 +122,7 @@ fun EnrollmentPhotoView(
 
     var capturedPhotoPath by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
+    var qualityError by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = modifier
@@ -183,9 +184,22 @@ fun EnrollmentPhotoView(
                 hasCameraPermission -> {
                     CameraXCapturePreview(
                         onImageSaved = { path ->
-                            capturedPhotoPath = path
-                            isCapturing = false
-                            onPhotoCaptured(path)
+                            val bitmap = android.graphics.BitmapFactory.decodeFile(path)
+                            if (bitmap != null) {
+                                val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
+                                if (!quality.passed) {
+                                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
+                                    isCapturing = false
+                                } else {
+                                    capturedPhotoPath = path
+                                    isCapturing = false
+                                    onPhotoCaptured(path)
+                                }
+                            } else {
+                                capturedPhotoPath = path
+                                isCapturing = false
+                                onPhotoCaptured(path)
+                            }
                         },
                         isCapturing = isCapturing,
                         onError = {
@@ -312,6 +326,31 @@ fun EnrollmentPhotoView(
                     )
                 }
             }
+        }
+
+        if (qualityError != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { qualityError = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(36.dp)
+                    )
+                },
+                title = {
+                    Text("Baseline Photo Quality Issue")
+                },
+                text = {
+                    Text(qualityError ?: "The captured image did not pass quality checks.")
+                },
+                confirmButton = {
+                    Button(onClick = { qualityError = null }) {
+                        Text("Retake")
+                    }
+                }
+            )
         }
     }
 }
