@@ -51,12 +51,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import com.meditrack.app.BuildConfig
+import com.meditrack.app.feature.verification.dataset.DatasetCollector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -116,6 +119,11 @@ fun CaptureScreen(
     var isFlashOn by remember { mutableStateOf(false) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var qualityFailure by remember { mutableStateOf<QualityResult?>(null) }
+    var pendingLabelBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var pendingQualityMetrics by remember { mutableStateOf<QualityMetrics?>(null) }
+    var labelStripType by remember { mutableStateOf("blister_strip") }
+    var labelFullCells by remember { mutableStateOf("10") }
+    var labelEmptyCells by remember { mutableStateOf("0") }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -362,11 +370,16 @@ fun CaptureScreen(
                                                     qualityFailure = qualityResult
                                                     isCapturing = false
                                                 } else {
-                                                    // Save to proofs storage
-                                                    val savedPath = ProofStorage.saveProof(context, bitmap)
-                                                    val pHash = com.meditrack.app.feature.verification.quality.PerceptualHasher.computeHash(bitmap)
-                                                    isCapturing = false
-                                                    onPhotoVerifiedQuality(savedPath, pHash, qualityResult.metrics)
+                                                    if (BuildConfig.DEBUG && DatasetCollector.isDataCollectionEnabled) {
+                                                        pendingLabelBitmap = bitmap
+                                                        pendingQualityMetrics = qualityResult.metrics
+                                                        isCapturing = false
+                                                    } else {
+                                                        val savedPath = ProofStorage.saveProof(context, bitmap)
+                                                        val pHash = com.meditrack.app.feature.verification.quality.PerceptualHasher.computeHash(bitmap)
+                                                        isCapturing = false
+                                                        onPhotoVerifiedQuality(savedPath, pHash, qualityResult.metrics)
+                                                    }
                                                 }
                                             } catch (e: Exception) {
                                                 Log.e(MediTrackApp.TAG, "Error processing captured photo: ${e.message}", e)
@@ -435,6 +448,89 @@ fun CaptureScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Text("Retake Photo")
+                        }
+                    }
+                )
+            }
+
+            // Data Collection Labeling Dialog (Debug Builds Only)
+            pendingLabelBitmap?.let { bitmap ->
+                AlertDialog(
+                    onDismissRequest = {
+                        // If dismissed, proceed without saving dataset sample
+                        val savedPath = ProofStorage.saveProof(context, bitmap)
+                        val pHash = com.meditrack.app.feature.verification.quality.PerceptualHasher.computeHash(bitmap)
+                        pendingLabelBitmap = null
+                        pendingQualityMetrics?.let { metrics ->
+                            onPhotoVerifiedQuality(savedPath, pHash, metrics)
+                        }
+                    },
+                    title = {
+                        Text(
+                            text = "Label Dataset Sample",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "Data collection mode is active. Label this sample to train ML in Stage 13.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            OutlinedTextField(
+                                value = labelStripType,
+                                onValueChange = { labelStripType = it },
+                                label = { Text("Strip Type") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = labelFullCells,
+                                onValueChange = { labelFullCells = it },
+                                label = { Text("Number of Full Cells") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = labelEmptyCells,
+                                onValueChange = { labelEmptyCells = it },
+                                label = { Text("Number of Empty Cells") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val full = labelFullCells.toIntOrNull() ?: 10
+                                val empty = labelEmptyCells.toIntOrNull() ?: 0
+                                DatasetCollector.saveSample(
+                                    context = context,
+                                    bitmap = bitmap,
+                                    stripType = labelStripType.ifBlank { "blister_strip" },
+                                    fullCells = full,
+                                    emptyCells = empty
+                                )
+                                val savedPath = ProofStorage.saveProof(context, bitmap)
+                                val pHash = com.meditrack.app.feature.verification.quality.PerceptualHasher.computeHash(bitmap)
+                                val metrics = pendingQualityMetrics ?: QualityMetrics(100.0, 128.0, 0.0)
+                                pendingLabelBitmap = null
+                                onPhotoVerifiedQuality(savedPath, pHash, metrics)
+                            }
+                        ) {
+                            Text("Save Sample")
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(
+                            onClick = {
+                                val savedPath = ProofStorage.saveProof(context, bitmap)
+                                val pHash = com.meditrack.app.feature.verification.quality.PerceptualHasher.computeHash(bitmap)
+                                val metrics = pendingQualityMetrics ?: QualityMetrics(100.0, 128.0, 0.0)
+                                pendingLabelBitmap = null
+                                onPhotoVerifiedQuality(savedPath, pHash, metrics)
+                            }
+                        ) {
+                            Text("Skip Label")
                         }
                     }
                 )
