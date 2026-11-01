@@ -30,11 +30,11 @@ enum class AddEditStep {
 data class AddEditMedicineUiState(
     val name: String = "",
     val dosageText: String = "",
-    val pillsPerDose: Int = 1,
-    val initialStock: Int = 10,
+    val pillsPerDoseText: String = "1",
+    val initialStockText: String = "10",
     val frequencyType: FrequencyType = FrequencyType.DAILY,
     val timesOfDay: List<LocalTime> = listOf(LocalTime.of(8, 0)),
-    val intervalHours: Int = 6,
+    val intervalHoursText: String = "6",
     val daysOfWeek: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7),
     val startDate: Long = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
     val endDate: Long? = null,
@@ -48,7 +48,11 @@ data class AddEditMedicineUiState(
     val errorMessage: String? = null,
     val isLoading: Boolean = false,
     val savedDoses: List<DoseEvent> = emptyList()
-)
+) {
+    val pillsPerDose: Int get() = pillsPerDoseText.toIntOrNull() ?: 0
+    val initialStock: Int get() = initialStockText.toIntOrNull() ?: 0
+    val intervalHours: Int get() = intervalHoursText.toIntOrNull() ?: 6
+}
 
 @HiltViewModel
 class AddEditMedicineViewModel @Inject constructor(
@@ -68,11 +72,11 @@ class AddEditMedicineViewModel @Inject constructor(
                     it.copy(
                         name = medicine.name,
                         dosageText = medicine.dosageText,
-                        pillsPerDose = medicine.pillsPerDose,
-                        initialStock = medicine.initialStock,
+                        pillsPerDoseText = medicine.pillsPerDose.toString(),
+                        initialStockText = medicine.initialStock.toString(),
                         frequencyType = medicine.frequencyType,
                         timesOfDay = medicine.timesOfDay.ifEmpty { listOf(LocalTime.of(8, 0)) },
-                        intervalHours = medicine.intervalHours ?: 6,
+                        intervalHoursText = (medicine.intervalHours ?: 6).toString(),
                         daysOfWeek = medicine.daysOfWeek ?: listOf(1, 2, 3, 4, 5, 6, 7),
                         startDate = medicine.startDate,
                         endDate = medicine.endDate,
@@ -94,10 +98,13 @@ class AddEditMedicineViewModel @Inject constructor(
 
     fun onNameChange(name: String) = _uiState.update { it.copy(name = name, errorMessage = null) }
     fun onDosageChange(dosage: String) = _uiState.update { it.copy(dosageText = dosage, errorMessage = null) }
-    fun onPillsPerDoseChange(pills: Int) = _uiState.update { it.copy(pillsPerDose = maxOf(1, pills), errorMessage = null) }
-    fun onInitialStockChange(stock: Int) = _uiState.update { it.copy(initialStock = maxOf(1, stock), errorMessage = null) }
+    fun onPillsPerDoseTextChange(text: String) = _uiState.update { it.copy(pillsPerDoseText = text, errorMessage = null) }
+    fun onInitialStockTextChange(text: String) = _uiState.update { it.copy(initialStockText = text, errorMessage = null) }
+    fun onIntervalHoursTextChange(text: String) = _uiState.update { it.copy(intervalHoursText = text, errorMessage = null) }
+    fun onPillsPerDoseChange(pills: Int) = onPillsPerDoseTextChange(pills.toString())
+    fun onInitialStockChange(stock: Int) = onInitialStockTextChange(stock.toString())
+    fun onIntervalHoursChange(hours: Int) = onIntervalHoursTextChange(hours.toString())
     fun onFrequencyTypeChange(type: FrequencyType) = _uiState.update { it.copy(frequencyType = type, errorMessage = null) }
-    fun onIntervalHoursChange(hours: Int) = _uiState.update { it.copy(intervalHours = maxOf(1, hours), errorMessage = null) }
     fun onFoodRelationChange(food: FoodRelation) = _uiState.update { it.copy(foodRelation = food, errorMessage = null) }
     fun onInstructionsChange(instr: String) = _uiState.update { it.copy(instructions = instr, errorMessage = null) }
     fun onReminderToggle(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }

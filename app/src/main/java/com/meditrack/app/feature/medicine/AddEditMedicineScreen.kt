@@ -2,6 +2,7 @@ package com.meditrack.app.feature.medicine
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -75,6 +76,13 @@ fun AddEditMedicineScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+
+    BackHandler(enabled = uiState.currentStep == AddEditStep.ENROLLMENT_PHOTO) {
+        viewModel.onBackToForm()
+    }
+    BackHandler(enabled = uiState.currentStep == AddEditStep.SUCCESS) {
+        onNavigateToHome()
+    }
 
     LaunchedEffect(medicineId) {
         if (!medicineId.isNullOrBlank()) {
@@ -183,10 +191,8 @@ fun AddEditMedicineScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedTextField(
-                            value = uiState.pillsPerDose.toString(),
-                            onValueChange = { str ->
-                                str.toIntOrNull()?.let { viewModel.onPillsPerDoseChange(it) }
-                            },
+                            value = uiState.pillsPerDoseText,
+                            onValueChange = viewModel::onPillsPerDoseTextChange,
                             label = { Text(stringResource(R.string.pills_per_dose_label)) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
@@ -194,10 +200,8 @@ fun AddEditMedicineScreen(
                         )
 
                         OutlinedTextField(
-                            value = uiState.initialStock.toString(),
-                            onValueChange = { str ->
-                                str.toIntOrNull()?.let { viewModel.onInitialStockChange(it) }
-                            },
+                            value = uiState.initialStockText,
+                            onValueChange = viewModel::onInitialStockTextChange,
                             label = { Text(stringResource(R.string.initial_stock_label)) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
@@ -321,10 +325,8 @@ fun AddEditMedicineScreen(
 
                         FrequencyType.HOURLY -> {
                             OutlinedTextField(
-                                value = uiState.intervalHours.toString(),
-                                onValueChange = { str ->
-                                    str.toIntOrNull()?.let { viewModel.onIntervalHoursChange(it) }
-                                },
+                                value = uiState.intervalHoursText,
+                                onValueChange = viewModel::onIntervalHoursTextChange,
                                 label = { Text(stringResource(R.string.interval_hours_label)) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),

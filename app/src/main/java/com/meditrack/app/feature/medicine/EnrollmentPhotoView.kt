@@ -327,6 +327,7 @@ fun CameraXCapturePreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val imageCapture = remember { ImageCapture.Builder().build() }
     val previewView = remember { PreviewView(context) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(lifecycleOwner) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -337,7 +338,11 @@ fun CameraXCapturePreview(
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                val cameraSelector = when {
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                    else -> CameraSelector.DEFAULT_BACK_CAMERA
+                }
 
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
@@ -348,6 +353,7 @@ fun CameraXCapturePreview(
                 )
             } catch (e: Exception) {
                 Log.e(MediTrackApp.TAG, "CameraX binding failed: ${e.message}", e)
+                cameraError = e.message
                 onError(e)
             }
         }, ContextCompat.getMainExecutor(context))
@@ -381,18 +387,42 @@ fun CameraXCapturePreview(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Overlay framing guide for blister strip
-        Box(
-            modifier = Modifier
+    if (cameraError != null) {
+        Column(
+            modifier = modifier
                 .fillMaxSize()
-                .padding(32.dp)
-                .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-        )
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.CameraAlt,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Camera is not available on this device/emulator.\nYou can tap 'Skip for now' below to proceed.",
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    } else {
+        Box(modifier = modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Overlay framing guide for blister strip
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp)
+                    .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+            )
+        }
     }
 }
