@@ -4,10 +4,14 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
+import com.meditrack.app.domain.usecase.SkipDoseUseCase
+import com.meditrack.app.domain.usecase.SnoozeDoseUseCase
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,8 +25,11 @@ data class VerificationUiState(
     val dose: DoseEvent? = null,
     val medicine: Medicine? = null,
     val isSuccess: Boolean = false,
+    val isSnoozed: Boolean = false,
+    val isSkipped: Boolean = false,
     val isSimulating: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val infoMessage: String? = null
 )
 
 @HiltViewModel
@@ -30,7 +37,10 @@ class VerificationViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val doseRepository: DoseRepository,
     private val medicineRepository: MedicineRepository,
-    private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase
+    private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
+    private val snoozeDoseUseCase: SnoozeDoseUseCase,
+    private val skipDoseUseCase: SkipDoseUseCase,
+    private val alarmScheduler: AlarmScheduler
 ) : ViewModel() {
 
     val doseId: String = checkNotNull(savedStateHandle["doseId"])
@@ -53,7 +63,8 @@ class VerificationViewModel @Inject constructor(
                         isLoading = false,
                         dose = dose,
                         medicine = medicine,
-                        isSuccess = dose.status == com.meditrack.app.domain.model.DoseStatus.TAKEN
+                        isSuccess = dose.status == DoseStatus.TAKEN,
+                        isSkipped = dose.status == DoseStatus.SKIPPED
                     )
                 }
             } else {
@@ -66,7 +77,7 @@ class VerificationViewModel @Inject constructor(
 
     fun simulateVerifiedTake() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSimulating = true, errorMessage = null) }
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
             val result = recordVerifiedDoseUseCase(
                 doseId = doseId,
                 photoPath = "simulated_verification.jpg",
@@ -80,7 +91,8 @@ class VerificationViewModel @Inject constructor(
                         isSimulating = false,
                         isSuccess = true,
                         dose = updatedDose,
-                        medicine = updatedMed
+                        medicine = updatedMed,
+                        infoMessage = "Dose verified as TAKEN. Stock updated."
                     )
                 }
             }.onFailure { error ->
@@ -88,6 +100,60 @@ class VerificationViewModel @Inject constructor(
                     it.copy(
                         isSimulating = false,
                         errorMessage = error.message ?: "Failed to verify dose"
+                    )
+                }
+            }
+        }
+    }
+
+    fun snooze(minutes: Int) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
+            val result = snoozeDoseUseCase(doseId, snoozeMinutes = minutes)
+            result.onSuccess { nextTrigger ->
+                val updatedDose = doseRepository.getById(doseId)
+                if (updatedDose != null) {
+                    alarmScheduler.scheduleDoseAlarm(updatedDose, nextTrigger)
+                }
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        isSnoozed = true,
+                        dose = updatedDose,
+                        infoMessage = "Dose snoozed for $minutes minutes."
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        errorMessage = error.message ?: "Failed to snooze dose"
+                    )
+                }
+            }
+        }
+    }
+
+    fun skip() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
+            val result = skipDoseUseCase(doseId)
+            result.onSuccess {
+                alarmScheduler.cancelDoseAlarm(doseId)
+                val updatedDose = doseRepository.getById(doseId)
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        isSkipped = true,
+                        dose = updatedDose,
+                        infoMessage = "Dose marked as SKIPPED."
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        errorMessage = error.message ?: "Failed to skip dose"
                     )
                 }
             }

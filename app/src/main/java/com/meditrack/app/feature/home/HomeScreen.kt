@@ -62,6 +62,7 @@ fun HomeScreen(
     onNavigateToDebugTools: () -> Unit,
     onNavigateToAddMedicine: () -> Unit = {},
     onNavigateToMedicinesList: () -> Unit = {},
+    onNavigateToVerification: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -218,6 +219,7 @@ fun HomeScreen(
                                     .format(Instant.ofEpochMilli(dose.scheduledAt))
                                 val medName = uiState.activeMedicines.find { it.id == dose.medicineId }?.name ?: "Scheduled Dose"
                                 Card(
+                                    onClick = { onNavigateToVerification(dose.id) },
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.BuildConfig
+import com.meditrack.app.domain.model.DoseStatus
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -53,7 +55,7 @@ fun VerificationStubScreen(
     onNavigateBack: () -> Unit,
     viewModel: VerificationViewModel = hiltViewModel()
 ) {
-    val uiState by uiStateHelper(viewModel)
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -162,13 +164,14 @@ fun VerificationStubScreen(
                                 color = MaterialTheme.colorScheme.outline
                             )
                             Text(
-                                text = "Status: ${dose.status.name}",
+                                text = "Status: ${dose.status.name} (Snoozes: ${dose.snoozeCount})",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (dose.status == com.meditrack.app.domain.model.DoseStatus.TAKEN) {
-                                    Color(0xFF2E7D32)
-                                } else {
-                                    MaterialTheme.colorScheme.primary
+                                color = when (dose.status) {
+                                    DoseStatus.TAKEN, DoseStatus.TAKEN_LATE -> Color(0xFF2E7D32)
+                                    DoseStatus.MISSED -> MaterialTheme.colorScheme.error
+                                    DoseStatus.SKIPPED -> MaterialTheme.colorScheme.outline
+                                    else -> MaterialTheme.colorScheme.primary
                                 }
                             )
                         }
@@ -201,7 +204,7 @@ fun VerificationStubScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "CameraX ML blister verification will be implemented in Stages 5 & 6. Use the button below to simulate verified intake.",
+                                    text = "CameraX ML blister verification will be implemented in Stages 5 & 6. Use the controls below to simulate verification or adjust the dose.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -247,6 +250,56 @@ fun VerificationStubScreen(
                         ) {
                             Text("Done")
                         }
+                    } else if (uiState.isSnoozed) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Snooze,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = uiState.infoMessage ?: "Dose snoozed successfully.",
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onNavigateBack,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Done")
+                        }
+                    } else if (uiState.isSkipped) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = "Dose marked as SKIPPED.",
+                                modifier = Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Button(
+                            onClick = onNavigateBack,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Done")
+                        }
                     } else {
                         if (uiState.errorMessage != null) {
                             Text(
@@ -271,6 +324,35 @@ fun VerificationStubScreen(
                             } else {
                                 Text("Simulate Verified Intake")
                             }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.snooze(15) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !uiState.isSimulating
+                            ) {
+                                Text("Snooze 15m")
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.snooze(30) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !uiState.isSimulating
+                            ) {
+                                Text("Snooze 30m")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.skip() },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !uiState.isSimulating
+                        ) {
+                            Text("Skip Dose")
                         }
                     }
                 } else {
@@ -307,6 +389,3 @@ fun VerificationStubScreen(
         }
     }
 }
-
-@Composable
-private fun uiStateHelper(viewModel: VerificationViewModel) = viewModel.uiState.collectAsState()

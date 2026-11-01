@@ -72,6 +72,10 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate(targetRoute) {
                                         popUpTo(Screen.Splash.route) { inclusive = true }
                                     }
+                                    targetDoseId?.let { doseId ->
+                                        navController.navigate(Screen.Verification.createRoute(doseId))
+                                        pendingDoseId.value = null
+                                    }
                                 }
                             )
                         }
@@ -151,6 +155,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToMedicinesList = {
                                     navController.navigate(Screen.MedicinesList.route)
+                                },
+                                onNavigateToVerification = { doseId ->
+                                    navController.navigate(Screen.Verification.createRoute(doseId))
                                 }
                             )
                         }
