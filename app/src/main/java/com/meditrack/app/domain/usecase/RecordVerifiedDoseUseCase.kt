@@ -13,7 +13,8 @@ import javax.inject.Singleton
 class RecordVerifiedDoseUseCase @Inject constructor(
     private val doseRepository: DoseRepository,
     private val medicineRepository: MedicineRepository,
-    private val alarmScheduler: AlarmScheduler
+    private val alarmScheduler: AlarmScheduler,
+    private val processStockDecrementUseCase: ProcessStockDecrementUseCase
 ) {
 
     /**
@@ -54,11 +55,10 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         doseRepository.update(updatedDose)
         alarmScheduler.cancelDoseAlarm(doseId)
 
-        // Decrement stock
+        // Decrement stock & evaluate low stock transition
         val medicine = medicineRepository.getById(dose.medicineId)
         if (medicine != null) {
-            val newStock = maxOf(0, medicine.currentStock - medicine.pillsPerDose)
-            medicineRepository.updateStock(medicine.id, newStock)
+            processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, takenAt)
         }
 
         return Result.success(Unit)

@@ -207,4 +207,22 @@
   - `HistoryViewModelTest.kt` (4 tests: empty state, time range queries for Today/Week/Month, 92% adherence with 4 late on seeded data, item selection)
   - `CalendarViewModelTest.kt` (3 tests: computeDayStatus dot color priority rules, month pagination, date selection with late entry lock state)
 
+## Stage 9 – Stock & Refill Management – COMPLETED (2026-11-03)
+- Summary: Implemented pill stock tracking, automatic low-stock threshold detection, patient local alerting, caregiver outbox notification queuing, out-of-stock and low-stock dashboard/medicine banners, and refilling workflow. Pill stock decrements strictly on verified doses (`RecordVerifiedDose` on-time or late). Skipped/missed/unverified/manual-unverified doses never alter stock. Evaluates `StockCalculator.isLow(...)` on decrement; transitions from not-low to low trigger a single local notification ("<Medicine> is running low") and enqueue `LOW_STOCK` in `NotificationOutbox` if a caregiver is connected, or prompt the patient to connect a caregiver if none is connected. Refill action adds pills to `currentStock` and resets `lowStockNotified = false`. Out of stock (0 pills) displays a persistent red banner on Home and Medicines screens. Verified by static analysis that zero store searches and zero email transmission routines exist.
+- Files added/changed:
+  - `domain/model/Entities.kt` (added `lowStockNotified: Boolean = false` to `Medicine`)
+  - `domain/usecase/ProcessStockDecrementUseCase.kt` (decrement logic, threshold evaluation, single notification, outbox queuing, caregiver prompt)
+  - `domain/usecase/RefillStockUseCase.kt` (refill pill increment, resetting `lowStockNotified = false`)
+  - `domain/usecase/RecordVerifiedDoseUseCase.kt` (integrated stock decrement on verified doses)
+  - `feature/verification/pipeline/VerificationCoordinator.kt` (integrated stock decrement in late intake pipeline)
+  - `feature/medicine/MedicinesListViewModel.kt` (added `refillMedicine(medicineId, pills)`)
+  - `feature/medicine/MedicinesListScreen.kt` (added RefillDialog, out-of-stock banner, low-stock banner)
+  - `feature/home/HomeScreen.kt` (added persistent out-of-stock and low-stock alert banners)
+  - `docs/verification/STAGE_9_VERIFY.md`
+- Tests added:
+  - `ProcessStockDecrementUseCaseTest.kt` (5 tests: normal decrement, crossing threshold with caregiver outbox queuing, single-alert non-spamming, prompt without caregiver, zero clamp)
+  - `RefillStockUseCaseTest.kt` (3 tests: pill increment + flag reset, non-positive rejection, not-found handling)
+  - `RecordVerifiedDoseUseCaseTest.kt` (updated to verify stock decrement integration)
+
+
 

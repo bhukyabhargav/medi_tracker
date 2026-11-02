@@ -47,6 +47,7 @@ class VerificationCoordinatorTest {
     private val userPreferences: UserPreferences = mockk(relaxed = true)
     private val verificationPipeline: VerificationPipeline = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
+    private val processStockDecrementUseCase: com.meditrack.app.domain.usecase.ProcessStockDecrementUseCase = mockk(relaxed = true)
     private lateinit var recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase
 
     private lateinit var coordinator: VerificationCoordinator
@@ -82,7 +83,8 @@ class VerificationCoordinatorTest {
         recordVerifiedDoseUseCase = RecordVerifiedDoseUseCase(
             doseRepository = doseRepository,
             medicineRepository = medicineRepository,
-            alarmScheduler = alarmScheduler
+            alarmScheduler = alarmScheduler,
+            processStockDecrementUseCase = processStockDecrementUseCase
         )
 
         coordinator = VerificationCoordinator(
@@ -94,7 +96,8 @@ class VerificationCoordinatorTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
-            alarmScheduler = alarmScheduler
+            alarmScheduler = alarmScheduler,
+            processStockDecrementUseCase = processStockDecrementUseCase
         )
 
         coEvery { doseRepository.getById("dose_abc") } returns sampleDose
@@ -139,8 +142,8 @@ class VerificationCoordinatorTest {
         assertEquals(now, doseSlot.captured.takenAt)
         assertEquals(1, doseSlot.captured.emptyCellsAfter)
 
-        // Verify stock decremented (10 -> 9)
-        coVerify { medicineRepository.updateStock("med_123", 9) }
+        // Verify stock decremented via processStockDecrementUseCase
+        coVerify { processStockDecrementUseCase("med_123", 1, any()) }
     }
 
     @Test
@@ -173,7 +176,7 @@ class VerificationCoordinatorTest {
         assertEquals(DoseStatus.PENDING, doseSlot.captured.status) // Not TAKEN!
 
         // Stock NOT decremented
-        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test
@@ -216,7 +219,7 @@ class VerificationCoordinatorTest {
         assertTrue(outboxSlot.captured.payloadJson.contains("PILLS_NOT_REMOVED"))
 
         // Stock NOT decremented
-        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test
@@ -305,7 +308,7 @@ class VerificationCoordinatorTest {
 
         // Dose is NOT marked TAKEN, stock NOT decremented
         coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
-        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test
@@ -318,7 +321,7 @@ class VerificationCoordinatorTest {
 
         assertTrue(bypassResult.isFailure)
         coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
-        coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test

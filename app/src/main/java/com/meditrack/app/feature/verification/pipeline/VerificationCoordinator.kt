@@ -63,7 +63,8 @@ class VerificationCoordinator @Inject constructor(
     private val userPreferences: UserPreferences,
     private val verificationPipeline: VerificationPipeline,
     private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
-    private val alarmScheduler: AlarmScheduler
+    private val alarmScheduler: AlarmScheduler,
+    private val processStockDecrementUseCase: com.meditrack.app.domain.usecase.ProcessStockDecrementUseCase
 ) {
 
     suspend fun verify(
@@ -287,11 +288,10 @@ class VerificationCoordinator @Inject constructor(
         doseRepository.update(updatedDose)
         alarmScheduler.cancelDoseAlarm(dose.id)
 
-        // Decrement stock
+        // Decrement stock & evaluate low stock
         val medicine = medicineRepository.getById(dose.medicineId)
         if (medicine != null) {
-            val newStock = maxOf(0, medicine.currentStock - medicine.pillsPerDose)
-            medicineRepository.updateStock(medicine.id, newStock)
+            processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, captureTime)
         }
 
         // Enqueue DOSE_TAKEN_LATE outbox notification if caregiver connected

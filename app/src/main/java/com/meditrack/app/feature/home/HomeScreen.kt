@@ -156,6 +156,66 @@ fun HomeScreen(
                     )
                 }
 
+                // Section 1.5: Stock Alerts
+                val outOfStockMeds = uiState.activeMedicines.filter { it.currentStock <= 0 }
+                val lowStockMeds = uiState.activeMedicines.filter { it.currentStock > 0 && com.meditrack.app.domain.usecase.StockCalculator.isLow(it) }
+
+                if (outOfStockMeds.isNotEmpty()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            onClick = onNavigateToMedicinesList,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Out of Stock: ${outOfStockMeds.joinToString(", ") { it.name }}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Text(
+                                        text = "0 pills remaining. Tap to refill immediately.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (lowStockMeds.isNotEmpty()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFFF3E0)),
+                            onClick = onNavigateToMedicinesList,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFFE65100))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Low Stock: ${lowStockMeds.joinToString(", ") { "${it.name} (${it.currentStock} left)" }}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = androidx.compose.ui.graphics.Color(0xFFE65100)
+                                    )
+                                    Text(
+                                        text = "Running low. Tap to refill your supply.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = androidx.compose.ui.graphics.Color(0xFFE65100).copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Section 2: Today's Medicines
                 item {
                     Row(

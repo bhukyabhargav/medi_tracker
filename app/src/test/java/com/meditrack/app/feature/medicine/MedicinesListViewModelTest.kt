@@ -5,6 +5,7 @@ import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.usecase.RefillStockUseCase
 import com.meditrack.app.domain.usecase.SaveMedicineUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -30,6 +31,7 @@ class MedicinesListViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val saveMedicineUseCase: SaveMedicineUseCase = mockk(relaxed = true)
+    private val refillStockUseCase: RefillStockUseCase = mockk(relaxed = true)
 
     @Before
     fun setup() {
@@ -58,7 +60,7 @@ class MedicinesListViewModelTest {
 
         every { medicineRepository.observeActive() } returns flowOf(listOf(sampleMed))
 
-        val viewModel = MedicinesListViewModel(medicineRepository, saveMedicineUseCase)
+        val viewModel = MedicinesListViewModel(medicineRepository, saveMedicineUseCase, refillStockUseCase)
 
         viewModel.medicines.test {
             // initial value or first emission
@@ -79,7 +81,7 @@ class MedicinesListViewModelTest {
         every { medicineRepository.observeActive() } returns flowOf(emptyList())
         coEvery { saveMedicineUseCase.deleteMedicine(any()) } returns Unit
 
-        val viewModel = MedicinesListViewModel(medicineRepository, saveMedicineUseCase)
+        val viewModel = MedicinesListViewModel(medicineRepository, saveMedicineUseCase, refillStockUseCase)
         viewModel.deleteMedicine("med_to_delete")
         advanceUntilIdle()
 

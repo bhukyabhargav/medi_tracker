@@ -52,6 +52,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.R
 import com.meditrack.app.domain.model.Medicine
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import com.meditrack.app.domain.usecase.StockCalculator
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,6 +73,7 @@ fun MedicinesListScreen(
 ) {
     val medicines by viewModel.medicines.collectAsState()
     var medicineToDelete by remember { mutableStateOf<Medicine?>(null) }
+    var medicineToRefill by remember { mutableStateOf<Medicine?>(null) }
 
     Scaffold(
         topBar = {
@@ -134,6 +142,7 @@ fun MedicinesListScreen(
                         medicine = medicine,
                         onEdit = { onNavigateToEditMedicine(medicine.id) },
                         onDelete = { medicineToDelete = medicine },
+                        onRefill = { medicineToRefill = medicine },
                         onViewDoses = { onNavigateToViewDoses(medicine.id) }
                     )
                 }
@@ -166,6 +175,67 @@ fun MedicinesListScreen(
                 }
             )
         }
+
+        if (medicineToRefill != null) {
+            val med = medicineToRefill!!
+            var pillsInput by remember { mutableStateOf("30") }
+            var errorText by remember { mutableStateOf<String?>(null) }
+
+            AlertDialog(
+                onDismissRequest = { medicineToRefill = null },
+                title = { Text("Refill ${med.name}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Current Stock: ${med.currentStock} pills",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        OutlinedTextField(
+                            value = pillsInput,
+                            onValueChange = {
+                                pillsInput = it.filter { char -> char.isDigit() }
+                                errorText = null
+                            },
+                            label = { Text("Pills to add") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            isError = errorText != null,
+                            supportingText = errorText?.let { { Text(it) } },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(10, 30, 60, 100).forEach { preset ->
+                                FilterChip(
+                                    selected = pillsInput == preset.toString(),
+                                    onClick = { pillsInput = preset.toString() },
+                                    label = { Text("+$preset") }
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val count = pillsInput.toIntOrNull() ?: 0
+                            if (count <= 0) {
+                                errorText = "Please enter at least 1 pill"
+                            } else {
+                                viewModel.refillMedicine(med.id, count)
+                                medicineToRefill = null
+                            }
+                        }
+                    ) {
+                        Text("Add to Stock")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { medicineToRefill = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -174,6 +244,7 @@ fun MedicineCard(
     medicine: Medicine,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onRefill: () -> Unit = {},
     onViewDoses: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -182,6 +253,61 @@ fun MedicineCard(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Out of stock persistent banner
+            if (medicine.currentStock <= 0) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text(
+                            text = "Out of Stock (0 pills remaining) — Refill required",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            } else if (StockCalculator.isLow(medicine)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFE65100),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text(
+                            text = "Low Stock (${medicine.currentStock} pills remaining) — Refill soon",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE65100)
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -215,11 +341,16 @@ fun MedicineCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val isLow = StockCalculator.isLow(medicine)
                 Text(
                     text = "Stock: ${medicine.currentStock} / ${medicine.initialStock} pills",
                     style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = if (medicine.currentStock <= 5) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.SemiBold,
+                    color = when {
+                        medicine.currentStock <= 0 -> MaterialTheme.colorScheme.error
+                        isLow -> Color(0xFFE65100)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
 
                 if (medicine.baselinePhotoPath != null) {
@@ -274,6 +405,19 @@ fun MedicineCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Button(
+                    onClick = onRefill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Refill")
+                }
+
                 OutlinedButton(
                     onClick = onViewDoses,
                     modifier = Modifier.padding(end = 8.dp)

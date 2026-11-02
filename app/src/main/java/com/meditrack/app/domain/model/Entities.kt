@@ -40,6 +40,7 @@ data class Medicine(
     val prescribedByDoctorName: String? = null,
     val stoppedByDoctor: Boolean = false,
     val isDeleted: Boolean = false,
+    val lowStockNotified: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
 

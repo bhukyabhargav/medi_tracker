@@ -24,6 +24,7 @@ class RecordVerifiedDoseUseCaseTest {
     private val doseRepository: DoseRepository = mockk(relaxed = true)
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
+    private val processStockDecrementUseCase: ProcessStockDecrementUseCase = mockk(relaxed = true)
 
     private lateinit var useCase: RecordVerifiedDoseUseCase
 
@@ -51,7 +52,7 @@ class RecordVerifiedDoseUseCaseTest {
 
     @Before
     fun setup() {
-        useCase = RecordVerifiedDoseUseCase(doseRepository, medicineRepository, alarmScheduler)
+        useCase = RecordVerifiedDoseUseCase(doseRepository, medicineRepository, alarmScheduler, processStockDecrementUseCase)
     }
 
     @Test
@@ -71,8 +72,8 @@ class RecordVerifiedDoseUseCaseTest {
         assertEquals("path/photo.jpg", saved.verifiedPhotoPath)
         assertEquals(1, saved.emptyCellsAfter)
 
-        // Decrements 50 - 2 = 48
-        coVerify { medicineRepository.updateStock("med_1", 48) }
+        // Decrements 50 - 2 = 48 via processStockDecrementUseCase
+        coVerify { processStockDecrementUseCase("med_1", 2, 2500L) }
         coVerify { alarmScheduler.cancelDoseAlarm("dose_1") }
     }
 

@@ -15,6 +15,7 @@ import com.meditrack.app.domain.repository.OutboxRepository
 import com.meditrack.app.domain.repository.VerificationRepository
 import com.meditrack.app.domain.usecase.AdherenceCalculator
 import com.meditrack.app.domain.usecase.LateEntryPolicy
+import com.meditrack.app.domain.usecase.ProcessStockDecrementUseCase
 import com.meditrack.app.domain.usecase.RecordManualUnverifiedUseCase
 import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
@@ -50,6 +51,7 @@ class LateDoseVerificationTest {
     private val userPreferences: UserPreferences = mockk(relaxed = true)
     private val verificationPipeline: VerificationPipeline = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
+    private val processStockDecrementUseCase: ProcessStockDecrementUseCase = mockk(relaxed = true)
 
     private lateinit var coordinator: VerificationCoordinator
     private lateinit var recordManualUnverifiedUseCase: RecordManualUnverifiedUseCase
@@ -80,7 +82,12 @@ class LateDoseVerificationTest {
 
     @Before
     fun setUp() {
-        recordVerifiedDoseUseCase = RecordVerifiedDoseUseCase(doseRepository, medicineRepository, alarmScheduler)
+        recordVerifiedDoseUseCase = RecordVerifiedDoseUseCase(
+            doseRepository,
+            medicineRepository,
+            alarmScheduler,
+            processStockDecrementUseCase
+        )
         recordManualUnverifiedUseCase = RecordManualUnverifiedUseCase(doseRepository, alarmScheduler)
 
         coordinator = VerificationCoordinator(
@@ -92,7 +99,8 @@ class LateDoseVerificationTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
-            alarmScheduler = alarmScheduler
+            alarmScheduler = alarmScheduler,
+            processStockDecrementUseCase = processStockDecrementUseCase
         )
 
         coEvery { doseRepository.getById("missed_dose_1") } returns missedDose
@@ -160,8 +168,8 @@ class LateDoseVerificationTest {
         assertTrue(doseSlot.captured.lateEntry)
         assertEquals(1, doseSlot.captured.emptyCellsAfter)
 
-        // Stock decremented (20 -> 19)
-        coVerify { medicineRepository.updateStock("med_1", 19) }
+        // Stock decremented via ProcessStockDecrementUseCase
+        coVerify { processStockDecrementUseCase("med_1", 1, captureTime) }
 
         // Enqueued DOSE_TAKEN_LATE outbox notification
         val outboxSlot = slot<NotificationOutbox>()
