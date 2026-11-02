@@ -280,4 +280,20 @@ class VerificationPipelineTest {
         assertTrue(result.passed)
         assertEquals(1, result.emptyCellsAfter)
     }
+
+    @Test
+    fun allRejectReasons_areValidAndDefined() {
+        val expectedReasons = setOf(
+            RejectReason.BLURRY,
+            RejectReason.TOO_DARK,
+            RejectReason.TOO_BRIGHT,
+            RejectReason.GLARE,
+            RejectReason.STRIP_NOT_FULLY_VISIBLE,
+            RejectReason.PILLS_NOT_REMOVED,
+            RejectReason.WRONG_PILL_COUNT,
+            RejectReason.DUPLICATE_PHOTO,
+            RejectReason.WRONG_MEDICINE
+        )
+        assertEquals(expectedReasons, RejectReason.values().toSet())
+    }
 }

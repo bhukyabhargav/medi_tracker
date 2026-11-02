@@ -89,12 +89,15 @@ class HistoryViewModel @Inject constructor(
 
             combine(
                 doseRepository.observeBetween(startMillis, endMillis),
-                medicineRepository.observeActive(),
+                medicineRepository.observeAll(),
                 _selectedItem
             ) { doses, medicines, selected ->
                 val medMap = medicines.associateBy { it.id }
 
-                val items = doses.sortedByDescending { it.scheduledAt }.map { dose ->
+                // History displays closed doses only (Taken, Taken Late, Missed, Skipped, Unverified)
+                val closedDoses = doses.filter { it.status != DoseStatus.PENDING }
+
+                val items = closedDoses.sortedByDescending { it.scheduledAt }.map { dose ->
                     val med = medMap[dose.medicineId]
                     val statusLabel = when {
                         dose.manualUnverified -> "Reported without photo"

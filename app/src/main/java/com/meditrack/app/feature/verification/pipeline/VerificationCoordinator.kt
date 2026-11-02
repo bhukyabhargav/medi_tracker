@@ -124,6 +124,9 @@ class VerificationCoordinator @Inject constructor(
         verificationRepository.recordAttempt(attemptRecord)
 
         // 6. Handle Outcome
+        val photoFile = java.io.File(photoPath)
+        val captureTime = if (photoFile.exists() && photoFile.lastModified() > 0) photoFile.lastModified() else now
+
         if (pipelineResult.passed) {
             val emptyCells = pipelineResult.emptyCellsAfter ?: (lastVerifiedEmptyCells ?: medicine.baselineEmptyCells) + medicine.pillsPerDose
 
@@ -133,7 +136,7 @@ class VerificationCoordinator @Inject constructor(
                 val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
                 val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, now)
                 return if (canLate) {
-                    recordLateDose(dose, photoPath, emptyCells, now)
+                    recordLateDose(dose, photoPath, emptyCells, captureTime, now)
                 } else {
                     doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = now))
                     CoordinatorResult.WindowExpired("The intake window expired before verification completed.")
@@ -145,7 +148,7 @@ class VerificationCoordinator @Inject constructor(
                 val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
                 val canLate = LateEntryPolicy.canLogLate(dose, nextDose?.scheduledAt, now)
                 return if (canLate) {
-                    recordLateDose(dose, photoPath, emptyCells, now)
+                    recordLateDose(dose, photoPath, emptyCells, captureTime, now)
                 } else {
                     CoordinatorResult.Error("Late entry cutoff passed. Dose remains MISSED.")
                 }
@@ -156,7 +159,7 @@ class VerificationCoordinator @Inject constructor(
                 doseId = doseId,
                 photoPath = photoPath,
                 emptyCellsAfter = emptyCells,
-                takenAt = now
+                takenAt = captureTime
             )
 
             return if (recordResult.isSuccess) {
@@ -187,38 +190,53 @@ class VerificationCoordinator @Inject constructor(
                     friendlyMessage = pipelineResult.friendlyMessage
                 )
             } else {
-                // 3 strikes exhausted: Transition to UNVERIFIED
+                // 3 strikes exhausted: Transition via state machine
                 val transitionResult = DoseStateMachine.transition(
                     currentStatus = dose.status,
                     event = DoseTransitionEvent.VerificationFailedExhausted
                 )
 
-                val updatedDose = dose.copy(
-                    status = transitionResult.getOrDefault(DoseStatus.UNVERIFIED),
-                    verificationAttempts = newAttempts,
-                    updatedAt = now
-                )
-                doseRepository.update(updatedDose)
-                alarmScheduler.cancelDoseAlarm(doseId)
-
-                // Enqueue DOSE_UNVERIFIED outbox event if caregiver connected
-                val currentUserId = userPreferences.currentUserId.first()
-                val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
-                if (hasCaregiver) {
-                    val outboxEvent = NotificationOutbox(
-                        id = "outbox_${UUID.randomUUID()}",
-                        type = NotifType.DOSE_UNVERIFIED,
-                        payloadJson = """{"doseId":"$doseId","medicineId":"${dose.medicineId}","reason":"${reason.name}"}""",
-                        createdAt = now,
-                        delivered = false
+                if (transitionResult.isSuccess) {
+                    val newStatus = transitionResult.getOrThrow()
+                    val updatedDose = dose.copy(
+                        status = newStatus,
+                        verificationAttempts = newAttempts,
+                        updatedAt = now
                     )
-                    outboxRepository.enqueue(outboxEvent)
-                }
+                    doseRepository.update(updatedDose)
+                    alarmScheduler.cancelDoseAlarm(doseId)
 
-                return CoordinatorResult.Exhausted(
-                    reason = reason,
-                    friendlyMessage = "We couldn't verify this dose. Your caregiver has been notified."
-                )
+                    // Enqueue DOSE_UNVERIFIED outbox event if caregiver connected
+                    val currentUserId = userPreferences.currentUserId.first()
+                    val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
+                    if (hasCaregiver) {
+                        val outboxEvent = NotificationOutbox(
+                            id = "outbox_${UUID.randomUUID()}",
+                            type = NotifType.DOSE_UNVERIFIED,
+                            payloadJson = """{"doseId":"$doseId","medicineId":"${dose.medicineId}","reason":"${reason.name}"}""",
+                            createdAt = now,
+                            delivered = false
+                        )
+                        outboxRepository.enqueue(outboxEvent)
+                    }
+
+                    return CoordinatorResult.Exhausted(
+                        reason = reason,
+                        friendlyMessage = "We couldn't verify this dose. Your caregiver has been notified."
+                    )
+                } else {
+                    // For MISSED doses, VerificationFailedExhausted is illegal in state machine.
+                    // Dose remains MISSED and no DOSE_UNVERIFIED outbox event is sent.
+                    val updatedDose = dose.copy(
+                        verificationAttempts = newAttempts,
+                        updatedAt = now
+                    )
+                    doseRepository.update(updatedDose)
+                    return CoordinatorResult.Exhausted(
+                        reason = reason,
+                        friendlyMessage = "Late dose verification attempts exhausted. Dose remains marked as missed."
+                    )
+                }
             }
         }
     }
@@ -227,11 +245,40 @@ class VerificationCoordinator @Inject constructor(
         dose: DoseEvent,
         photoPath: String,
         emptyCellsAfter: Int,
+        captureTime: Long,
         now: Long
     ): CoordinatorResult {
+        // Legal transition via state machine:
+        // If PENDING (expired mid-verification): PENDING -> MISSED -> TAKEN_LATE
+        // If MISSED: MISSED -> TAKEN_LATE
+        val effectiveMissedStatus = if (dose.status == DoseStatus.PENDING) {
+            val missedResult = DoseStateMachine.transition(
+                currentStatus = dose.status,
+                event = DoseTransitionEvent.WindowExpired
+            )
+            if (missedResult.isFailure) {
+                return CoordinatorResult.Error("Cannot transition dose: ${missedResult.exceptionOrNull()?.message}")
+            }
+            missedResult.getOrThrow()
+        } else {
+            dose.status
+        }
+
+        val lateTransitionResult = DoseStateMachine.transition(
+            currentStatus = effectiveMissedStatus,
+            event = DoseTransitionEvent.LateVerifyPassed(
+                photoPath = photoPath,
+                emptyCellsAfter = emptyCellsAfter,
+                takenAt = captureTime
+            )
+        )
+        if (lateTransitionResult.isFailure) {
+            return CoordinatorResult.Error("Cannot record late dose: ${lateTransitionResult.exceptionOrNull()?.message}")
+        }
+
         val updatedDose = dose.copy(
-            status = DoseStatus.TAKEN_LATE,
-            takenAt = now,
+            status = lateTransitionResult.getOrThrow(),
+            takenAt = captureTime,
             verifiedPhotoPath = photoPath,
             emptyCellsAfter = emptyCellsAfter,
             lateEntry = true,
@@ -253,7 +300,7 @@ class VerificationCoordinator @Inject constructor(
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOSE_TAKEN_LATE,
-                payloadJson = """{"doseId":"${dose.id}","medicineId":"${dose.medicineId}","takenAt":$now}""",
+                payloadJson = """{"doseId":"${dose.id}","medicineId":"${dose.medicineId}","takenAt":$captureTime}""",
                 createdAt = now,
                 delivered = false
             )

@@ -119,22 +119,44 @@
 - Next Step: Ready to begin Stage 4 (Reminders & Missed-Dose Engine).
 
 ## Stage 4 – Reminders & Missed-Dose Engine – SIGNED OFF (2026-11-01)
-- Summary: Implemented AlarmManager exact reminder scheduling (`AlarmScheduler`), `ReminderReceiver`, `BootReceiver` for device reboot rescheduling, dose window management, snoozing (`15m`, `30m` presets, max 3 snoozes), missed dose transitions via `DoseStateMachine`, notifications, and `RecordVerifiedDoseUseCase`.
+- Summary: Implemented AlarmManager exact reminder scheduling (`AlarmScheduler`), `ReminderReceiver` with foreground notification actions, `BootReceiver` for device reboot rescheduling, dose window management, snoozing (`15m`, `30m` presets with 3-snooze cap and window-end boundary clamp via `SnoozeDoseUseCase`), skipping via `SkipDoseUseCase`, missed dose transitions via `ProcessMissedDoseUseCase` and `DoseStateMachine`, caregiver notification outbox queuing, and `RecordVerifiedDoseUseCase`.
 - Files added/changed:
   - `feature/reminder/alarm/AlarmScheduler.kt`
   - `feature/reminder/receiver/ReminderReceiver.kt`, `BootReceiver.kt`
+  - `feature/reminder/notification/DoseNotificationHelper.kt`
+  - `domain/usecase/ProcessMissedDoseUseCase.kt`
+  - `domain/usecase/SnoozeDoseUseCase.kt`
+  - `domain/usecase/SkipDoseUseCase.kt`
   - `domain/usecase/RecordVerifiedDoseUseCase.kt`
   - `docs/verification/STAGE_4_VERIFY.md`
-- Tests: `AlarmSchedulerTest.kt`, `BootReceiverTest.kt`
+- Tests breakdown (19 tests):
+  - `AlarmSchedulerTest.kt` (4 tests: exact scheduling, window calculation, alarm cancellation, rescheduling)
+  - `BootReceiverTest.kt` (2 tests: reboot rescheduling of pending doses, ignoring past doses)
+  - `ProcessMissedDoseUseCaseTest.kt` (3 tests: transition to MISSED, caregiver outbox write, ignoring non-overdue)
+  - `SnoozeDoseUseCaseTest.kt` (4 tests: 15m preset, 30m preset, max 3 snooze cap, clamp to window end)
+  - `SkipDoseUseCaseTest.kt` (3 tests: transition to SKIPPED, alarm cancellation, stock invariance)
+  - `RecordVerifiedDoseUseCaseTest.kt` (3 tests: transition to TAKEN, stock decrement, alarm cancellation)
+- Verification Commands:
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All Stage 4 unit tests passed)
+  - `.\gradlew.bat lintDebug` – Clean
+  - `.\gradlew.bat assembleDebug` – Clean build
+- Verification Pack: `docs/verification/STAGE_4_VERIFY.md`
 
 ## Stage 5 – Camera Capture & Image Quality Gate – SIGNED OFF (2026-11-01)
-- Summary: Implemented CameraX live capture with blister framing guide, pure-Kotlin `ImageQualityGate` (blur Laplacian variance $\ge 100$, brightness $[40..220]$, glare fraction $\le 0.08$), 64-bit difference hashing (`PerceptualHasher`), secure JPEG storage (`ProofStorage`), and debug dataset collection (`DatasetCollector`).
+- Summary: Implemented CameraX live capture with blister framing guide (`CaptureScreen`), pure-Kotlin `ImageQualityGate` (blur Laplacian variance $\ge 100$, brightness $[40..220]$, glare fraction $\le 0.08$), 64-bit difference hashing (`PerceptualHasher`), secure private JPEG storage stripping EXIF metadata (`ProofStorage`), and debug dataset collection (`DatasetCollector`).
 - Files added/changed:
   - `feature/verification/CaptureScreen.kt`
   - `feature/verification/quality/ImageQualityGate.kt`, `PerceptualHasher.kt`, `ProofStorage.kt`
-  - `feature/verification/data/DatasetCollector.kt`
+  - `feature/verification/dataset/DatasetCollector.kt`
   - `docs/verification/STAGE_5_VERIFY.md`
-- Tests: `ImageQualityGateTest.kt`, `PerceptualHasherTest.kt`
+- Tests breakdown (11 tests):
+  - `ImageQualityGateTest.kt` (7 tests: sharp passing photo, blur rejection, low-brightness underexposed, high-brightness overexposed, glare rejection, free retakes without consuming attempts, metrics validation)
+  - `PerceptualHasherTest.kt` (4 tests: identical photos hamming distance 0, near-identical photos below threshold $\le 10$, different photos distance $> 10$, rotation/luminance tolerance)
+- Verification Commands:
+  - `.\gradlew.bat testDebugUnitTest` – BUILD SUCCESSFUL (All Stage 5 unit tests passed)
+  - `.\gradlew.bat lintDebug` – Clean
+  - `.\gradlew.bat assembleDebug` – Clean build
+- Verification Pack: `docs/verification/STAGE_5_VERIFY.md`
 
 ## Stage 6 – Verification Pipeline & Taken Integration – COMPLETED & REVISED (2026-11-02)
 - Summary: Implemented 4-step dose verification pipeline (`VerificationPipeline`), dual strip detectors (`FakeStripDetector` in debug, `TfliteStripDetector` skeleton in release), `VerificationCoordinator` with 3-strike retry counter and caregiver outbox notification, baseline enrollment prompt, and taken integration.

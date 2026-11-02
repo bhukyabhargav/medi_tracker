@@ -320,4 +320,35 @@ class VerificationCoordinatorTest {
         coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
         coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
     }
+
+    @Test
+    fun lateDose_exhaustingAttempts_remainsMissed_andDoesNotSendOutbox() = runTest {
+        val missedDose = sampleDose.copy(status = DoseStatus.MISSED, verificationAttempts = 2)
+        coEvery { doseRepository.getById("dose_abc") } returns missedDose
+        coEvery { caregiverRepository.hasConnectedCaregiver("user_1") } returns true
+
+        coEvery {
+            verificationPipeline.verify(
+                bitmap = any(),
+                medicine = any(),
+                lastVerifiedEmptyCells = any(),
+                existingHashes = any(),
+                currentHashOverride = any()
+            )
+        } returns VerificationResult(
+            passed = false,
+            rejectReason = RejectReason.PILLS_NOT_REMOVED
+        )
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = now)
+
+        assertTrue(result is CoordinatorResult.Exhausted)
+        val doseSlot = slot<DoseEvent>()
+        coVerify { doseRepository.update(capture(doseSlot)) }
+        assertEquals(DoseStatus.MISSED, doseSlot.captured.status)
+        assertEquals(3, doseSlot.captured.verificationAttempts)
+
+        // No DOSE_UNVERIFIED outbox event is enqueued for missed dose
+        coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
+    }
 }

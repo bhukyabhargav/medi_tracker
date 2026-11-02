@@ -132,4 +132,52 @@ class DoseSchedulerTest {
         val doses = DoseScheduler.generateDoses(medicine, from, to, zoneId)
         assertTrue(doses.isEmpty())
     }
+
+    @Test
+    fun daylight_saving_time_transition_preserves_local_dose_times() {
+        val nyZone = ZoneId.of("America/New_York")
+        // Spring forward in US: Sunday, March 8, 2026 (clock jumps 2am -> 3am, 23-hour day)
+        val medicineSpring = Medicine(
+            id = "med_dst_spring",
+            name = "Thyroxine",
+            dosageText = "50mcg",
+            pillsPerDose = 1,
+            frequencyType = FrequencyType.DAILY,
+            timesOfDay = listOf(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+            startDate = LocalDate.of(2026, 3, 7).atStartOfDay(nyZone).toInstant().toEpochMilli(),
+            foodRelation = FoodRelation.BEFORE,
+            initialStock = 30,
+            currentStock = 30
+        )
+
+        val fromSpring = ZonedDateTime.of(LocalDate.of(2026, 3, 7), LocalTime.MIN, nyZone).toInstant().toEpochMilli()
+        val toSpring = ZonedDateTime.of(LocalDate.of(2026, 3, 9), LocalTime.MAX, nyZone).toInstant().toEpochMilli()
+
+        val springDoses = DoseScheduler.generateDoses(medicineSpring, fromSpring, toSpring, nyZone)
+        // 3 days * 2 times = 6 doses
+        assertEquals(6, springDoses.size)
+
+        // Verify each dose occurs at exactly 9:00 AM or 9:00 PM in America/New_York
+        for (dose in springDoses) {
+            val local = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(dose.scheduledAt), nyZone)
+            val hour = local.hour
+            assertTrue("Hour should be 9 or 21, but was $hour", hour == 9 || hour == 21)
+            assertEquals(0, local.minute)
+        }
+
+        // Fall back in US: Sunday, November 1, 2026 (clock repeats 1am -> 2am, 25-hour day)
+        val fromFall = ZonedDateTime.of(LocalDate.of(2026, 10, 31), LocalTime.MIN, nyZone).toInstant().toEpochMilli()
+        val toFall = ZonedDateTime.of(LocalDate.of(2026, 11, 2), LocalTime.MAX, nyZone).toInstant().toEpochMilli()
+
+        val fallDoses = DoseScheduler.generateDoses(medicineSpring, fromFall, toFall, nyZone)
+        // 3 days * 2 times = 6 doses
+        assertEquals(6, fallDoses.size)
+
+        for (dose in fallDoses) {
+            val local = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(dose.scheduledAt), nyZone)
+            val hour = local.hour
+            assertTrue("Hour should be 9 or 21, but was $hour", hour == 9 || hour == 21)
+            assertEquals(0, local.minute)
+        }
+    }
 }

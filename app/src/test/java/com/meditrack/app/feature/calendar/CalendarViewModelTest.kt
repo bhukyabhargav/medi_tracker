@@ -65,6 +65,7 @@ class CalendarViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { medicineRepository.observeAll() } returns flowOf(listOf(sampleMed))
         every { medicineRepository.observeActive() } returns flowOf(listOf(sampleMed))
         every { doseRepository.observeBetween(any(), any()) } returns flowOf(emptyList())
     }
@@ -130,11 +131,24 @@ class CalendarViewModelTest {
             CalendarDayStatus.MISSED,
             CalendarViewModel.computeDayStatus(listOf(makeDose(DoseStatus.MISSED, manualUnverified = true)))
         )
+
+        // 6. Taken + Skipped -> ALL_TAKEN (Green)
+        assertEquals(
+            CalendarDayStatus.ALL_TAKEN,
+            CalendarViewModel.computeDayStatus(listOf(makeDose(DoseStatus.TAKEN), makeDose(DoseStatus.SKIPPED)))
+        )
+
+        // 7. Only Skipped -> NONE (Grey)
+        assertEquals(
+            CalendarDayStatus.NONE,
+            CalendarViewModel.computeDayStatus(listOf(makeDose(DoseStatus.SKIPPED)))
+        )
     }
 
     @Test
     fun `month pagination changes current month correctly`() = runTest {
         val vm = createViewModel()
+        vm.selectDate(LocalDate.of(2026, 11, 2))
         val job = launch { vm.uiState.collect {} }
         advanceUntilIdle()
 
@@ -179,6 +193,7 @@ class CalendarViewModelTest {
         every { doseRepository.observeBetween(any(), any()) } returns flowOf(listOf(doseNov2, doseNov3))
 
         val vm = createViewModel()
+        vm.selectDate(LocalDate.of(2026, 11, 2))
         val job = launch { vm.uiState.collect {} }
         advanceUntilIdle()
 
@@ -208,6 +223,41 @@ class CalendarViewModelTest {
         vm.selectDoseDetail(null)
         advanceUntilIdle()
         assertNull(vm.uiState.value.selectedDoseDetail)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `calendar missed dose is locked if subsequent dose scheduled earlier than 24h`() = runTest {
+        val nov2_8am = ZonedDateTime.of(LocalDate.of(2026, 11, 2), LocalTime.of(8, 0), testZoneId).toInstant().toEpochMilli()
+        val nov2_10am = ZonedDateTime.of(LocalDate.of(2026, 11, 2), LocalTime.of(10, 0), testZoneId).toInstant().toEpochMilli()
+
+        val dose1 = DoseEvent(
+            id = "d1",
+            medicineId = sampleMed.id,
+            scheduledAt = nov2_8am,
+            windowEndsAt = nov2_8am + 3600000L,
+            status = DoseStatus.MISSED
+        )
+        val dose2 = DoseEvent(
+            id = "d2",
+            medicineId = sampleMed.id,
+            scheduledAt = nov2_10am,
+            windowEndsAt = nov2_10am + 3600000L,
+            status = DoseStatus.PENDING
+        )
+
+        every { doseRepository.observeBetween(any(), any()) } returns flowOf(listOf(dose1, dose2))
+
+        val vm = createViewModel()
+        vm.selectDate(LocalDate.of(2026, 11, 2))
+        val job = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val items = vm.uiState.value.selectedDateDoses
+        val item1 = items.first { it.dose.id == "d1" }
+        assertFalse("Cutoff passed because next dose scheduledAt was 10am", item1.canLogLate)
+        assertTrue(item1.isLocked)
 
         job.cancel()
     }

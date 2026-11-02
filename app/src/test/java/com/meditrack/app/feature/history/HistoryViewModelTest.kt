@@ -64,6 +64,7 @@ class HistoryViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { medicineRepository.observeAll() } returns flowOf(listOf(sampleMed))
         every { medicineRepository.observeActive() } returns flowOf(listOf(sampleMed))
         every { doseRepository.observeBetween(any(), any()) } returns flowOf(emptyList())
     }
@@ -205,6 +206,34 @@ class HistoryViewModelTest {
         vm.selectItem(null)
         advanceUntilIdle()
         assertNull(vm.uiState.value.selectedItem)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `history excludes future pending doses`() = runTest {
+        val pendingDose = DoseEvent(
+            id = "dose_pending",
+            medicineId = sampleMed.id,
+            scheduledAt = testNowMillis + 3600000L,
+            windowEndsAt = testNowMillis + 7200000L,
+            status = DoseStatus.PENDING
+        )
+        val takenDose = DoseEvent(
+            id = "dose_taken",
+            medicineId = sampleMed.id,
+            scheduledAt = testNowMillis - 3600000L,
+            windowEndsAt = testNowMillis,
+            status = DoseStatus.TAKEN
+        )
+        every { doseRepository.observeBetween(any(), any()) } returns flowOf(listOf(pendingDose, takenDose))
+
+        val vm = createViewModel()
+        val job = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.items.size)
+        assertEquals("dose_taken", vm.uiState.value.items.first().dose.id)
 
         job.cancel()
     }

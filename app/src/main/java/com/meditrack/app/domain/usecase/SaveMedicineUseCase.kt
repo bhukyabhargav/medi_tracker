@@ -119,7 +119,7 @@ class SaveMedicineUseCase @Inject constructor(
         doseRepository.deleteFuturePendingDoses(medicineId, now)
         val medicine = medicineRepository.getById(medicineId)
         if (medicine != null) {
-            medicineRepository.delete(medicine)
+            medicineRepository.update(medicine.copy(isDeleted = true))
         }
     }
 }

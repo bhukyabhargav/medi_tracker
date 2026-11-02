@@ -34,6 +34,7 @@ import com.meditrack.app.domain.model.VerificationResultType
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -121,6 +122,7 @@ class RoomDaoTest {
         id: String = "med_1",
         name: String = "Metformin",
         stoppedByDoctor: Boolean = false,
+        isDeleted: Boolean = false,
         stock: Int = 30
     ): Medicine {
         return Medicine(
@@ -134,7 +136,8 @@ class RoomDaoTest {
             foodRelation = FoodRelation.AFTER,
             initialStock = 30,
             currentStock = stock,
-            stoppedByDoctor = stoppedByDoctor
+            stoppedByDoctor = stoppedByDoctor,
+            isDeleted = isDeleted
         )
     }
 
@@ -178,6 +181,27 @@ class RoomDaoTest {
             activeList = medicineDao.getById("med_stopped")?.let { listOf(it) } ?: emptyList()
             assertEquals(1, activeList.size)
             assertTrue(activeList[0].stoppedByDoctor)
+        }
+    }
+
+    @Test
+    fun medicineDao_observeActiveExcludesDeletedMedicines() = runTest {
+        val activeMed = createSampleMedicine("med_active_2", "Ibuprofen", isDeleted = false)
+        val deletedMed = createSampleMedicine("med_deleted", "Cough Syrup", isDeleted = true)
+
+        medicineDao.insert(activeMed)
+        medicineDao.insert(deletedMed)
+
+        medicineDao.observeActive().test {
+            val list = awaitItem()
+            assertTrue(list.any { it.id == "med_active_2" })
+            assertFalse(list.any { it.id == "med_deleted" })
+        }
+
+        medicineDao.observeAll().test {
+            val allList = awaitItem()
+            assertTrue(allList.any { it.id == "med_active_2" })
+            assertTrue(allList.any { it.id == "med_deleted" })
         }
     }
 

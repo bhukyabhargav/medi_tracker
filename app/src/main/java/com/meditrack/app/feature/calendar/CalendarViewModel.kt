@@ -58,29 +58,32 @@ class CalendarViewModel @Inject constructor(
     internal var timeProvider: () -> Long = { System.currentTimeMillis() }
     internal var zoneProvider: () -> ZoneId = { ZoneId.systemDefault() }
 
-    private val _currentMonth = MutableStateFlow(YearMonth.now(zoneProvider()))
-    private val _selectedDate = MutableStateFlow(LocalDate.now(zoneProvider()))
+    private val _customMonth = MutableStateFlow<YearMonth?>(null)
+    private val _customDate = MutableStateFlow<LocalDate?>(null)
     private val _selectedDoseDetail = MutableStateFlow<CalendarDoseItem?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<CalendarUiState> = combine(
-        _currentMonth,
-        _selectedDate,
+        _customMonth,
+        _customDate,
         _selectedDoseDetail
-    ) { month, selectedDate, selectedDetail ->
-        Triple(month, selectedDate, selectedDetail)
-    }.flatMapLatest { (month, selectedDate, selectedDetail) ->
+    ) { customMonth, customDate, selectedDetail ->
+        Triple(customMonth, customDate, selectedDetail)
+    }.flatMapLatest { (customMonth, customDate, selectedDetail) ->
         val zoneId = zoneProvider()
         val now = timeProvider()
+        val today = Instant.ofEpochMilli(now).atZone(zoneId).toLocalDate()
+        val month = customMonth ?: YearMonth.from(today)
+        val selectedDate = customDate ?: today
 
         val startOfMonth = ZonedDateTime.of(month.atDay(1), LocalTime.MIN, zoneId).toInstant().toEpochMilli()
         val endOfMonth = ZonedDateTime.of(month.atEndOfMonth(), LocalTime.MAX, zoneId).toInstant().toEpochMilli()
 
         combine(
             doseRepository.observeBetween(startOfMonth, endOfMonth),
-            medicineRepository.observeActive()
-        ) { monthDoses, activeMedicines ->
-            val medMap = activeMedicines.associateBy { it.id }
+            medicineRepository.observeAll()
+        ) { monthDoses, allMedicines ->
+            val medMap = allMedicines.associateBy { it.id }
 
             // Group doses by day
             val dosesByDay = monthDoses.groupBy { dose ->
@@ -98,8 +101,12 @@ class CalendarViewModel @Inject constructor(
             val doseItems = dosesForSelectedDate.sortedBy { it.scheduledAt }.map { dose ->
                 val med = medMap[dose.medicineId]
                 val isMissed = dose.status == DoseStatus.MISSED
+                val nextScheduled = monthDoses
+                    .filter { it.medicineId == dose.medicineId && it.scheduledAt > dose.scheduledAt }
+                    .minByOrNull { it.scheduledAt }?.scheduledAt
+
                 val canLogLate = if (isMissed) {
-                    LateEntryPolicy.canLogLate(dose, null, now)
+                    LateEntryPolicy.canLogLate(dose, nextScheduled, now)
                 } else {
                     false
                 }
@@ -129,15 +136,17 @@ class CalendarViewModel @Inject constructor(
     )
 
     fun previousMonth() {
-        _currentMonth.update { it.minusMonths(1) }
+        val current = _customMonth.value ?: YearMonth.from(Instant.ofEpochMilli(timeProvider()).atZone(zoneProvider()))
+        _customMonth.value = current.minusMonths(1)
     }
 
     fun nextMonth() {
-        _currentMonth.update { it.plusMonths(1) }
+        val current = _customMonth.value ?: YearMonth.from(Instant.ofEpochMilli(timeProvider()).atZone(zoneProvider()))
+        _customMonth.value = current.plusMonths(1)
     }
 
     fun selectDate(date: LocalDate) {
-        _selectedDate.value = date
+        _customDate.value = date
     }
 
     fun selectDoseDetail(doseItem: CalendarDoseItem?) {
@@ -163,8 +172,13 @@ class CalendarViewModel @Inject constructor(
                 return CalendarDayStatus.SOME_LATE
             }
 
-            val allTaken = closedDoses.all { it.status == DoseStatus.TAKEN }
-            return if (allTaken) CalendarDayStatus.ALL_TAKEN else CalendarDayStatus.NONE
+            // When evaluating all taken, exclude skipped doses (skipping is an approved action)
+            val nonSkipped = closedDoses.filter { it.status != DoseStatus.SKIPPED }
+            if (nonSkipped.isNotEmpty() && nonSkipped.all { it.status == DoseStatus.TAKEN }) {
+                return CalendarDayStatus.ALL_TAKEN
+            }
+
+            return CalendarDayStatus.NONE
         }
     }
 }

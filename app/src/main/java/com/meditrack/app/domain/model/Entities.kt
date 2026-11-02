@@ -39,6 +39,7 @@ data class Medicine(
     val prescribedByDoctorUid: String? = null,
     val prescribedByDoctorName: String? = null,
     val stoppedByDoctor: Boolean = false,
+    val isDeleted: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -49,7 +50,7 @@ data class Medicine(
             entity = Medicine::class,
             parentColumns = ["id"],
             childColumns = ["medicineId"],
-            onDelete = ForeignKey.CASCADE
+            onDelete = ForeignKey.RESTRICT
         )
     ],
     indices = [

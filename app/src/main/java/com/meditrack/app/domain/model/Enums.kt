@@ -40,7 +40,12 @@ enum class RejectReason {
     STRIP_NOT_FULLY_VISIBLE,
     PILLS_NOT_REMOVED,
     WRONG_PILL_COUNT,
-    DUPLICATE_PHOTO
+    DUPLICATE_PHOTO,
+    /**
+     * Retained for schema backwards-compatibility.
+     * Dose verification no longer rejects on medicine name text mismatch.
+     */
+    WRONG_MEDICINE
 }
 
 enum class LinkStatus {

@@ -63,7 +63,7 @@ interface MedicineDao {
     @Query("SELECT * FROM medicines ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<Medicine>>
 
-    @Query("SELECT * FROM medicines WHERE stoppedByDoctor = 0 ORDER BY name ASC")
+    @Query("SELECT * FROM medicines WHERE stoppedByDoctor = 0 AND isDeleted = 0 ORDER BY name ASC")
     fun observeActive(): Flow<List<Medicine>>
 
     @Query("UPDATE medicines SET currentStock = :newStock WHERE id = :medicineId")

@@ -31,7 +31,7 @@ import com.meditrack.app.domain.model.VerificationAttempt
         MedicineProposal::class,
         NotificationOutbox::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

@@ -110,13 +110,13 @@ class SaveMedicineUseCaseTest {
     }
 
     @Test
-    fun deleteMedicine_deletes_future_pending_doses_and_removes_medicine() = runTest {
+    fun deleteMedicine_deletes_future_pending_doses_and_soft_deletes_medicine() = runTest {
         val med = createSampleMedicine(id = "med_delete_me")
         coEvery { medicineRepository.getById("med_delete_me") } returns med
 
         useCase.deleteMedicine("med_delete_me")
 
         coVerify { doseRepository.deleteFuturePendingDoses(eq("med_delete_me"), any()) }
-        coVerify { medicineRepository.delete(med) }
+        coVerify { medicineRepository.update(match { it.id == "med_delete_me" && it.isDeleted }) }
     }
 }
