@@ -38,8 +38,8 @@ class ProcessStockDecrementUseCase @Inject constructor(
     private val outboxRepository: OutboxRepository,
     private val userPreferences: UserPreferences
 ) {
-    internal var notifier: (context: Context, medName: String, remaining: Int) -> Unit = { ctx, name, remaining ->
-        showLocalLowStockNotification(ctx, name, remaining)
+    internal var notifier: (context: Context, medName: String, remaining: Int, promptCaregiver: Boolean) -> Unit = { ctx, name, remaining, promptCaregiver ->
+        showLocalLowStockNotification(ctx, name, remaining, promptCaregiver)
     }
 
     suspend operator fun invoke(
@@ -60,17 +60,11 @@ class ProcessStockDecrementUseCase @Inject constructor(
         var promptCaregiver = false
 
         if (transitionedToLow) {
-            // 1. Show local alert to the patient: "<Medicine> is running low."
-            try {
-                notifier(context, medicine.name, newStock)
-            } catch (_: Exception) {}
-
-            // 2. Check connected caregiver
             val currentUserId = userPreferences.currentUserId.first()
             val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
 
             if (hasCaregiver) {
-                // Enqueue a LOW_STOCK outbox event
+                // Enqueue a LOW_STOCK outbox event: "<Medicine> is running low – refill needed."
                 val outboxEvent = NotificationOutbox(
                     id = "outbox_${UUID.randomUUID()}",
                     type = NotifType.LOW_STOCK,
@@ -84,6 +78,11 @@ class ProcessStockDecrementUseCase @Inject constructor(
                 // If no caregiver is connected: prompt to add caregiver
                 promptCaregiver = true
             }
+
+            // Show local alert to the patient: "<Medicine> is running low."
+            try {
+                notifier(context, medicine.name, newStock, promptCaregiver)
+            } catch (_: Exception) {}
         }
 
         val finalMedicine = medicine.copy(
@@ -103,7 +102,12 @@ class ProcessStockDecrementUseCase @Inject constructor(
     }
 
     companion object {
-        fun showLocalLowStockNotification(context: Context, medicineName: String, remainingPills: Int) {
+        fun showLocalLowStockNotification(
+            context: Context,
+            medicineName: String,
+            remainingPills: Int,
+            promptCaregiver: Boolean = false
+        ) {
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
                 NotificationChannels.createChannels(context)
@@ -118,10 +122,16 @@ class ProcessStockDecrementUseCase @Inject constructor(
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
+                val message = if (promptCaregiver) {
+                    "$medicineName is running low ($remainingPills pills remaining). Add a caregiver so they can be notified."
+                } else {
+                    "$medicineName is running low ($remainingPills pills remaining). Refill needed."
+                }
+
                 val notification = NotificationCompat.Builder(context, NotificationChannels.CHANNEL_GENERAL)
                     .setSmallIcon(R.mipmap.ic_launcher)
-                    .setContentTitle("Low Stock Alert")
-                    .setContentText("$medicineName is running low ($remainingPills pills remaining). Refill needed.")
+                    .setContentTitle("$medicineName is running low")
+                    .setContentText(message)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
