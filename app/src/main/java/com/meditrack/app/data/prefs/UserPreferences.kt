@@ -26,6 +26,17 @@ class UserPreferences @Inject constructor(
         val KEY_USER_ID = stringPreferencesKey("current_user_id")
         val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val KEY_BATTERY_GUIDANCE_SEEN = booleanPreferencesKey("battery_guidance_seen")
+        val KEY_FCM_TOKEN = stringPreferencesKey("fcm_token")
+    }
+
+    val fcmToken: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[KEY_FCM_TOKEN]
+    }
+
+    suspend fun saveFcmToken(token: String) {
+        dataStore.edit { prefs ->
+            prefs[KEY_FCM_TOKEN] = token
+        }
     }
 
     val isLoggedIn: Flow<Boolean> = dataStore.data.map { prefs ->

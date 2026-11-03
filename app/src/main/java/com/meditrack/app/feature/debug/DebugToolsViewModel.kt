@@ -14,6 +14,12 @@ import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import com.meditrack.app.feature.verification.dataset.DatasetCollector
+import com.meditrack.app.domain.repository.CaregiverRepository
+import com.meditrack.app.domain.model.CaregiverLink
+import com.meditrack.app.domain.model.LinkStatus
+import com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker
+import com.meditrack.app.feature.sync.SyncWorker
+import com.meditrack.app.data.prefs.UserPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,7 +47,9 @@ class DebugToolsViewModel @Inject constructor(
     private val medicineRepository: MedicineRepository,
     private val doseRepository: DoseRepository,
     private val alarmScheduler: AlarmScheduler,
-    private val processMissedDoseUseCase: ProcessMissedDoseUseCase
+    private val processMissedDoseUseCase: ProcessMissedDoseUseCase,
+    private val caregiverRepository: CaregiverRepository,
+    private val userPreferences: UserPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -282,6 +290,52 @@ class DebugToolsViewModel @Inject constructor(
                         statusMessage = "Error seeding history: ${e.message}"
                     )
                 }
+            }
+        }
+    }
+
+    fun triggerSyncNow() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            try {
+                SyncWorker.enqueue(context)
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "SyncWorker enqueued (network-constrained)") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Error enqueuing SyncWorker: ${e.message}") }
+            }
+        }
+    }
+
+    fun triggerOutboxDeliveryNow() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            try {
+                OutboxDeliveryWorker.enqueue(context)
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "OutboxDeliveryWorker enqueued") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Error enqueuing OutboxDeliveryWorker: ${e.message}") }
+            }
+        }
+    }
+
+    fun seedConnectedCaregiver() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            try {
+                val userId = userPreferences.currentUserId.first() ?: "patient_1"
+                val link = CaregiverLink(
+                    id = "debug_link_${UUID.randomUUID().toString().take(6)}",
+                    patientId = userId,
+                    caregiverName = "Sarah (Caregiver)",
+                    caregiverContact = "+1-555-0199",
+                    relationship = "Daughter",
+                    status = LinkStatus.ACCEPTED,
+                    caregiverUid = "cg_sarah_01"
+                )
+                caregiverRepository.insert(link)
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Seeded connected caregiver: ${link.caregiverName} (${link.relationship})") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Error seeding caregiver: ${e.message}") }
             }
         }
     }

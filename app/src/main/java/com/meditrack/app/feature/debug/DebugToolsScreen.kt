@@ -349,6 +349,49 @@ fun DebugToolsScreen(
                     }
                 }
             }
+
+            Text(
+                text = "Firebase, Sync & Caregiver (Stage 10)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Caregiver & Sync Controls",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.seedConnectedCaregiver() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isActionInProgress
+                    ) {
+                        Text("Seed Connected Caregiver (Sarah)")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.triggerOutboxDeliveryNow() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isActionInProgress
+                    ) {
+                        Text("Deliver Outbox Events Now")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.triggerSyncNow() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isActionInProgress
+                    ) {
+                        Text("Trigger Cloud Sync Now")
+                    }
+                }
+            }
         }
     }
 }

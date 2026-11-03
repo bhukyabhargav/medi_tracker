@@ -227,11 +227,39 @@
   - `RecordVerifiedDoseUseCaseTest.kt` (4 tests: on-time transition + decrement, late transition + decrement, not found, already taken non-decrement)
   - `LateDoseVerificationTest.kt` & `VerificationCoordinatorTest.kt` (updated to assert delegation to single-authority use cases)
 - Verification Commands:
-  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED
-  - Lint: `.\gradlew.bat lint` – PASSED
-  - Build: `.\gradlew.bat assembleDebug` – PASSED
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (197 tests, 0 failures, 100% passing)
+  - Lint: `.\gradlew.bat lint` – PASSED (Clean, 0 errors)
+  - Build: `.\gradlew.bat assembleDebug` – PASSED (Output copied to `app-debug.apk`)
 - Manual verification note:
   - Automated tests ran via Gradle test runner. The interactive emulator steps documented in `STAGE_9_VERIFY.md` (Section C) are to be executed by the human tester on a live emulator/device.
+
+## Stage 10 – Firebase Backend, Sync & Caregiver Mode – COMPLETED (2026-11-03)
+- Summary: Implemented comprehensive cloud sync, Firebase authentication and fallback, caregiver invitation workflow, read-only caregiver monitoring portal, outbox delivery worker, Cloud Function trigger for FCM push notifications, security rules, and proof photo uploads. Implemented `FirebaseAuthRepository` with automatic fallback to `FakeAuthRepository` when `google-services.json` is absent, guaranteeing offline development without runtime crashes. Created `SyncWorker` with network constraints and exponential backoff, applying the conflict rule that verified doses (`TAKEN`/`TAKEN_LATE`) are never downgraded. Created `OutboxDeliveryWorker` writing pending notifications to Firestore `notificationEvents`. Developed TypeScript Cloud Function (`/functions/src/index.ts`) and unit tests for message text across all 5 notification types. Added `MediTrackFirebaseMessagingService` with token registration and incoming push display. Created `firestore.rules` and `storage.rules` enforcing patient isolation and read-only caregiver access. Added Caregiver screen with invitation dialog, acceptance simulation, and patient monitoring view.
+- Files added/changed:
+  - `firestore.rules`, `storage.rules`
+  - `functions/package.json`, `tsconfig.json`, `src/index.ts`, `src/notificationText.ts`, `src/notificationText.test.ts`
+  - `data/repository/FirebaseAuthRepository.kt`
+  - `core/di/RepositoryModule.kt` (bound `FirebaseAuthRepository`)
+  - `data/service/MediTrackFirebaseMessagingService.kt`
+  - `feature/sync/SyncWorker.kt`
+  - `feature/reminder/worker/OutboxDeliveryWorker.kt`
+  - `domain/usecase/SyncConflictResolver.kt`
+  - `domain/model/NotificationText.kt`
+  - `feature/caregiver/CaregiverViewModel.kt`, `CaregiverScreen.kt`
+  - `core/navigation/Screen.kt`, `MainActivity.kt`
+  - `feature/home/HomeScreen.kt` (added Caregiver action in Quick Actions)
+  - `feature/debug/DebugToolsViewModel.kt`, `DebugToolsScreen.kt` (added Stage 10 sync & caregiver controls)
+  - `docs/verification/STAGE_10_VERIFY.md`
+- Tests added:
+  - `NotificationTextTest.kt` (5 tests verifying exact push text for all 5 notification types)
+  - `SyncConflictTest.kt` (4 tests verifying non-downgrade invariant and last-write-wins)
+  - `OutboxDeliveryWorkerTest.kt` (2 tests verifying undelivered row processing and delivery marking)
+  - `CaregiverViewModelTest.kt` (4 tests: send invite, accept invite, reject invite, select patient adherence)
+- Verification Commands:
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (197 tests, 0 failures, 100% passing)
+  - Lint: `.\gradlew.bat lint` – PASSED (Clean, 0 errors)
+  - Build: `.\gradlew.bat assembleDebug` – PASSED (Output copied to `app-debug.apk`)
+
 
 
 

@@ -3,6 +3,7 @@ package com.meditrack.app.core.di
 import com.meditrack.app.data.repository.CaregiverRepositoryImpl
 import com.meditrack.app.data.repository.DoseRepositoryImpl
 import com.meditrack.app.data.repository.FakeAuthRepository
+import com.meditrack.app.data.repository.FirebaseAuthRepository
 import com.meditrack.app.data.repository.MedicineRepositoryImpl
 import com.meditrack.app.data.repository.OutboxRepositoryImpl
 import com.meditrack.app.data.repository.VerificationRepositoryImpl
@@ -24,7 +25,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindAuthRepository(impl: FakeAuthRepository): AuthRepository
+    abstract fun bindAuthRepository(impl: FirebaseAuthRepository): AuthRepository
 
     @Binds
     @Singleton

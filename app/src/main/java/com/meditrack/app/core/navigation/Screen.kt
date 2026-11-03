@@ -27,4 +27,8 @@ sealed class Screen(val route: String) {
     }
     data object History : Screen("history")
     data object Calendar : Screen("calendar")
+    data object Caregiver : Screen("caregiver")
+    data object CaregiverPatientDetail : Screen("caregiver_patient/{patientId}") {
+        fun createRoute(patientId: String) = "caregiver_patient/$patientId"
+    }
 }

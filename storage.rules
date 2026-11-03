@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(patientUid) {
+      return isAuthenticated() && request.auth.uid == patientUid;
+    }
+
+    // Proof photos: proofs/{patientUid}/{doseId}.jpg
+    match /proofs/{patientUid}/{doseId}.jpg {
+      // Patient can upload proof photo (must be image <= 5MB)
+      allow write: if isOwner(patientUid)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+
+      // Patient and authenticated users (e.g. linked caregiver) can read
+      allow read: if isAuthenticated();
+    }
+  }
+}

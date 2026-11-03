@@ -90,6 +90,12 @@ class CaregiverRepositoryImpl @Inject constructor(
     override fun observeByPatientId(patientId: String): Flow<List<CaregiverLink>> =
         caregiverLinkDao.observeByPatientId(patientId)
 
+    override fun observeAll(): Flow<List<CaregiverLink>> =
+        caregiverLinkDao.observeAll()
+
+    override suspend fun getById(id: String): CaregiverLink? =
+        caregiverLinkDao.getById(id)
+
     override suspend fun insert(link: CaregiverLink) = caregiverLinkDao.insert(link)
     override suspend fun update(link: CaregiverLink) = caregiverLinkDao.update(link)
     override suspend fun hasConnectedCaregiver(patientId: String): Boolean =

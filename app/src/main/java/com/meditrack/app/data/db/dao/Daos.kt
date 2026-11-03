@@ -140,6 +140,12 @@ interface CaregiverLinkDao {
 
     @Query("SELECT * FROM caregiver_links WHERE patientId = :patientId AND status = :status")
     suspend fun getByStatus(patientId: String, status: LinkStatus = LinkStatus.ACCEPTED): List<CaregiverLink>
+
+    @Query("SELECT * FROM caregiver_links WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): CaregiverLink?
+
+    @Query("SELECT * FROM caregiver_links")
+    fun observeAll(): Flow<List<CaregiverLink>>
 }
 
 @Dao

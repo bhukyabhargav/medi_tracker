@@ -165,7 +165,16 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToCalendar = {
                                     navController.navigate(Screen.Calendar.route)
+                                },
+                                onNavigateToCaregiver = {
+                                    navController.navigate(Screen.Caregiver.route)
                                 }
+                            )
+                        }
+
+                        composable(Screen.Caregiver.route) {
+                            com.meditrack.app.feature.caregiver.CaregiverScreen(
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
 

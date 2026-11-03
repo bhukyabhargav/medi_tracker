@@ -70,6 +70,7 @@ fun HomeScreen(
     onNavigateToVerification: (String) -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
+    onNavigateToCaregiver: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -152,7 +153,8 @@ fun HomeScreen(
                         onNavigateToAddMedicine = onNavigateToAddMedicine,
                         onNavigateToMedicinesList = onNavigateToMedicinesList,
                         onNavigateToHistory = onNavigateToHistory,
-                        onNavigateToCalendar = onNavigateToCalendar
+                        onNavigateToCalendar = onNavigateToCalendar,
+                        onNavigateToCaregiver = onNavigateToCaregiver
                     )
                 }
 
@@ -439,11 +441,13 @@ fun QuickActionsRow(
     onNavigateToAddMedicine: () -> Unit = {},
     onNavigateToMedicinesList: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
-    onNavigateToCalendar: () -> Unit = {}
+    onNavigateToCalendar: () -> Unit = {},
+    onNavigateToCaregiver: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val calendarLabel = stringResource(R.string.action_calendar)
     val historyLabel = stringResource(R.string.action_history)
+    val caregiverLabel = stringResource(R.string.action_caregiver)
 
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
@@ -451,7 +455,7 @@ fun QuickActionsRow(
         Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),
-        Pair(Icons.Default.People, stringResource(R.string.action_caregiver)),
+        Pair(Icons.Default.People, caregiverLabel),
         Pair(Icons.Default.Person, stringResource(R.string.action_profile))
     )
 
@@ -467,6 +471,7 @@ fun QuickActionsRow(
                         "My Medicines" -> onNavigateToMedicinesList()
                         calendarLabel -> onNavigateToCalendar()
                         historyLabel -> onNavigateToHistory()
+                        caregiverLabel -> onNavigateToCaregiver()
                         else -> {}
                     }
                 },

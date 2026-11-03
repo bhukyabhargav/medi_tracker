@@ -42,6 +42,8 @@ interface VerificationRepository {
 
 interface CaregiverRepository {
     fun observeByPatientId(patientId: String): Flow<List<CaregiverLink>>
+    fun observeAll(): Flow<List<CaregiverLink>>
+    suspend fun getById(id: String): CaregiverLink?
     suspend fun insert(link: CaregiverLink)
     suspend fun update(link: CaregiverLink)
     suspend fun hasConnectedCaregiver(patientId: String): Boolean
