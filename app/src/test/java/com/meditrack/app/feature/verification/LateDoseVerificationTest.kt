@@ -99,8 +99,7 @@ class LateDoseVerificationTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
-            alarmScheduler = alarmScheduler,
-            processStockDecrementUseCase = processStockDecrementUseCase
+            alarmScheduler = alarmScheduler
         )
 
         coEvery { doseRepository.getById("missed_dose_1") } returns missedDose
@@ -190,6 +189,7 @@ class LateDoseVerificationTest {
 
         // Stock is NOT decremented
         coVerify(exactly = 0) { medicineRepository.updateStock(any(), any()) }
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test

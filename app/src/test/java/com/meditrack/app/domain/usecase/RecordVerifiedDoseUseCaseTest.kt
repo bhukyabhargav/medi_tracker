@@ -56,14 +56,14 @@ class RecordVerifiedDoseUseCaseTest {
     }
 
     @Test
-    fun recordVerifiedDose_transitionsToTaken_decrementsStock_andCancelsAlarm() = runTest {
+    fun recordVerifiedDose_onTime_transitionsToTaken_decrementsStock_andCancelsAlarm() = runTest {
         coEvery { doseRepository.getById("dose_1") } returns sampleDose
         coEvery { medicineRepository.getById("med_1") } returns sampleMedicine
 
         val updatedDoseSlot = slot<DoseEvent>()
         coEvery { doseRepository.update(capture(updatedDoseSlot)) } returns Unit
 
-        val result = useCase("dose_1", photoPath = "path/photo.jpg", emptyCellsAfter = 1, takenAt = 2500L)
+        val result = useCase("dose_1", photoPath = "path/photo.jpg", emptyCellsAfter = 1, takenAt = 2500L, isLate = false)
 
         assertTrue(result.isSuccess)
         val saved = updatedDoseSlot.captured
@@ -72,9 +72,33 @@ class RecordVerifiedDoseUseCaseTest {
         assertEquals("path/photo.jpg", saved.verifiedPhotoPath)
         assertEquals(1, saved.emptyCellsAfter)
 
-        // Decrements 50 - 2 = 48 via processStockDecrementUseCase
-        coVerify { processStockDecrementUseCase("med_1", 2, 2500L) }
+        // Decrements 2 pills via processStockDecrementUseCase exactly once
+        coVerify(exactly = 1) { processStockDecrementUseCase("med_1", 2, 2500L) }
         coVerify { alarmScheduler.cancelDoseAlarm("dose_1") }
+    }
+
+    @Test
+    fun recordVerifiedDose_late_transitionsToTakenLate_decrementsStock_andCancelsAlarm() = runTest {
+        val missedDose = sampleDose.copy(id = "missed_1", status = DoseStatus.MISSED)
+        coEvery { doseRepository.getById("missed_1") } returns missedDose
+        coEvery { medicineRepository.getById("med_1") } returns sampleMedicine
+
+        val updatedDoseSlot = slot<DoseEvent>()
+        coEvery { doseRepository.update(capture(updatedDoseSlot)) } returns Unit
+
+        val result = useCase("missed_1", photoPath = "path/late.jpg", emptyCellsAfter = 2, takenAt = 6000L, isLate = true)
+
+        assertTrue(result.isSuccess)
+        val saved = updatedDoseSlot.captured
+        assertEquals(DoseStatus.TAKEN_LATE, saved.status)
+        assertEquals(6000L, saved.takenAt)
+        assertEquals("path/late.jpg", saved.verifiedPhotoPath)
+        assertEquals(2, saved.emptyCellsAfter)
+        assertTrue(saved.lateEntry)
+
+        // Decrements stock exactly once
+        coVerify(exactly = 1) { processStockDecrementUseCase("med_1", 2, 6000L) }
+        coVerify { alarmScheduler.cancelDoseAlarm("missed_1") }
     }
 
     @Test
@@ -83,14 +107,16 @@ class RecordVerifiedDoseUseCaseTest {
 
         val result = useCase("non_existent")
         assertTrue(result.isFailure)
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 
     @Test
-    fun recordVerifiedDose_failsWhenAlreadyTaken() = runTest {
+    fun recordVerifiedDose_failsWhenAlreadyTaken_andDoesNotDecrementStock() = runTest {
         val alreadyTakenDose = sampleDose.copy(status = DoseStatus.TAKEN)
         coEvery { doseRepository.getById("dose_1") } returns alreadyTakenDose
 
         val result = useCase("dose_1")
         assertTrue(result.isFailure)
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
     }
 }

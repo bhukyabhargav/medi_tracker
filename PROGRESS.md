@@ -207,22 +207,31 @@
   - `HistoryViewModelTest.kt` (4 tests: empty state, time range queries for Today/Week/Month, 92% adherence with 4 late on seeded data, item selection)
   - `CalendarViewModelTest.kt` (3 tests: computeDayStatus dot color priority rules, month pagination, date selection with late entry lock state)
 
-## Stage 9 – Stock & Refill Management – COMPLETED (2026-11-03)
-- Summary: Implemented pill stock tracking, automatic low-stock threshold detection, patient local alerting, caregiver outbox notification queuing, out-of-stock and low-stock dashboard/medicine banners, and refilling workflow. Pill stock decrements strictly on verified doses (`RecordVerifiedDose` on-time or late). Skipped/missed/unverified/manual-unverified doses never alter stock. Evaluates `StockCalculator.isLow(...)` on decrement; transitions from not-low to low trigger a single local notification ("<Medicine> is running low") and enqueue `LOW_STOCK` in `NotificationOutbox` if a caregiver is connected, or prompt the patient to connect a caregiver if none is connected. Refill action adds pills to `currentStock` and resets `lowStockNotified = false`. Out of stock (0 pills) displays a persistent red banner on Home and Medicines screens. Verified by static analysis that zero store searches and zero email transmission routines exist.
+## Stage 9 – Stock & Refill Management – COMPLETED & AUDITED (2026-11-03)
+- Summary: Implemented pill stock tracking, single-authority stock decrement architecture, automatic low-stock threshold detection, patient local alerting, caregiver outbox notification queuing, out-of-stock and low-stock dashboard/medicine banners, and refilling workflow. Pill stock decrements strictly and solely through `RecordVerifiedDoseUseCase` (for both verified on-time and verified late doses). Skipped, missed, unverified, and manual-unverified doses never alter stock. Evaluates `StockCalculator.isLow(...)` on decrement; transitions from not-low to low trigger a single local notification ("<Medicine> is running low") and enqueue `LOW_STOCK` in `NotificationOutbox` if a caregiver is connected, or prompt the patient to connect a caregiver if none is connected. Refill action adds pills to `currentStock` and resets `lowStockNotified = false`. Out of stock (0 pills) displays a persistent red banner on Home and Medicines screens. Verified by static analysis that zero store searches and zero email transmission routines exist.
 - Files added/changed:
   - `domain/model/Entities.kt` (added `lowStockNotified: Boolean = false` to `Medicine`)
   - `domain/usecase/ProcessStockDecrementUseCase.kt` (decrement logic, threshold evaluation, single notification, outbox queuing, caregiver prompt)
   - `domain/usecase/RefillStockUseCase.kt` (refill pill increment, resetting `lowStockNotified = false`)
-  - `domain/usecase/RecordVerifiedDoseUseCase.kt` (integrated stock decrement on verified doses)
-  - `feature/verification/pipeline/VerificationCoordinator.kt` (integrated stock decrement in late intake pipeline)
+  - `domain/usecase/RecordVerifiedDoseUseCase.kt` (single authority for on-time and late verified dose intake, state transition, and stock decrement)
+  - `feature/verification/pipeline/VerificationCoordinator.kt` (delegated late recording to `RecordVerifiedDoseUseCase`, eliminating duplicate decrement authority)
   - `feature/medicine/MedicinesListViewModel.kt` (added `refillMedicine(medicineId, pills)`)
-  - `feature/medicine/MedicinesListScreen.kt` (added RefillDialog, out-of-stock banner, low-stock banner)
+  - `feature/medicine/MedicinesListScreen.kt` (added RefillDialog, out-of-stock banner, low-stock banner; moved edit/delete icons to card header)
+  - `feature/medicine/AddEditMedicineViewModel.kt` & `AddEditMedicineScreen.kt` (added delete medicine action and confirmation dialog)
   - `feature/home/HomeScreen.kt` (added persistent out-of-stock and low-stock alert banners)
-  - `docs/verification/STAGE_9_VERIFY.md`
-- Tests added:
-  - `ProcessStockDecrementUseCaseTest.kt` (5 tests: normal decrement, crossing threshold with caregiver outbox queuing, single-alert non-spamming, prompt without caregiver, zero clamp)
+  - `docs/verification/STAGE_9_VERIFY.md` (updated with exact test breakdown and distinction between automated tests and manual emulator steps)
+- Tests added / updated:
+  - `StockDecrementAuthorityTest.kt` (7 tests: verified normal dose, verified late dose, duplicate dose guard, skipped, missed, unverified, manual-unverified non-decrement)
+  - `ProcessStockDecrementUseCaseTest.kt` (6 tests: normal decrement, crossing threshold with caregiver outbox queuing, single-alert non-spamming, prompt without caregiver, zero clamp, explicit threshold boundary at/below $pillsPerDay \times 3$)
   - `RefillStockUseCaseTest.kt` (3 tests: pill increment + flag reset, non-positive rejection, not-found handling)
-  - `RecordVerifiedDoseUseCaseTest.kt` (updated to verify stock decrement integration)
+  - `RecordVerifiedDoseUseCaseTest.kt` (4 tests: on-time transition + decrement, late transition + decrement, not found, already taken non-decrement)
+  - `LateDoseVerificationTest.kt` & `VerificationCoordinatorTest.kt` (updated to assert delegation to single-authority use cases)
+- Verification Commands:
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED
+  - Lint: `.\gradlew.bat lint` – PASSED
+  - Build: `.\gradlew.bat assembleDebug` – PASSED
+- Manual verification note:
+  - Automated tests ran via Gradle test runner. The interactive emulator steps documented in `STAGE_9_VERIFY.md` (Section C) are to be executed by the human tester on a live emulator/device.
 
 
 

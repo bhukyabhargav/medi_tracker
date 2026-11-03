@@ -163,4 +163,33 @@ class ProcessStockDecrementUseCaseTest {
         assertNotNull(result)
         assertEquals(0, result?.newStock)
     }
+
+    @Test
+    fun thresholdBoundary_exactlyAtThreshold_isNotLow_oneBelow_isLow() = runTest {
+        // Daily rate: 2 times/day * 1 pill = 2.0 pills/day.
+        // Threshold: 2.0 * 3 days = 6.0 pills.
+        // Exact threshold (6 pills): remaining < threshold is FALSE -> NOT low stock
+        val medAtThreshold = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
+        assertFalse("Stock exactly equal to pillsPerDay * 3 (6) must NOT be considered low stock", StockCalculator.isLow(medAtThreshold))
+
+        // One below threshold (5 pills): remaining < threshold is TRUE -> IS low stock
+        val medOneBelow = sampleMedicine.copy(currentStock = 5, lowStockNotified = false)
+        assertTrue("Stock one below threshold (5) MUST be considered low stock", StockCalculator.isLow(medOneBelow))
+
+        // Decrement to exact threshold (7 -> 6): should not trigger low stock or alert
+        coEvery { medicineRepository.getById("med_stock") } returns sampleMedicine.copy(currentStock = 7, lowStockNotified = false)
+        val resultTo6 = useCase("med_stock", pillsToDecrement = 1)
+        assertEquals(6, resultTo6?.newStock)
+        assertFalse(resultTo6?.isLow == true)
+        assertFalse(resultTo6?.transitionedToLow == true)
+        assertEquals(0, alertCount)
+
+        // Decrement to one below threshold (6 -> 5): triggers low stock and single alert
+        coEvery { medicineRepository.getById("med_stock") } returns sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
+        val resultTo5 = useCase("med_stock", pillsToDecrement = 1)
+        assertEquals(5, resultTo5?.newStock)
+        assertTrue(resultTo5?.isLow == true)
+        assertTrue(resultTo5?.transitionedToLow == true)
+        assertEquals(1, alertCount)
+    }
 }

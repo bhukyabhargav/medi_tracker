@@ -63,8 +63,7 @@ class VerificationCoordinator @Inject constructor(
     private val userPreferences: UserPreferences,
     private val verificationPipeline: VerificationPipeline,
     private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
-    private val alarmScheduler: AlarmScheduler,
-    private val processStockDecrementUseCase: com.meditrack.app.domain.usecase.ProcessStockDecrementUseCase
+    private val alarmScheduler: AlarmScheduler
 ) {
 
     suspend fun verify(
@@ -249,49 +248,16 @@ class VerificationCoordinator @Inject constructor(
         captureTime: Long,
         now: Long
     ): CoordinatorResult {
-        // Legal transition via state machine:
-        // If PENDING (expired mid-verification): PENDING -> MISSED -> TAKEN_LATE
-        // If MISSED: MISSED -> TAKEN_LATE
-        val effectiveMissedStatus = if (dose.status == DoseStatus.PENDING) {
-            val missedResult = DoseStateMachine.transition(
-                currentStatus = dose.status,
-                event = DoseTransitionEvent.WindowExpired
-            )
-            if (missedResult.isFailure) {
-                return CoordinatorResult.Error("Cannot transition dose: ${missedResult.exceptionOrNull()?.message}")
-            }
-            missedResult.getOrThrow()
-        } else {
-            dose.status
-        }
-
-        val lateTransitionResult = DoseStateMachine.transition(
-            currentStatus = effectiveMissedStatus,
-            event = DoseTransitionEvent.LateVerifyPassed(
-                photoPath = photoPath,
-                emptyCellsAfter = emptyCellsAfter,
-                takenAt = captureTime
-            )
-        )
-        if (lateTransitionResult.isFailure) {
-            return CoordinatorResult.Error("Cannot record late dose: ${lateTransitionResult.exceptionOrNull()?.message}")
-        }
-
-        val updatedDose = dose.copy(
-            status = lateTransitionResult.getOrThrow(),
-            takenAt = captureTime,
-            verifiedPhotoPath = photoPath,
+        // Delegate to RecordVerifiedDoseUseCase as single authority (handles state machine, dose update, alarm cancel, and stock decrement)
+        val recordResult = recordVerifiedDoseUseCase(
+            doseId = dose.id,
+            photoPath = photoPath,
             emptyCellsAfter = emptyCellsAfter,
-            lateEntry = true,
-            updatedAt = now
+            takenAt = captureTime,
+            isLate = true
         )
-        doseRepository.update(updatedDose)
-        alarmScheduler.cancelDoseAlarm(dose.id)
-
-        // Decrement stock & evaluate low stock
-        val medicine = medicineRepository.getById(dose.medicineId)
-        if (medicine != null) {
-            processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, captureTime)
+        if (recordResult.isFailure) {
+            return CoordinatorResult.Error(recordResult.exceptionOrNull()?.message ?: "Failed to record late dose")
         }
 
         // Enqueue DOSE_TAKEN_LATE outbox notification if caregiver connected

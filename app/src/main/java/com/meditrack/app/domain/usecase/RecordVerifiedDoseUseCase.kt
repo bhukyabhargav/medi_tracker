@@ -18,44 +18,72 @@ class RecordVerifiedDoseUseCase @Inject constructor(
 ) {
 
     /**
-     * Records a verified dose intake:
-     * - Transitions dose status from PENDING to TAKEN via DoseStateMachine
-     * - Records takenAt, verifiedPhotoPath, emptyCellsAfter
-     * - Decreases medicine currentStock by pillsPerDose
+     * Single authority for recording verified dose intake (both on-time and late):
+     * - On-time: Transitions PENDING -> TAKEN via DoseTransitionEvent.VerifyPassed
+     * - Late: Transitions MISSED -> TAKEN_LATE via DoseTransitionEvent.LateVerifyPassed
+     *   (If dose was PENDING and window expired mid-verification, transitions PENDING -> MISSED -> TAKEN_LATE)
+     * - Prevents duplicate decrements: DoseStateMachine rejects already closed doses (TAKEN/TAKEN_LATE)
+     *   before any stock decrement is performed.
+     * - Decrements medicine stock exactly once via ProcessStockDecrementUseCase
+     * - Cancels dose alarm
      */
     suspend operator fun invoke(
         doseId: String,
         photoPath: String? = null,
         emptyCellsAfter: Int? = null,
-        takenAt: Long = System.currentTimeMillis()
+        takenAt: Long = System.currentTimeMillis(),
+        isLate: Boolean = false
     ): Result<Unit> {
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
 
-        val transitionResult = DoseStateMachine.transition(
-            currentStatus = dose.status,
-            event = DoseTransitionEvent.VerifyPassed(
+        val isLateVerification = isLate || dose.status == DoseStatus.MISSED
+
+        // If late verification on a PENDING dose whose window expired mid-verification:
+        val effectiveCurrentStatus = if (isLateVerification && dose.status == DoseStatus.PENDING) {
+            val missedResult = DoseStateMachine.transition(dose.status, DoseTransitionEvent.WindowExpired)
+            if (missedResult.isFailure) return Result.failure(missedResult.exceptionOrNull()!!)
+            missedResult.getOrThrow()
+        } else {
+            dose.status
+        }
+
+        val event = if (isLateVerification) {
+            DoseTransitionEvent.LateVerifyPassed(
                 photoPath = photoPath ?: "",
                 emptyCellsAfter = emptyCellsAfter ?: 0,
                 takenAt = takenAt
             )
+        } else {
+            DoseTransitionEvent.VerifyPassed(
+                photoPath = photoPath ?: "",
+                emptyCellsAfter = emptyCellsAfter ?: 0,
+                takenAt = takenAt
+            )
+        }
+
+        val transitionResult = DoseStateMachine.transition(
+            currentStatus = effectiveCurrentStatus,
+            event = event
         )
 
         if (transitionResult.isFailure) {
             return Result.failure(transitionResult.exceptionOrNull()!!)
         }
 
+        val newStatus = transitionResult.getOrThrow()
         val updatedDose = dose.copy(
-            status = DoseStatus.TAKEN,
+            status = newStatus,
             takenAt = takenAt,
             verifiedPhotoPath = photoPath,
             emptyCellsAfter = emptyCellsAfter,
+            lateEntry = (newStatus == DoseStatus.TAKEN_LATE),
             updatedAt = takenAt
         )
         doseRepository.update(updatedDose)
         alarmScheduler.cancelDoseAlarm(doseId)
 
-        // Decrement stock & evaluate low stock transition
+        // Decrement stock & evaluate low stock transition (Single Authority)
         val medicine = medicineRepository.getById(dose.medicineId)
         if (medicine != null) {
             processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, takenAt)

@@ -96,8 +96,7 @@ class VerificationCoordinatorTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
-            alarmScheduler = alarmScheduler,
-            processStockDecrementUseCase = processStockDecrementUseCase
+            alarmScheduler = alarmScheduler
         )
 
         coEvery { doseRepository.getById("dose_abc") } returns sampleDose
