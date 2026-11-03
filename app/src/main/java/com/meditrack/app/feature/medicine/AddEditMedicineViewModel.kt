@@ -242,4 +242,18 @@ class AddEditMedicineViewModel @Inject constructor(
             }
         }
     }
+
+    fun deleteMedicine(onDeleted: () -> Unit) {
+        val medicineId = _uiState.value.editingMedicineId ?: return
+        viewModelScope.launch {
+            try {
+                saveMedicineUseCase.deleteMedicine(medicineId)
+                onDeleted()
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(errorMessage = "Failed to delete medicine: ${e.message}")
+                }
+            }
+        }
+    }
 }
