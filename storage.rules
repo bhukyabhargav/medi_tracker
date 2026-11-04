@@ -10,15 +10,31 @@ service firebase.storage {
       return isAuthenticated() && request.auth.uid == patientUid;
     }
 
+    // Only actively connected, accepted caregivers can read patient proof photos
+    function isAcceptedCaregiver(patientUid) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/caregiverLinks/$(patientUid + '_' + request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/caregiverLinks/$(patientUid + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
+    // Only actively connected, accepted doctors can read patient proof photos
+    function isAcceptedDoctor(patientUid) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/doctorLinks/$(patientUid + '_' + request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/doctorLinks/$(patientUid + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
     // Proof photos: proofs/{patientUid}/{doseId}.jpg
     match /proofs/{patientUid}/{doseId}.jpg {
       // Patient can upload proof photo (must be image <= 5MB)
+      // Doctors and Caregivers CANNOT upload, edit, or delete proof photos.
       allow write: if isOwner(patientUid)
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
 
-      // Patient and authenticated users (e.g. linked caregiver) can read
-      allow read: if isAuthenticated();
+      // Patient, actively connected accepted caregiver, or actively connected accepted doctor can read.
+      // Pending, declined, revoked, or unrelated users are strictly DENIED.
+      allow read: if isOwner(patientUid) || isAcceptedCaregiver(patientUid) || isAcceptedDoctor(patientUid);
     }
   }
 }

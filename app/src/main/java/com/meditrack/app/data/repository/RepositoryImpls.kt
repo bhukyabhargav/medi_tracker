@@ -110,3 +110,61 @@ class OutboxRepositoryImpl @Inject constructor(
     override suspend fun getUndelivered(): List<NotificationOutbox> = notificationOutboxDao.getUndelivered()
     override suspend fun markDelivered(id: String) = notificationOutboxDao.markDelivered(id)
 }
+
+@Singleton
+class DoctorRepositoryImpl @Inject constructor(
+    private val doctorLinkDao: com.meditrack.app.data.db.dao.DoctorLinkDao
+) : com.meditrack.app.domain.repository.DoctorRepository {
+    override fun observeByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>> =
+        doctorLinkDao.observeByPatientId(patientId)
+
+    override fun observeByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>> =
+        doctorLinkDao.observeByDoctorUid(doctorUid)
+
+    override fun observeAcceptedForDoctor(doctorUid: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>> =
+        doctorLinkDao.observeAcceptedForDoctor(doctorUid)
+
+    override fun observeAll(): Flow<List<com.meditrack.app.domain.model.DoctorLink>> =
+        doctorLinkDao.observeAll()
+
+    override suspend fun getById(id: String): com.meditrack.app.domain.model.DoctorLink? =
+        doctorLinkDao.getById(id)
+
+    override suspend fun insert(link: com.meditrack.app.domain.model.DoctorLink) =
+        doctorLinkDao.insert(link)
+
+    override suspend fun update(link: com.meditrack.app.domain.model.DoctorLink) =
+        doctorLinkDao.update(link)
+
+    override suspend fun delete(link: com.meditrack.app.domain.model.DoctorLink) =
+        doctorLinkDao.delete(link)
+
+    override suspend fun hasAcceptedDoctor(patientId: String): Boolean =
+        doctorLinkDao.getByStatus(patientId, com.meditrack.app.domain.model.DoctorLinkStatus.ACCEPTED).isNotEmpty()
+}
+
+@Singleton
+class ProposalRepositoryImpl @Inject constructor(
+    private val medicineProposalDao: com.meditrack.app.data.db.dao.MedicineProposalDao
+) : com.meditrack.app.domain.repository.ProposalRepository {
+    override fun observeByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>> =
+        medicineProposalDao.observeByPatientId(patientId)
+
+    override fun observeByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>> =
+        medicineProposalDao.observeByDoctorUid(doctorUid)
+
+    override fun observeAll(): Flow<List<com.meditrack.app.domain.model.MedicineProposal>> =
+        medicineProposalDao.observeAll()
+
+    override suspend fun getById(id: String): com.meditrack.app.domain.model.MedicineProposal? =
+        medicineProposalDao.getById(id)
+
+    override suspend fun insert(proposal: com.meditrack.app.domain.model.MedicineProposal) =
+        medicineProposalDao.insert(proposal)
+
+    override suspend fun update(proposal: com.meditrack.app.domain.model.MedicineProposal) =
+        medicineProposalDao.update(proposal)
+
+    override suspend fun delete(proposal: com.meditrack.app.domain.model.MedicineProposal) =
+        medicineProposalDao.delete(proposal)
+}

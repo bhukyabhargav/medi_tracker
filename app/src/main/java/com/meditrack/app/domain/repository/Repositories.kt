@@ -54,3 +54,25 @@ interface OutboxRepository {
     suspend fun getUndelivered(): List<NotificationOutbox>
     suspend fun markDelivered(id: String)
 }
+
+interface DoctorRepository {
+    fun observeByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    fun observeByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    fun observeAcceptedForDoctor(doctorUid: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    fun observeAll(): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    suspend fun getById(id: String): com.meditrack.app.domain.model.DoctorLink?
+    suspend fun insert(link: com.meditrack.app.domain.model.DoctorLink)
+    suspend fun update(link: com.meditrack.app.domain.model.DoctorLink)
+    suspend fun delete(link: com.meditrack.app.domain.model.DoctorLink)
+    suspend fun hasAcceptedDoctor(patientId: String): Boolean
+}
+
+interface ProposalRepository {
+    fun observeByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>>
+    fun observeByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>>
+    fun observeAll(): Flow<List<com.meditrack.app.domain.model.MedicineProposal>>
+    suspend fun getById(id: String): com.meditrack.app.domain.model.MedicineProposal?
+    suspend fun insert(proposal: com.meditrack.app.domain.model.MedicineProposal)
+    suspend fun update(proposal: com.meditrack.app.domain.model.MedicineProposal)
+    suspend fun delete(proposal: com.meditrack.app.domain.model.MedicineProposal)
+}

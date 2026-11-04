@@ -71,6 +71,7 @@ fun HomeScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToCaregiver: () -> Unit = {},
+    onNavigateToDoctor: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -154,7 +155,8 @@ fun HomeScreen(
                         onNavigateToMedicinesList = onNavigateToMedicinesList,
                         onNavigateToHistory = onNavigateToHistory,
                         onNavigateToCalendar = onNavigateToCalendar,
-                        onNavigateToCaregiver = onNavigateToCaregiver
+                        onNavigateToCaregiver = onNavigateToCaregiver,
+                        onNavigateToDoctor = onNavigateToDoctor
                     )
                 }
 
@@ -442,7 +444,8 @@ fun QuickActionsRow(
     onNavigateToMedicinesList: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
-    onNavigateToCaregiver: () -> Unit = {}
+    onNavigateToCaregiver: () -> Unit = {},
+    onNavigateToDoctor: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val calendarLabel = stringResource(R.string.action_calendar)
@@ -452,6 +455,7 @@ fun QuickActionsRow(
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
+        Pair(Icons.Default.Person, "Doctor Mode"),
         Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),
@@ -469,6 +473,7 @@ fun QuickActionsRow(
                     when (label) {
                         addMedicineLabel -> onNavigateToAddMedicine()
                         "My Medicines" -> onNavigateToMedicinesList()
+                        "Doctor Mode" -> onNavigateToDoctor()
                         calendarLabel -> onNavigateToCalendar()
                         historyLabel -> onNavigateToHistory()
                         caregiverLabel -> onNavigateToCaregiver()

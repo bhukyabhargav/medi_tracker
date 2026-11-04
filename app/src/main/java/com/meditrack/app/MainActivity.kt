@@ -168,12 +168,23 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToCaregiver = {
                                     navController.navigate(Screen.Caregiver.route)
+                                },
+                                onNavigateToDoctor = {
+                                    navController.navigate(Screen.Doctor.route)
                                 }
                             )
                         }
 
                         composable(Screen.Caregiver.route) {
                             com.meditrack.app.feature.caregiver.CaregiverScreen(
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(Screen.Doctor.route) {
+                            val doctorViewModel = androidx.hilt.navigation.compose.hiltViewModel<com.meditrack.app.feature.doctor.DoctorViewModel>()
+                            com.meditrack.app.feature.doctor.DoctorScreen(
+                                viewModel = doctorViewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

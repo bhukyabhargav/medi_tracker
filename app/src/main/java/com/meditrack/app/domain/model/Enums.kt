@@ -56,6 +56,7 @@ enum class LinkStatus {
 enum class DoctorLinkStatus {
     PENDING,
     ACCEPTED,
+    DECLINED,
     REVOKED
 }
 
@@ -69,15 +70,31 @@ enum class ProposalStatus {
     PENDING,
     ACCEPTED,
     DECLINED,
-    APPLIED
+    APPLIED,
+    CLARIFICATION_REQUESTED,
+    SUPERSEDED
 }
 
 enum class NotifType {
+    // Caregiver notification types
     MISSED_DOSE,
     LOW_STOCK,
     DOSE_UNVERIFIED,
     DOSE_TAKEN_LATE,
     CAREGIVER_INVITE,
+
+    // Doctor notification types (Stage 10B specification)
+    DOCTOR_INVITE_RECEIVED,
+    DOCTOR_INVITE_ACCEPTED,
+    DOCTOR_INVITE_DECLINED,
+    DOCTOR_INVITE_REVOKED,
+    PRESCRIPTION_PROPOSAL_RECEIVED,
+    PRESCRIPTION_ACCEPTED,
+    PRESCRIPTION_DECLINED,
+    PRESCRIPTION_CLARIFICATION_REQUESTED,
+    PRESCRIPTION_REVISED,
+
+    // Backwards compatibility aliases
     DOCTOR_INVITE,
     MEDICINE_PRESCRIBED,
     MEDICINE_CHANGED_BY_DOCTOR,

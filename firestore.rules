@@ -14,24 +14,35 @@ service cloud.firestore {
 
     // Helper: is linked accepted caregiver for patient
     function isAcceptedCaregiver(patientId) {
-      return isAuthenticated() && exists(/databases/$(database)/documents/caregiverLinks/$(patientId + '_' + request.auth.uid))
-        && get(/databases/$(database)/documents/caregiverLinks/$(patientId + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/caregiverLinks/$(patientId + '_' + request.auth.uid)) &&
+        get(/databases/$(database)/documents/caregiverLinks/$(patientId + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
+    // Helper: is linked accepted doctor for patient
+    function isAcceptedDoctor(patientId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/doctorLinks/$(patientId + '_' + request.auth.uid)) &&
+        get(/databases/$(database)/documents/doctorLinks/$(patientId + '_' + request.auth.uid)).data.status == 'ACCEPTED';
     }
 
     // User profile documents
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+      // Patient reads/writes own doc; accepted caregiver and accepted doctor can read
+      allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
       allow write: if isOwner(userId);
 
-      // Patient medicines subcollection
+      // Patient medicines subcollection: STRICTLY patient write only!
+      // Doctors and Caregivers can NEVER write directly to medicines.
       match /medicines/{medicineId} {
-        allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+        allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
         allow write: if isOwner(userId);
       }
 
-      // Patient dose events subcollection
+      // Patient dose events subcollection: STRICTLY patient write only!
+      // Neither doctors nor caregivers can mark doses TAKEN, edit doses, or alter history.
       match /doseEvents/{doseId} {
-        allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+        allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
         allow write: if isOwner(userId);
       }
     }
@@ -40,22 +51,76 @@ service cloud.firestore {
     match /caregiverLinks/{linkId} {
       allow read: if isAuthenticated() && (
         resource.data.patientId == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid
+        resource.data.caregiverUid == request.auth.uid ||
+        resource.data.caregiverContact == request.auth.token.email ||
+        resource.data.caregiverContact == request.auth.token.phone_number
       );
       allow create: if isAuthenticated() && request.resource.data.patientId == request.auth.uid;
       allow update: if isAuthenticated() && (
         resource.data.patientId == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid
+        resource.data.caregiverUid == request.auth.uid ||
+        (resource.data.status == 'PENDING' && request.resource.data.caregiverUid == request.auth.uid)
       );
       allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
     }
 
-    // Notification outbox / delivery events
-    match /notificationEvents/{eventId} {
-      allow create: if isAuthenticated() && request.resource.data.patientUid == request.auth.uid;
+    // Doctor links collection
+    match /doctorLinks/{linkId} {
       allow read: if isAuthenticated() && (
         resource.data.patientUid == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid
+        resource.data.doctorUid == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.doctorUid == request.auth.uid ||
+        request.resource.data.patientUid == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.patientUid == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
+      );
+      allow delete: if isAuthenticated() && resource.data.patientUid == request.auth.uid;
+    }
+
+    // Doctor invitations collection (code or contact based)
+    match /doctorInvitations/{inviteId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.doctorUid == request.auth.uid;
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
+    }
+
+    // Medicine proposals collection
+    match /medicineProposals/{proposalId} {
+      // Read: Patient and the proposing Doctor can read
+      allow read: if isAuthenticated() && (
+        resource.data.patientUid == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
+      );
+
+      // Create: Doctor can create ONLY if actively connected (DoctorLink status == ACCEPTED)
+      allow create: if isAuthenticated()
+        && request.resource.data.doctorUid == request.auth.uid
+        && isAcceptedDoctor(request.resource.data.patientUid);
+
+      // Update:
+      // - Patient can update status (ACCEPTED, DECLINED, CLARIFICATION_REQUESTED)
+      // - Doctor can update/revise if actively connected
+      allow update: if isAuthenticated() && (
+        resource.data.patientUid == request.auth.uid ||
+        (resource.data.doctorUid == request.auth.uid && isAcceptedDoctor(resource.data.patientUid))
+      );
+
+      // Delete: Not allowed (audit trail preserved)
+      allow delete: if false;
+    }
+
+    // Notification outbox / delivery events
+    match /notificationEvents/{eventId} {
+      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.patientUid == request.auth.uid ||
+        resource.data.caregiverUid == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
       );
       allow update, delete: if false; // Immutable audit log
     }

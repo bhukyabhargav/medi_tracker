@@ -34,4 +34,78 @@ class NotificationTextTest {
         val (_, body) = NotificationText.buildText(NotifType.CAREGIVER_INVITE, patientName = "Alice")
         assertEquals("Alice invited you to be their caregiver.", body)
     }
+
+    @Test
+    fun doctorInviteReceived_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(NotifType.DOCTOR_INVITE_RECEIVED, doctorName = "Dr. Smith")
+        assertEquals("Dr. Smith wants to connect as your doctor on MediTrack. Review the request.", body)
+    }
+
+    @Test
+    fun doctorInviteAccepted_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(NotifType.DOCTOR_INVITE_ACCEPTED, patientName = "Alice")
+        assertEquals("Alice accepted your doctor connection.", body)
+    }
+
+    @Test
+    fun doctorInviteDeclined_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(NotifType.DOCTOR_INVITE_DECLINED, patientName = "Alice")
+        assertEquals("Alice declined your doctor connection.", body)
+    }
+
+    @Test
+    fun doctorInviteRevoked_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(NotifType.DOCTOR_INVITE_REVOKED)
+        assertEquals("Doctor access has been revoked.", body)
+    }
+
+    @Test
+    fun prescriptionProposalReceived_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(
+            NotifType.PRESCRIPTION_PROPOSAL_RECEIVED,
+            doctorName = "Smith",
+            medicineName = "Amoxicillin"
+        )
+        assertEquals("Dr Smith proposed a prescription for Amoxicillin. Review and accept.", body)
+    }
+
+    @Test
+    fun prescriptionAccepted_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(
+            NotifType.PRESCRIPTION_ACCEPTED,
+            patientName = "Alice",
+            medicineName = "Amoxicillin"
+        )
+        assertEquals("Alice accepted the prescription proposal for Amoxicillin.", body)
+    }
+
+    @Test
+    fun prescriptionDeclined_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(
+            NotifType.PRESCRIPTION_DECLINED,
+            patientName = "Alice",
+            medicineName = "Amoxicillin"
+        )
+        assertEquals("Alice declined the prescription proposal for Amoxicillin.", body)
+    }
+
+    @Test
+    fun prescriptionClarificationRequested_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(
+            NotifType.PRESCRIPTION_CLARIFICATION_REQUESTED,
+            patientName = "Alice",
+            medicineName = "Amoxicillin"
+        )
+        assertEquals("Alice requested clarification on Amoxicillin.", body)
+    }
+
+    @Test
+    fun prescriptionRevised_producesExactSpecifiedText() {
+        val (_, body) = NotificationText.buildText(
+            NotifType.PRESCRIPTION_REVISED,
+            doctorName = "Smith",
+            medicineName = "Amoxicillin"
+        )
+        assertEquals("Dr Smith updated the prescription proposal for Amoxicillin. Review the new revision.", body)
+    }
 }

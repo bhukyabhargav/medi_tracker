@@ -156,11 +156,26 @@ interface DoctorLinkDao {
     @Update
     suspend fun update(link: DoctorLink)
 
+    @Delete
+    suspend fun delete(link: DoctorLink)
+
+    @Query("SELECT * FROM doctor_links WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): DoctorLink?
+
     @Query("SELECT * FROM doctor_links WHERE patientId = :patientId")
     fun observeByPatientId(patientId: String): Flow<List<DoctorLink>>
 
+    @Query("SELECT * FROM doctor_links WHERE doctorUid = :doctorUid")
+    fun observeByDoctorUid(doctorUid: String): Flow<List<DoctorLink>>
+
+    @Query("SELECT * FROM doctor_links WHERE doctorUid = :doctorUid AND status = 'ACCEPTED'")
+    fun observeAcceptedForDoctor(doctorUid: String): Flow<List<DoctorLink>>
+
     @Query("SELECT * FROM doctor_links WHERE patientId = :patientId AND status = :status")
     suspend fun getByStatus(patientId: String, status: DoctorLinkStatus = DoctorLinkStatus.ACCEPTED): List<DoctorLink>
+
+    @Query("SELECT * FROM doctor_links")
+    fun observeAll(): Flow<List<DoctorLink>>
 }
 
 @Dao
@@ -171,11 +186,20 @@ interface MedicineProposalDao {
     @Update
     suspend fun update(proposal: MedicineProposal)
 
+    @Delete
+    suspend fun delete(proposal: MedicineProposal)
+
     @Query("SELECT * FROM medicine_proposals WHERE patientId = :patientId ORDER BY createdAt DESC")
     fun observeByPatientId(patientId: String): Flow<List<MedicineProposal>>
 
+    @Query("SELECT * FROM medicine_proposals WHERE doctorUid = :doctorUid ORDER BY createdAt DESC")
+    fun observeByDoctorUid(doctorUid: String): Flow<List<MedicineProposal>>
+
     @Query("SELECT * FROM medicine_proposals WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MedicineProposal?
+
+    @Query("SELECT * FROM medicine_proposals ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MedicineProposal>>
 }
 
 @Dao

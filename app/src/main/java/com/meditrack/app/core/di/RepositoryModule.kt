@@ -46,4 +46,16 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindOutboxRepository(impl: OutboxRepositoryImpl): OutboxRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindNotificationDeliveryGateway(impl: com.meditrack.app.feature.reminder.worker.FirebaseNotificationDeliveryGateway): com.meditrack.app.feature.reminder.worker.NotificationDeliveryGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindDoctorRepository(impl: com.meditrack.app.data.repository.DoctorRepositoryImpl): com.meditrack.app.domain.repository.DoctorRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindProposalRepository(impl: com.meditrack.app.data.repository.ProposalRepositoryImpl): com.meditrack.app.domain.repository.ProposalRepository
 }

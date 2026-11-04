@@ -233,32 +233,60 @@
 - Manual verification note:
   - Automated tests ran via Gradle test runner. The interactive emulator steps documented in `STAGE_9_VERIFY.md` (Section C) are to be executed by the human tester on a live emulator/device.
 
-## Stage 10 – Firebase Backend, Sync & Caregiver Mode – COMPLETED (2026-11-03)
-- Summary: Implemented comprehensive cloud sync, Firebase authentication and fallback, caregiver invitation workflow, read-only caregiver monitoring portal, outbox delivery worker, Cloud Function trigger for FCM push notifications, security rules, and proof photo uploads. Implemented `FirebaseAuthRepository` with automatic fallback to `FakeAuthRepository` when `google-services.json` is absent, guaranteeing offline development without runtime crashes. Created `SyncWorker` with network constraints and exponential backoff, applying the conflict rule that verified doses (`TAKEN`/`TAKEN_LATE`) are never downgraded. Created `OutboxDeliveryWorker` writing pending notifications to Firestore `notificationEvents`. Developed TypeScript Cloud Function (`/functions/src/index.ts`) and unit tests for message text across all 5 notification types. Added `MediTrackFirebaseMessagingService` with token registration and incoming push display. Created `firestore.rules` and `storage.rules` enforcing patient isolation and read-only caregiver access. Added Caregiver screen with invitation dialog, acceptance simulation, and patient monitoring view.
+## Stage 10 – Firebase Backend, Sync & Caregiver Mode – AUDITED & SIGNED OFF (2026-11-05)
+- Summary: Audited and corrected Stage 10 per specification. Enhanced Firebase Storage security rules (`storage.rules`) to grant photo access only to patient owners and actively accepted caregivers/doctors (`status == 'ACCEPTED'`), strictly denying pending, declined, revoked, and unauthenticated users. Updated Firestore rules (`firestore.rules`) with equivalent patient data isolation and read-only caregiver monitoring. Reviewed `SyncWorker` to pull remote Firestore changes and apply `SyncConflictResolver` before writing to Room, ensuring Room remains the single source of truth, last-write-wins by `updatedAt` is applied, and verified doses (`TAKEN`/`TAKEN_LATE`) are never downgraded. Reviewed `OutboxDeliveryWorker` to guarantee outbox events are preserved locally with `delivered = false` when offline and only marked delivered upon verified remote delivery, handling retries safely and idempotently. Provided real caregiver invitation and acceptance workflow while preserving offline/fake fallback when `google-services.json` is absent.
 - Files added/changed:
-  - `firestore.rules`, `storage.rules`
-  - `functions/package.json`, `tsconfig.json`, `src/index.ts`, `src/notificationText.ts`, `src/notificationText.test.ts`
-  - `data/repository/FirebaseAuthRepository.kt`
-  - `core/di/RepositoryModule.kt` (bound `FirebaseAuthRepository`)
-  - `data/service/MediTrackFirebaseMessagingService.kt`
-  - `feature/sync/SyncWorker.kt`
-  - `feature/reminder/worker/OutboxDeliveryWorker.kt`
-  - `domain/usecase/SyncConflictResolver.kt`
-  - `domain/model/NotificationText.kt`
-  - `feature/caregiver/CaregiverViewModel.kt`, `CaregiverScreen.kt`
-  - `core/navigation/Screen.kt`, `MainActivity.kt`
-  - `feature/home/HomeScreen.kt` (added Caregiver action in Quick Actions)
-  - `feature/debug/DebugToolsViewModel.kt`, `DebugToolsScreen.kt` (added Stage 10 sync & caregiver controls)
+  - `storage.rules`, `firestore.rules`
+  - `feature/sync/SyncWorker.kt` (pull remote changes, conflict resolution, Room authority)
+  - `feature/reminder/worker/OutboxDeliveryWorker.kt`, `NotificationDeliveryGateway.kt`
+  - `app/src/test/java/com/meditrack/app/feature/reminder/worker/OutboxOfflinePersistenceTest.kt`
+  - `app/src/test/java/com/meditrack/app/feature/reminder/worker/OutboxDeliveryWorkerTest.kt`
   - `docs/verification/STAGE_10_VERIFY.md`
-- Tests added:
-  - `NotificationTextTest.kt` (5 tests verifying exact push text for all 5 notification types)
-  - `SyncConflictTest.kt` (4 tests verifying non-downgrade invariant and last-write-wins)
-  - `OutboxDeliveryWorkerTest.kt` (2 tests verifying undelivered row processing and delivery marking)
-  - `CaregiverViewModelTest.kt` (4 tests: send invite, accept invite, reject invite, select patient adherence)
+- Tests status:
+  - Automated unit tests: PASSED (19 tests covering Stage 10 invariants: message text, conflict non-downgrade, offline persistence, idempotency, caregiver invitation/acceptance/rejection).
+  - Lint: PASSED (Clean, 0 errors).
+  - Build: PASSED (`app-debug.apk` generated).
+- Human Prerequisite Note:
+  - Real cloud push and Firestore testing require a configured Firebase project and `google-services.json`. In the absence of credentials, the app operates 100% reliably in Fake/offline mode without crashes.
+
+## Stage 10B – Doctor Mode – SIGNED OFF (2026-11-05)
+- Summary: Implemented comprehensive Doctor Mode according to the Stage 10B design in `README.md`. MediTrack does not require or verify doctor medical registration numbers or licence credentials; doctor accounts only represent user roles, and doctors have zero access to patient data without explicit patient acceptance. Implemented single-use expiring invitation codes (`DOC-xxxx`), patient-controlled accept, decline, and revocation (which terminates doctor access immediately in both app logic and Firebase security rules). Created read-only Doctor Dashboard displaying only accepted patients with their medicines, stock, today's doses, status chips, adherence calculations, and proof photos. Implemented complete Prescription Proposal workflow (`ADD`, `EDIT`, `STOP`) where doctors submit proposals, patients decide, and medicines/doses are activated in Room only upon patient acceptance. Handled patient clarification requests with structured notes and doctor proposal revisions (`revision + 1`). Implemented bypass protection verifying doctor-prescribed doses cannot become `TAKEN` without live photo verification. Implemented all 9 doctor notification types with exact specified push text in Kotlin and TypeScript.
+- Files added/changed:
+  - `domain/model/Enums.kt` (`DoctorLinkStatus`, `ProposalStatus`, `NotifType`)
+  - `domain/model/PrescriptionPayload.kt` (lightweight, JVM-safe JSON serialization/deserialization)
+  - `domain/model/NotificationText.kt` (exact text for all 9 doctor notification types)
+  - `domain/statemachine/ProposalStateMachine.kt` (legal and illegal transition validation)
+  - `domain/repository/Repositories.kt` (`DoctorRepository`, `ProposalRepository`)
+  - `data/db/dao/Daos.kt` (enhanced `DoctorLinkDao` and `MedicineProposalDao`)
+  - `data/repository/RepositoryImpls.kt` (`DoctorRepositoryImpl`, `ProposalRepositoryImpl`)
+  - `core/di/RepositoryModule.kt` (injected repositories and delivery gateway)
+  - `domain/usecase/AcceptProposalUseCase.kt` (ADD creates medicine/doses/alarms, EDIT affects future doses only, STOP cancels future doses and preserves history)
+  - `domain/usecase/DeclineProposalUseCase.kt`, `RequestClarificationUseCase.kt`, `ReviseProposalUseCase.kt`
+  - `feature/doctor/DoctorViewModel.kt`, `DoctorScreen.kt` (dashboard, invitations, read-only monitoring, proposal dialogs)
+  - `core/navigation/Screen.kt`, `MainActivity.kt` (nav routing for Doctor mode)
+  - `feature/home/HomeScreen.kt` (Doctor Mode shortcut in Quick Actions)
+  - `firestore.rules`, `storage.rules` (extended for doctor permissions)
+  - `functions/src/notificationText.ts` (extended with doctor push text)
+  - `docs/verification/STAGE_10B_VERIFY.md`
+- Tests added (41 new test methods across Stage 10 & 10B):
+  - `ProposalStateMachineTest.kt` (9 tests verifying all legal and illegal transitions)
+  - `PrescriptionProposalWorkflowTest.kt` (6 tests verifying ADD, EDIT, STOP, DECLINE, CLARIFICATION, and REVISION)
+  - `DoctorAccessGatingTest.kt` (4 tests verifying zero access for PENDING, DECLINED, REVOKED and read-only for ACCEPTED)
+  - `DoctorPrescriptionBypassTest.kt` (2 tests verifying photo verification cannot be bypassed)
+  - `NotificationTextTest.kt` (14 tests verifying push text across all notification types)
+  - `DoctorViewModelTest.kt` (7 tests covering invitations, consent, proposals, and patient selection)
+  - `OutboxOfflinePersistenceTest.kt` (3 tests verifying offline outbox persistence and idempotency)
 - Verification Commands:
-  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (197 tests, 0 failures, 100% passing)
-  - Lint: `.\gradlew.bat lint` – PASSED (Clean, 0 errors)
-  - Build: `.\gradlew.bat assembleDebug` – PASSED (Output copied to `app-debug.apk`)
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (**238 tests, 0 failures, 100% passing**)
+  - Lint: `.\gradlew.bat lint` – PASSED (**Clean, 0 errors**)
+  - Build: `.\gradlew.bat assembleDebug` – PASSED (**Output copied to `app-debug.apk`**)
+- Manual Device Checks Required:
+  1. Generate invitation code as Doctor (`DOC-xxxx`).
+  2. Enter code as Patient and test Accept, Decline, and Revoke.
+  3. Submit proposal as Doctor, request clarification as Patient, revise as Doctor, and accept as Patient.
+  4. Verify that prescribed dose alarms fire and require live photo verification to be marked TAKEN.
+- Human Prerequisites:
+  - If testing with live Firebase backend: place `google-services.json` in `app/` and deploy `/functions`. Without credentials, all features run deterministically in Fake/offline mode.
 
 
 
