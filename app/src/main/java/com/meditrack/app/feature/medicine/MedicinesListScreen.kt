@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -179,6 +181,7 @@ fun MedicinesListScreen(
         if (medicineToRefill != null) {
             val med = medicineToRefill!!
             var pillsInput by remember { mutableStateOf("30") }
+            var isNewStrip by remember { mutableStateOf(false) }
             var errorText by remember { mutableStateOf<String?>(null) }
 
             AlertDialog(
@@ -212,6 +215,20 @@ fun MedicinesListScreen(
                                 )
                             }
                         }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Checkbox(
+                                checked = isNewStrip,
+                                onCheckedChange = { isNewStrip = it }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Starting a new strip",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -221,7 +238,7 @@ fun MedicinesListScreen(
                             if (count <= 0) {
                                 errorText = "Please enter at least 1 pill"
                             } else {
-                                viewModel.refillMedicine(med.id, count)
+                                viewModel.refillMedicine(med.id, count, newStrip = isNewStrip)
                                 medicineToRefill = null
                             }
                         }

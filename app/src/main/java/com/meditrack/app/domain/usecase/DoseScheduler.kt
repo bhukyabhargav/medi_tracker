@@ -107,7 +107,7 @@ object DoseScheduler {
         val startInstant = Instant.ofEpochMilli(startMillis)
         while (currentZdt.toInstant().isBefore(startInstant)) {
             val next = currentZdt.plusHours(intervalHours.toLong())
-            if (!next.isBefore(startInstant)) {
+            if (!next.toInstant().isBefore(startInstant)) {
                 // Keep currentZdt at the step just before or equal to startInstant
                 break
             }

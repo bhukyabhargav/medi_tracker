@@ -162,15 +162,19 @@ class FakeAuthRepository @Inject constructor(
     }
 
     override suspend fun logout() {
-        val currentUserId = userPreferences.currentUserId.firstOrNull()
-        if (currentUserId != null) {
-            // Isolate user data: wipe active patient rows from Room to prevent cross-account leak
-            medicineDao.deleteAllByPatientId(currentUserId)
-            doseEventDao.deleteAllByPatientId(currentUserId)
-            caregiverLinkDao.deleteAllByPatientId(currentUserId)
-        }
-        userDao.clearUsers()
+        // Retain user data in Room for offline-first support; isolate by patientId
         userPreferences.clearSession()
+    }
+
+    override suspend fun deleteAccount(userId: String): Result<Unit> {
+        // Delete in strict foreign key order: dose_events -> medicines -> caregiver_links
+        // Note: verification_attempts cascades on delete of dose_events
+        doseEventDao.deleteAllByPatientId(userId)
+        medicineDao.deleteAllByPatientId(userId)
+        caregiverLinkDao.deleteAllByPatientId(userId)
+        userDao.deleteById(userId)
+        userPreferences.clearSession()
+        return Result.success(Unit)
     }
 
     override suspend fun setOnboardingCompleted() {

@@ -17,7 +17,7 @@ import com.meditrack.app.domain.repository.OutboxRepository
 import com.meditrack.app.feature.reminder.NotificationChannels
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
-import org.json.JSONObject
+import com.meditrack.app.core.util.JsonPayload
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -67,16 +67,15 @@ class ProcessStockDecrementUseCase @Inject constructor(
             val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
 
             if (hasCaregiver) {
-                // Enqueue a LOW_STOCK outbox event with safe JSONObject
-                val payload = JSONObject().apply {
-                    put("medicineId", medicine.id)
-                    put("name", medicine.name)
-                    put("remaining", newStock)
-                }
+                val payloadJson = JsonPayload.build(
+                    "medicineId" to medicine.id,
+                    "name" to medicine.name,
+                    "remaining" to newStock
+                )
                 val outboxEvent = NotificationOutbox(
                     id = "outbox_${UUID.randomUUID()}",
                     type = NotifType.LOW_STOCK,
-                    payloadJson = payload.toString(),
+                    payloadJson = payloadJson,
                     createdAt = now,
                     delivered = false
                 )

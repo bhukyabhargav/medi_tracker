@@ -102,6 +102,15 @@ class FirebaseAuthRepository @Inject constructor(
     }
 
     override suspend fun verifyOtp(emailOrPhone: String, otp: String): Result<User> {
+        val auth = firebaseAuth
+        if (auth?.currentUser != null) {
+            val uid = auth.currentUser!!.uid
+            val user = userDao.getUserById(uid)
+            if (user != null) {
+                userPreferences.setLoggedIn(user.id)
+                return Result.success(user)
+            }
+        }
         return fakeAuthRepository.verifyOtp(emailOrPhone, otp)
     }
 
@@ -156,6 +165,13 @@ class FirebaseAuthRepository @Inject constructor(
             firebaseAuth?.signOut()
         } catch (_: Exception) {}
         fakeAuthRepository.logout()
+    }
+
+    override suspend fun deleteAccount(userId: String): Result<Unit> {
+        try {
+            firestore?.collection("users")?.document(userId)?.delete()?.await()
+        } catch (_: Exception) {}
+        return fakeAuthRepository.deleteAccount(userId)
     }
 
     override suspend fun setOnboardingCompleted() = fakeAuthRepository.setOnboardingCompleted()

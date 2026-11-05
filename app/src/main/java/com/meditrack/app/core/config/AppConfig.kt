@@ -12,6 +12,7 @@ object AppConfig {
     // Verification
     const val MAX_VERIFICATION_ATTEMPTS = 3
     const val LATE_DOSE_MAX_HOURS = 24            // late entry allowed until next scheduled dose OR this many hours, whichever is EARLIER
+    const val EARLY_VERIFY_TOLERANCE_MINUTES = 30 // allow intake up to 30 minutes before scheduled time
 
     // Image quality gate (tunable)
     const val QUALITY_ANALYSIS_MAX_SIDE_PX = 640

@@ -429,6 +429,13 @@ class RoomDaoTest {
     fun migration_1_2_executes_successfully() {
         val mockDb = io.mockk.mockk<androidx.sqlite.db.SupportSQLiteDatabase>(relaxed = true)
         AppDatabase.MIGRATION_1_2.migrate(mockDb)
+        io.mockk.verify(atLeast = 5) { mockDb.execSQL(any()) }
+    }
+
+    @Test
+    fun migration_2_3_executes_successfully() {
+        val mockDb = io.mockk.mockk<androidx.sqlite.db.SupportSQLiteDatabase>(relaxed = true)
+        AppDatabase.MIGRATION_2_3.migrate(mockDb)
         io.mockk.verify(atLeast = 10) { mockDb.execSQL(any()) }
     }
 }

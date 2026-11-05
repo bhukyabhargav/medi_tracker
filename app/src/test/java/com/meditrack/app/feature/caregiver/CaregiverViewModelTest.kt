@@ -141,8 +141,8 @@ class CaregiverViewModelTest {
     @Test
     fun selectPatient_computesAdherenceAndLoadsDoses() = runTest {
         val doses = listOf(
-            DoseEvent(id = "1", medicineId = "m1", scheduledAt = 1000L, windowEndsAt = 2000L, status = DoseStatus.TAKEN),
-            DoseEvent(id = "2", medicineId = "m1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
+            DoseEvent(id = "1", medicineId = "m1", patientId = "patient_1", scheduledAt = 1000L, windowEndsAt = 2000L, status = DoseStatus.TAKEN),
+            DoseEvent(id = "2", medicineId = "m1", patientId = "patient_1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
         )
         coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(doses)
         coEvery { medicineRepository.observeAll() } returns flowOf(emptyList())
@@ -155,5 +155,18 @@ class CaregiverViewModelTest {
         assertEquals(2, state.selectedPatientDoses.size)
         assertNotNull(state.adherenceReport)
         assertEquals(50.0, state.adherenceReport?.percentage ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun acceptInviteCode_offlineSimulation_createsAcceptedLink() = runTest {
+        val linkSlot = slot<CaregiverLink>()
+        coEvery { caregiverRepository.insert(capture(linkSlot)) } returns Unit
+
+        viewModel.acceptInviteCode("INVITE123")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { caregiverRepository.insert(any()) }
+        assertEquals(LinkStatus.ACCEPTED, linkSlot.captured.status)
+        assertEquals("link_INVITE123", linkSlot.captured.id)
     }
 }

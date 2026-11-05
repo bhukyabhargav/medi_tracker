@@ -6,6 +6,8 @@ import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.statemachine.DoseStateMachine
 import com.meditrack.app.domain.statemachine.DoseTransitionEvent
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,15 +29,21 @@ class RecordVerifiedDoseUseCase @Inject constructor(
      * - Decrements medicine stock exactly once via ProcessStockDecrementUseCase
      * - Cancels dose alarm
      */
+    private val mutex = Mutex()
+
     suspend operator fun invoke(
         doseId: String,
         photoPath: String? = null,
         emptyCellsAfter: Int? = null,
         takenAt: Long = System.currentTimeMillis(),
         isLate: Boolean = false
-    ): Result<Unit> {
+    ): Result<Unit> = mutex.withLock {
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
+
+        if (dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE) {
+            return Result.failure(IllegalStateException("Dose $doseId has already been recorded as taken."))
+        }
 
         var isLateVerification = isLate || dose.status == DoseStatus.MISSED
 

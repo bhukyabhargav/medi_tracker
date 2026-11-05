@@ -60,6 +60,17 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        getByName("main").assets.srcDirs(files("$projectDir/schemas", "src/main/assets"))
+        getByName("test").assets.srcDirs(files("$projectDir/schemas", "$projectDir/src/test/assets"))
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 ksp {
@@ -125,6 +136,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.functions)
 
     // ML Kit & TFLite
     implementation(libs.mlkit.text.recognition)

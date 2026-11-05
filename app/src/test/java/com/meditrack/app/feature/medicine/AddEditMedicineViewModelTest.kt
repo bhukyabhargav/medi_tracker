@@ -33,13 +33,14 @@ class AddEditMedicineViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val saveMedicineUseCase: SaveMedicineUseCase = mockk(relaxed = true)
+    private val userPreferences: com.meditrack.app.data.prefs.UserPreferences = mockk(relaxed = true)
 
     private lateinit var viewModel: AddEditMedicineViewModel
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        viewModel = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase)
+        viewModel = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences)
     }
 
     @After
@@ -59,8 +60,8 @@ class AddEditMedicineViewModelTest {
     fun onContinueToPhoto_advances_to_photo_step_when_valid() {
         viewModel.onNameChange("Ibuprofen")
         viewModel.onDosageChange("400mg")
-        viewModel.onPillsPerDoseChange(1)
-        viewModel.onInitialStockChange(20)
+        viewModel.onPillsPerDoseTextChange("1")
+        viewModel.onInitialStockTextChange("20")
 
         viewModel.onContinueToPhoto()
 
@@ -150,5 +151,32 @@ class AddEditMedicineViewModelTest {
 
         coVerify { saveMedicineUseCase.updateMedicine(match { it.dosageText == "40mg" }, any(), any()) }
         assertEquals(AddEditStep.SUCCESS, viewModel.uiState.value.currentStep)
+    }
+
+    @Test
+    fun deleteMedicine_invokes_saveMedicineUseCase_and_calls_callback() = runTest {
+        val existingMed = Medicine(
+            id = "med_del_1",
+            name = "Aspirin",
+            dosageText = "81mg",
+            pillsPerDose = 1,
+            frequencyType = FrequencyType.DAILY,
+            timesOfDay = listOf(LocalTime.of(8, 0)),
+            startDate = 1000L,
+            initialStock = 10,
+            currentStock = 10
+        )
+        coEvery { medicineRepository.getById("med_del_1") } returns existingMed
+        coEvery { saveMedicineUseCase.deleteMedicine("med_del_1") } returns Unit
+
+        viewModel.loadMedicine("med_del_1")
+        advanceUntilIdle()
+
+        var deletedCalled = false
+        viewModel.deleteMedicine { deletedCalled = true }
+        advanceUntilIdle()
+
+        coVerify { saveMedicineUseCase.deleteMedicine("med_del_1") }
+        assertTrue(deletedCalled)
     }
 }

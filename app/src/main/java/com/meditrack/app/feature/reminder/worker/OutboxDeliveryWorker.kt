@@ -23,7 +23,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.tasks.await
-import org.json.JSONObject
+import com.meditrack.app.core.util.JsonPayload
 import java.util.concurrent.TimeUnit
 
 @HiltWorker
@@ -76,17 +76,10 @@ class OutboxDeliveryWorker @AssistedInject constructor(
         isFirebaseAvailable: Boolean
     ): Boolean {
         // Extract fields from payloadJson safely
-        var medicineName: String? = null
-        var doseId: String? = null
-        var specificCaregiverUid: String? = null
-
-        try {
-            val json = JSONObject(event.payloadJson)
-            if (json.has("name")) medicineName = json.getString("name")
-            if (json.has("medicineName")) medicineName = json.getString("medicineName")
-            if (json.has("doseId")) doseId = json.getString("doseId")
-            if (json.has("caregiverUid")) specificCaregiverUid = json.getString("caregiverUid")
-        } catch (_: Exception) {}
+        val medicineName = JsonPayload.getString(event.payloadJson, "name")
+            ?: JsonPayload.getString(event.payloadJson, "medicineName")
+        val doseId = JsonPayload.getString(event.payloadJson, "doseId")
+        val specificCaregiverUid = JsonPayload.getString(event.payloadJson, "caregiverUid")
 
         if (!isFirebaseAvailable) {
             // In offline/test/fake mode without Firebase configuration:
@@ -124,13 +117,19 @@ class OutboxDeliveryWorker @AssistedInject constructor(
                     firestore.collection("notificationEvents").document(eventDocId).set(eventMap).await()
                 } catch (e: Exception) {
                     val msg = e.message.orEmpty()
-                    // Treat already existing / immutable document rejection as delivered to prevent poison retry loop
-                    if (e is FirebaseFirestoreException &&
-                        (e.code == FirebaseFirestoreException.Code.ALREADY_EXISTS ||
-                         e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
-                         msg.contains("PERMISSION_DENIED"))
+                    if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ALREADY_EXISTS) {
+                        // Document already exists, consider delivered
+                    } else if ((e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) ||
+                        msg.contains("PERMISSION_DENIED")
                     ) {
-                        // Already created on Firestore previously
+                        val doc = try {
+                            firestore.collection("notificationEvents").document(eventDocId).get().await()
+                        } catch (_: Exception) { null }
+                        if (doc != null && doc.exists()) {
+                            // Already created previously
+                        } else {
+                            throw e
+                        }
                     } else {
                         throw e
                     }

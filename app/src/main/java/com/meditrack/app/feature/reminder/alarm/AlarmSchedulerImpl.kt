@@ -88,6 +88,10 @@ class AlarmSchedulerImpl @Inject constructor(
         scheduleMissedWorker(dose)
     }
 
+    override fun scheduleMissedCheck(dose: DoseEvent) {
+        scheduleMissedWorker(dose)
+    }
+
     private fun scheduleMissedWorker(dose: DoseEvent) {
         try {
             val now = System.currentTimeMillis()

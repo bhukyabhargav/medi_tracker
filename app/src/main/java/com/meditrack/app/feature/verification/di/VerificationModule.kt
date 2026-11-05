@@ -20,7 +20,7 @@ object VerificationModule {
         fakeStripDetector: FakeStripDetector,
         tfliteStripDetector: TfliteStripDetector
     ): StripDetector {
-        return if (BuildConfig.DEBUG || !tfliteStripDetector.isModelAvailable) {
+        return if (BuildConfig.DEBUG) {
             fakeStripDetector
         } else {
             tfliteStripDetector

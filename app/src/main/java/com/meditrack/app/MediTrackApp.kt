@@ -36,6 +36,8 @@ class MediTrackApp : Application(), Configuration.Provider {
         try {
             DailyDoseExtensionWorker.schedule(this)
             OverdueDoseSafetyWorker.schedule(this)
+            com.meditrack.app.feature.reminder.worker.AlarmMaintenanceWorker.schedule(this)
+            com.meditrack.app.feature.reminder.worker.AlarmMaintenanceWorker.enqueueOneTime(this)
             com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker.schedule(this)
             com.meditrack.app.feature.sync.SyncWorker.schedule(this)
         } catch (e: Exception) {

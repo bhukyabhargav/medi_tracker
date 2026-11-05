@@ -12,7 +12,8 @@ import androidx.work.WorkerParameters
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase
-import com.meditrack.app.feature.reminder.NotificationChannels
+import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.feature.reminder.notification.MissedDoseNotifier
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -22,6 +23,7 @@ class OverdueDoseSafetyWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val doseRepository: DoseRepository,
+    private val medicineRepository: MedicineRepository,
     private val processMissedDoseUseCase: ProcessMissedDoseUseCase
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -31,16 +33,13 @@ class OverdueDoseSafetyWorker @AssistedInject constructor(
             val overdueDoses = doseRepository.getOverduePendingDoses(now)
             Log.d(MediTrackApp.TAG, "OverdueDoseSafetyWorker checking: found ${overdueDoses.size} overdue doses")
 
-            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-
             for (dose in overdueDoses) {
-                // Cancel active reminder heads-up
-                notificationManager?.cancel(NotificationChannels.getNotificationIdForDose(dose.id))
-
                 val result = processMissedDoseUseCase(dose.id, now)
                 result.onSuccess { transitioned ->
                     if (transitioned) {
-                        Log.d(MediTrackApp.TAG, "OverdueDoseSafetyWorker marked dose ${dose.id} as MISSED")
+                        val medName = medicineRepository.getById(dose.medicineId)?.name ?: "Medication"
+                        MissedDoseNotifier.notify(applicationContext, dose.id, medName)
+                        Log.d(MediTrackApp.TAG, "OverdueDoseSafetyWorker marked dose ${dose.id} as MISSED and posted local alert")
                     }
                 }.onFailure { error ->
                     Log.w(MediTrackApp.TAG, "OverdueDoseSafetyWorker failed for dose ${dose.id}: ${error.message}")

@@ -27,7 +27,10 @@ object AdherenceCalculator {
      * closedDoses   = verifiedTaken + count(MISSED) + count(SKIPPED) + count(UNVERIFIED)
      * adherence %   = verifiedTaken / closedDoses * 100 (0 closed doses -> null / "—")
      */
-    fun calculate(doses: List<DoseEvent>): AdherenceReport {
+    fun calculate(
+        doses: List<DoseEvent>,
+        now: Long = System.currentTimeMillis()
+    ): AdherenceReport {
         var takenOnTime = 0
         var takenLate = 0
         var missed = 0
@@ -46,7 +49,12 @@ object AdherenceCalculator {
                     }
                 }
                 DoseStatus.SKIPPED -> skipped++
-                DoseStatus.UNVERIFIED -> unverified++
+                DoseStatus.UNVERIFIED -> {
+                    // Counts as closed only once the intake window has passed
+                    if (dose.windowEndsAt <= now) {
+                        unverified++
+                    }
+                }
                 DoseStatus.PENDING -> {
                     // Future / pending doses are not closed
                 }

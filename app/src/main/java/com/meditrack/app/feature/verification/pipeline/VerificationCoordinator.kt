@@ -23,7 +23,7 @@ import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import com.meditrack.app.feature.verification.quality.PerceptualHasher
 import kotlinx.coroutines.flow.first
-import org.json.JSONObject
+import com.meditrack.app.core.util.JsonPayload
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -88,12 +88,13 @@ class VerificationCoordinator @Inject constructor(
             return CoordinatorResult.Error("Verification failed after maximum attempts for this dose. Please contact your caregiver or healthcare provider.")
         }
 
-        // Early verification guard: do not allow verification before scheduledAt
-        if (now < dose.scheduledAt) {
+        // Early verification guard: do not allow verification earlier than EARLY_VERIFY_TOLERANCE_MINUTES before scheduledAt
+        val earlyToleranceMillis = AppConfig.EARLY_VERIFY_TOLERANCE_MINUTES * 60 * 1000L
+        if (now < dose.scheduledAt - earlyToleranceMillis) {
             return CoordinatorResult.Failed(
                 reason = RejectReason.TOO_EARLY,
                 attemptsRemaining = AppConfig.MAX_VERIFICATION_ATTEMPTS - dose.verificationAttempts,
-                friendlyMessage = "It is too early to take this dose. Please wait until your scheduled time."
+                friendlyMessage = "It is too early to take this dose. Please wait until your scheduled window (up to ${AppConfig.EARLY_VERIFY_TOLERANCE_MINUTES} min before scheduled time)."
             )
         }
 
@@ -238,15 +239,15 @@ class VerificationCoordinator @Inject constructor(
                     val currentUserId = userPreferences.currentUserId.first()
                     val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
                     if (hasCaregiver) {
-                        val payload = JSONObject().apply {
-                            put("doseId", doseId)
-                            put("medicineId", dose.medicineId)
-                            put("reason", reason.name)
-                        }
+                        val payloadJson = JsonPayload.build(
+                            "doseId" to doseId,
+                            "medicineId" to dose.medicineId,
+                            "reason" to reason.name
+                        )
                         val outboxEvent = NotificationOutbox(
                             id = "outbox_${UUID.randomUUID()}",
                             type = NotifType.DOSE_UNVERIFIED,
-                            payloadJson = payload.toString(),
+                            payloadJson = payloadJson,
                             createdAt = now,
                             delivered = false
                         )
@@ -296,15 +297,15 @@ class VerificationCoordinator @Inject constructor(
         // Enqueue DOSE_TAKEN_LATE outbox notification if caregiver connected
         val currentUserId = userPreferences.currentUserId.first()
         if (currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)) {
-            val payload = JSONObject().apply {
-                put("doseId", dose.id)
-                put("medicineId", dose.medicineId)
-                put("takenAt", captureTime)
-            }
+            val payloadJson = JsonPayload.build(
+                "doseId" to dose.id,
+                "medicineId" to dose.medicineId,
+                "takenAt" to captureTime
+            )
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOSE_TAKEN_LATE,
-                payloadJson = payload.toString(),
+                payloadJson = payloadJson,
                 createdAt = now,
                 delivered = false
             )

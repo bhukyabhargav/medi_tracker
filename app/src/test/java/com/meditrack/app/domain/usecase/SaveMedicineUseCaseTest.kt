@@ -62,9 +62,10 @@ class SaveMedicineUseCaseTest {
 
     @Test
     fun saveNewMedicine_sets_current_stock_and_inserts_doses() = runTest {
+        val tomorrow = LocalDate.now(zoneId).plusDays(1)
         val med = createSampleMedicine(
-            startDate = LocalDate.of(2026, 1, 1).atStartOfDay(zoneId).toInstant().toEpochMilli(),
-            endDate = LocalDate.of(2026, 1, 3).atTime(LocalTime.MAX).atZone(zoneId).toInstant().toEpochMilli()
+            startDate = tomorrow.atStartOfDay(zoneId).toInstant().toEpochMilli(),
+            endDate = tomorrow.plusDays(2).atTime(LocalTime.MAX).atZone(zoneId).toInstant().toEpochMilli()
         )
 
         val insertedMedSlot = slot<Medicine>()
@@ -89,6 +90,29 @@ class SaveMedicineUseCaseTest {
     }
 
     @Test
+    fun saveNewMedicine_whenStartDateInPast_doesNotGeneratePastDoses() = runTest {
+        val now = System.currentTimeMillis()
+        val fiveDaysAgo = now - (5 * 24 * 60 * 60 * 1000L)
+        val med = createSampleMedicine(
+            startDate = fiveDaysAgo,
+            endDate = now + (3 * 24 * 60 * 60 * 1000L)
+        )
+
+        coEvery { medicineRepository.insert(any()) } returns Unit
+        val insertedDosesSlot = slot<List<DoseEvent>>()
+        coEvery { doseRepository.insertAll(capture(insertedDosesSlot)) } returns Unit
+
+        val doses = useCase.saveNewMedicine(
+            medicine = med,
+            rollingDaysAhead = 7L,
+            zoneId = zoneId
+        )
+
+        // All generated doses must be >= now (no past missed doses)
+        assertTrue(doses.all { it.scheduledAt >= now })
+    }
+
+    @Test
     fun updateMedicine_deletes_future_pending_doses_and_regenerates_future_only() = runTest {
         val med = createSampleMedicine(
             timesOfDay = listOf(LocalTime.of(9, 0), LocalTime.of(15, 0), LocalTime.of(21, 0))
@@ -103,8 +127,8 @@ class SaveMedicineUseCaseTest {
             zoneId = zoneId
         )
 
-        coVerify { medicineRepository.update(med) }
-        coVerify { doseRepository.deleteAllPendingForMedicine(eq("med_1")) }
+        coVerify { medicineRepository.update(match { it.id == "med_1" }) }
+        coVerify { doseRepository.deleteFuturePendingDoses(eq("med_1"), any()) }
         coVerify { doseRepository.insertAll(any()) }
         assertTrue(doses.isNotEmpty())
     }

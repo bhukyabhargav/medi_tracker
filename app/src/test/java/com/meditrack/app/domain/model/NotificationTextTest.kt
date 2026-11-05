@@ -37,19 +37,22 @@ class NotificationTextTest {
 
     @Test
     fun doctorNotifications_produceExactSpecifiedText() {
-        val (_, docInvite) = NotificationText.buildText(NotifType.DOCTOR_INVITE, patientName = "Bob")
-        assertEquals("Bob invited you as their doctor.", docInvite)
+        val (_, docInvite) = NotificationText.buildText(NotifType.DOCTOR_INVITE_RECEIVED, doctorName = "House")
+        assertEquals("House wants to connect as your doctor on MediTrack. Review the request.", docInvite)
 
-        val (_, docPropNew) = NotificationText.buildText(NotifType.DOCTOR_PROPOSAL_NEW, doctorName = "Dr. House")
-        assertEquals("Dr. House proposed changes to your medications.", docPropNew)
+        val (_, docInviteAcc) = NotificationText.buildText(NotifType.DOCTOR_INVITE_ACCEPTED, patientName = "Bob")
+        assertEquals("Bob accepted your doctor connection.", docInviteAcc)
 
-        val (_, docPropAcc) = NotificationText.buildText(NotifType.DOCTOR_PROPOSAL_ACCEPTED, patientName = "Bob")
-        assertEquals("Bob accepted your medication proposal.", docPropAcc)
+        val (_, docPropNew) = NotificationText.buildText(NotifType.PRESCRIPTION_PROPOSAL_RECEIVED, doctorName = "House", medicineName = "Metformin")
+        assertEquals("Dr House proposed a prescription for Metformin. Review and accept.", docPropNew)
 
-        val (_, docPropRej) = NotificationText.buildText(NotifType.DOCTOR_PROPOSAL_REJECTED, patientName = "Bob")
-        assertEquals("Bob rejected your medication proposal.", docPropRej)
+        val (_, docPropAcc) = NotificationText.buildText(NotifType.PRESCRIPTION_ACCEPTED, patientName = "Bob", medicineName = "Metformin")
+        assertEquals("Bob accepted the prescription proposal for Metformin.", docPropAcc)
 
-        val (_, docPropClar) = NotificationText.buildText(NotifType.DOCTOR_PROPOSAL_CLARIFICATION, patientName = "Bob")
-        assertEquals("Bob requested clarification on your proposal.", docPropClar)
+        val (_, docPropRej) = NotificationText.buildText(NotifType.PRESCRIPTION_DECLINED, patientName = "Bob", medicineName = "Metformin")
+        assertEquals("Bob declined the prescription proposal for Metformin.", docPropRej)
+
+        val (_, docPropClar) = NotificationText.buildText(NotifType.PRESCRIPTION_CLARIFICATION_REQUESTED, patientName = "Bob", medicineName = "Metformin")
+        assertEquals("Bob requested clarification on Metformin.", docPropClar)
     }
 }

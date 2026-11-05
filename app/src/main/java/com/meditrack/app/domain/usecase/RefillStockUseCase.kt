@@ -12,6 +12,7 @@ class RefillStockUseCase @Inject constructor(
     suspend operator fun invoke(
         medicineId: String,
         additionalPills: Int,
+        newStrip: Boolean = false,
         newBaselineEmptyCells: Int = 0,
         newBaselinePhotoPath: String? = null,
         now: Long = System.currentTimeMillis()
@@ -23,14 +24,22 @@ class RefillStockUseCase @Inject constructor(
             ?: return Result.failure(IllegalArgumentException("Medicine not found: $medicineId"))
 
         val newStock = medicine.currentStock + additionalPills
-        val updated = medicine.copy(
-            currentStock = newStock,
-            baselineEmptyCells = newBaselineEmptyCells,
-            baselinePhotoPath = newBaselinePhotoPath ?: medicine.baselinePhotoPath,
-            lastRefillAt = now,
-            lowStockNotified = false, // Resets low stock flag so future drops trigger alert
-            updatedAt = now
-        )
+        val updated = if (newStrip) {
+            medicine.copy(
+                currentStock = newStock,
+                baselineEmptyCells = newBaselineEmptyCells,
+                baselinePhotoPath = newBaselinePhotoPath,
+                lastRefillAt = now,
+                lowStockNotified = false,
+                updatedAt = now
+            )
+        } else {
+            medicine.copy(
+                currentStock = newStock,
+                lowStockNotified = false,
+                updatedAt = now
+            )
+        }
         medicineRepository.update(updated)
         return Result.success(updated)
     }

@@ -47,6 +47,35 @@ class BootReceiverTest {
     }
 
     @Test
+    fun processAction_timezoneChanged_regeneratesDoses() = runTest {
+        val medRepo: com.meditrack.app.domain.repository.MedicineRepository = mockk(relaxed = true)
+        val saveUseCase: com.meditrack.app.domain.usecase.SaveMedicineUseCase = mockk(relaxed = true)
+        val sampleMed = com.meditrack.app.domain.model.Medicine(
+            id = "med_tz",
+            name = "Thyroxine",
+            dosageText = "50mcg",
+            pillsPerDose = 1,
+            frequencyType = com.meditrack.app.domain.model.FrequencyType.DAILY,
+            timesOfDay = emptyList(),
+            startDate = 1000L,
+            initialStock = 30,
+            currentStock = 30
+        )
+        io.mockk.every { medRepo.observeActive() } returns kotlinx.coroutines.flow.flowOf(listOf(sampleMed))
+
+        receiver.processAction(
+            Intent.ACTION_TIMEZONE_CHANGED,
+            scheduler = alarmScheduler,
+            medRepo = medRepo,
+            saveUseCase = saveUseCase,
+            scope = this
+        )
+        testScheduler.advanceUntilIdle()
+
+        coVerify { saveUseCase.updateMedicine(sampleMed, zoneId = any()) }
+    }
+
+    @Test
     fun processAction_unrelatedAction_ignores() = runTest {
         receiver.processAction("android.intent.action.AIRPLANE_MODE", scheduler = alarmScheduler, scope = this)
         testScheduler.advanceUntilIdle()

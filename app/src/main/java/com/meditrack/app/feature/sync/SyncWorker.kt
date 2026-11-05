@@ -61,27 +61,11 @@ class SyncWorker @AssistedInject constructor(
             val db = FirebaseFirestore.getInstance()
             val storage = FirebaseStorage.getInstance()
 
-            // 1. Sync Medicines: Push local & Pull remote with conflict resolution
+            // 1. Sync Medicines: Pull remote first & resolve, then push local batch
             syncMedicines(db, currentUserId)
 
-            // 2. Sync Dose Events: Push local & Pull remote with conflict resolution + Upload photos
+            // 2. Sync Dose Events: Pull remote first & resolve, then push local batch + Upload photos
             syncDoseEvents(db, storage, currentUserId)
-
-            // 3. Sync Caregiver Links
-            val localLinks = caregiverRepository.observeByPatientId(currentUserId).firstOrNull() ?: emptyList()
-            for (link in localLinks) {
-                val linkMap = hashMapOf<String, Any?>(
-                    "id" to link.id,
-                    "patientId" to link.patientId,
-                    "caregiverName" to link.caregiverName,
-                    "caregiverContact" to link.caregiverContact,
-                    "relationship" to link.relationship,
-                    "status" to link.status.name,
-                    "caregiverUid" to link.caregiverUid,
-                    "createdAt" to link.createdAt
-                )
-                db.collection("caregiverLinks").document(link.id).set(linkMap).await()
-            }
 
             Result.success()
         } catch (e: Exception) {
@@ -93,91 +77,100 @@ class SyncWorker @AssistedInject constructor(
         val localMedicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
         val localMedMap = localMedicines.associateBy { it.id }.toMutableMap()
 
-        // Push local medicines to Firestore with complete schedule properties
-        for (med in localMedicines) {
-            val medMap = hashMapOf<String, Any?>(
-                "id" to med.id,
-                "patientId" to (med.patientId ?: currentUserId),
-                "name" to med.name,
-                "dosageText" to med.dosageText,
-                "pillsPerDose" to med.pillsPerDose,
-                "frequencyType" to med.frequencyType.name,
-                "intervalHours" to med.intervalHours,
-                "timesOfDay" to med.timesOfDay.map { it.toString() },
-                "daysOfWeek" to med.daysOfWeek,
-                "startDate" to med.startDate,
-                "endDate" to med.endDate,
-                "foodRelation" to med.foodRelation.name,
-                "instructions" to med.instructions,
-                "reminderEnabled" to med.reminderEnabled,
-                "initialStock" to med.initialStock,
-                "currentStock" to med.currentStock,
-                "baselineEmptyCells" to med.baselineEmptyCells,
-                "baselinePhotoPath" to med.baselinePhotoPath,
-                "lowStockNotified" to med.lowStockNotified,
-                "lastRefillAt" to med.lastRefillAt,
-                "isDeleted" to med.isDeleted,
-                "createdAt" to med.createdAt,
-                "updatedAt" to med.updatedAt
-            )
-            db.collection("users").document(currentUserId)
-                .collection("medicines").document(med.id)
-                .set(medMap).await()
-        }
-
-        // Pull remote medicines from Firestore and apply conflict resolution
-        val remoteSnap = db.collection("users").document(currentUserId).collection("medicines").get().await()
-        for (doc in remoteSnap.documents) {
-            val id = doc.getString("id") ?: doc.id
-            val name = doc.getString("name") ?: continue
-            val timesOfDayList = (doc.get("timesOfDay") as? List<*>)?.mapNotNull {
-                try { LocalTime.parse(it.toString()) } catch (_: Exception) { null }
-            } ?: emptyList()
-            val daysOfWeekList = (doc.get("daysOfWeek") as? List<*>)?.mapNotNull {
-                (it as? Number)?.toInt()
-            }
-            val freqType = try {
-                FrequencyType.valueOf(doc.getString("frequencyType") ?: FrequencyType.DAILY.name)
-            } catch (_: Exception) { FrequencyType.DAILY }
-            val foodRel = try {
-                FoodRelation.valueOf(doc.getString("foodRelation") ?: FoodRelation.NONE.name)
-            } catch (_: Exception) { FoodRelation.NONE }
-
-            val remoteMed = Medicine(
-                id = id,
-                patientId = doc.getString("patientId") ?: currentUserId,
-                name = name,
-                dosageText = doc.getString("dosageText") ?: "",
-                pillsPerDose = doc.getLong("pillsPerDose")?.toInt() ?: 1,
-                frequencyType = freqType,
-                intervalHours = doc.getLong("intervalHours")?.toInt(),
-                timesOfDay = timesOfDayList,
-                daysOfWeek = daysOfWeekList,
-                startDate = doc.getLong("startDate") ?: System.currentTimeMillis(),
-                endDate = doc.getLong("endDate"),
-                foodRelation = foodRel,
-                instructions = doc.getString("instructions") ?: "",
-                reminderEnabled = doc.getBoolean("reminderEnabled") ?: true,
-                initialStock = doc.getLong("initialStock")?.toInt() ?: 10,
-                currentStock = doc.getLong("currentStock")?.toInt() ?: 10,
-                baselineEmptyCells = doc.getLong("baselineEmptyCells")?.toInt() ?: 0,
-                baselinePhotoPath = doc.getString("baselinePhotoPath"),
-                lowStockNotified = doc.getBoolean("lowStockNotified") ?: false,
-                lastRefillAt = doc.getLong("lastRefillAt"),
-                isDeleted = doc.getBoolean("isDeleted") ?: false,
-                createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
-            )
-
-            val localMed = localMedMap[id]
-            if (localMed != null) {
-                val resolved = SyncConflictResolver.resolveMedicineConflict(localMed, remoteMed)
-                if (resolved != localMed) {
-                    medicineRepository.update(resolved)
+        // 1. PULL REMOTE FIRST & RESOLVE CONFLICTS
+        try {
+            val remoteSnap = db.collection("users").document(currentUserId).collection("medicines").get().await()
+            for (doc in remoteSnap.documents) {
+                val id = doc.getString("id") ?: doc.id
+                val name = doc.getString("name") ?: continue
+                val timesOfDayList = (doc.get("timesOfDay") as? List<*>)?.mapNotNull {
+                    try { LocalTime.parse(it.toString()) } catch (_: Exception) { null }
+                } ?: emptyList()
+                val daysOfWeekList = (doc.get("daysOfWeek") as? List<*>)?.mapNotNull {
+                    (it as? Number)?.toInt()
                 }
-            } else {
-                medicineRepository.insert(remoteMed)
+                val freqType = try {
+                    FrequencyType.valueOf(doc.getString("frequencyType") ?: FrequencyType.DAILY.name)
+                } catch (_: Exception) { FrequencyType.DAILY }
+                val foodRel = try {
+                    FoodRelation.valueOf(doc.getString("foodRelation") ?: FoodRelation.ANY.name)
+                } catch (_: Exception) { FoodRelation.ANY }
+
+                val remoteMed = Medicine(
+                    id = id,
+                    patientId = doc.getString("patientId") ?: currentUserId,
+                    name = name,
+                    dosageText = doc.getString("dosageText") ?: "",
+                    pillsPerDose = doc.getLong("pillsPerDose")?.toInt() ?: 1,
+                    frequencyType = freqType,
+                    intervalHours = doc.getLong("intervalHours")?.toInt(),
+                    timesOfDay = timesOfDayList,
+                    daysOfWeek = daysOfWeekList,
+                    startDate = doc.getLong("startDate") ?: System.currentTimeMillis(),
+                    endDate = doc.getLong("endDate"),
+                    foodRelation = foodRel,
+                    instructions = doc.getString("instructions") ?: "",
+                    reminderEnabled = doc.getBoolean("reminderEnabled") ?: true,
+                    initialStock = doc.getLong("initialStock")?.toInt() ?: 10,
+                    currentStock = doc.getLong("currentStock")?.toInt() ?: 10,
+                    baselineEmptyCells = doc.getLong("baselineEmptyCells")?.toInt() ?: 0,
+                    baselinePhotoPath = doc.getString("baselinePhotoPath"),
+                    lowStockNotified = doc.getBoolean("lowStockNotified") ?: false,
+                    lastRefillAt = doc.getLong("lastRefillAt"),
+                    isDeleted = doc.getBoolean("isDeleted") ?: false,
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+
+                val localMed = localMedMap[id]
+                if (localMed != null) {
+                    val resolved = SyncConflictResolver.resolveMedicineConflict(localMed, remoteMed)
+                    if (resolved != localMed) {
+                        medicineRepository.update(resolved)
+                        localMedMap[id] = resolved
+                    }
+                } else {
+                    medicineRepository.insert(remoteMed)
+                    localMedMap[id] = remoteMed
+                }
             }
+        } catch (_: Exception) {}
+
+        // 2. THEN PUSH IN BATCH: upload strictly rows matching auth patientId
+        val validLocalMedicines = localMedMap.values.filter { it.patientId == currentUserId && it.patientId.isNotBlank() }
+        if (validLocalMedicines.isNotEmpty()) {
+            val batch = db.batch()
+            for (med in validLocalMedicines) {
+                val medMap = hashMapOf<String, Any?>(
+                    "id" to med.id,
+                    "patientId" to med.patientId,
+                    "name" to med.name,
+                    "dosageText" to med.dosageText,
+                    "pillsPerDose" to med.pillsPerDose,
+                    "frequencyType" to med.frequencyType.name,
+                    "intervalHours" to med.intervalHours,
+                    "timesOfDay" to med.timesOfDay.map { it.toString() },
+                    "daysOfWeek" to med.daysOfWeek,
+                    "startDate" to med.startDate,
+                    "endDate" to med.endDate,
+                    "foodRelation" to med.foodRelation.name,
+                    "instructions" to med.instructions,
+                    "reminderEnabled" to med.reminderEnabled,
+                    "initialStock" to med.initialStock,
+                    "currentStock" to med.currentStock,
+                    "baselineEmptyCells" to med.baselineEmptyCells,
+                    "baselinePhotoPath" to med.baselinePhotoPath,
+                    "lowStockNotified" to med.lowStockNotified,
+                    "lastRefillAt" to med.lastRefillAt,
+                    "isDeleted" to med.isDeleted,
+                    "createdAt" to med.createdAt,
+                    "updatedAt" to med.updatedAt
+                )
+                val docRef = db.collection("users").document(currentUserId)
+                    .collection("medicines").document(med.id)
+                batch.set(docRef, medMap)
+            }
+            batch.commit().await()
         }
     }
 
@@ -188,64 +181,73 @@ class SyncWorker @AssistedInject constructor(
         val localDoses = doseRepository.observeBetween(thirtyDaysAgo, thirtyDaysAhead).firstOrNull() ?: emptyList()
         val localDoseMap = localDoses.associateBy { it.id }.toMutableMap()
 
-        // Push local doses to Firestore
-        for (dose in localDoses) {
-            val doseMap = hashMapOf<String, Any?>(
-                "id" to dose.id,
-                "medicineId" to dose.medicineId,
-                "patientId" to (dose.patientId ?: currentUserId),
-                "scheduledAt" to dose.scheduledAt,
-                "windowEndsAt" to dose.windowEndsAt,
-                "status" to dose.status.name,
-                "takenAt" to dose.takenAt,
-                "emptyCellsAfter" to dose.emptyCellsAfter,
-                "lateEntry" to dose.lateEntry,
-                "manualUnverified" to dose.manualUnverified,
-                "nextReminderAt" to dose.nextReminderAt,
-                "updatedAt" to dose.updatedAt
-            )
-            db.collection("users").document(currentUserId)
-                .collection("doseEvents").document(dose.id)
-                .set(doseMap).await()
+        // 1. PULL REMOTE FIRST & RESOLVE CONFLICTS
+        try {
+            val remoteSnap = db.collection("users").document(currentUserId).collection("doseEvents").get().await()
+            for (doc in remoteSnap.documents) {
+                val id = doc.getString("id") ?: doc.id
+                val medId = doc.getString("medicineId") ?: continue
+                val statusStr = doc.getString("status") ?: DoseStatus.PENDING.name
+                val status = try { DoseStatus.valueOf(statusStr) } catch (_: Exception) { DoseStatus.PENDING }
 
-            // Upload proof photo to Firebase Storage at proofs/{patientUid}/{doseId}.jpg
-            if ((dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE) && dose.verifiedPhotoPath != null) {
-                uploadProofPhoto(storage, currentUserId, dose.id, dose.verifiedPhotoPath)
-            }
-        }
+                val remoteDose = DoseEvent(
+                    id = id,
+                    medicineId = medId,
+                    patientId = doc.getString("patientId") ?: currentUserId,
+                    scheduledAt = doc.getLong("scheduledAt") ?: continue,
+                    windowEndsAt = doc.getLong("windowEndsAt") ?: (doc.getLong("scheduledAt")!! + 3600_000L),
+                    status = status,
+                    takenAt = doc.getLong("takenAt"),
+                    emptyCellsAfter = doc.getLong("emptyCellsAfter")?.toInt(),
+                    lateEntry = doc.getBoolean("lateEntry") ?: false,
+                    manualUnverified = doc.getBoolean("manualUnverified") ?: false,
+                    nextReminderAt = doc.getLong("nextReminderAt"),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
 
-        // Pull remote doses from Firestore and apply conflict resolution
-        val remoteSnap = db.collection("users").document(currentUserId).collection("doseEvents").get().await()
-        for (doc in remoteSnap.documents) {
-            val id = doc.getString("id") ?: doc.id
-            val medId = doc.getString("medicineId") ?: continue
-            val statusStr = doc.getString("status") ?: DoseStatus.PENDING.name
-            val status = try { DoseStatus.valueOf(statusStr) } catch (_: Exception) { DoseStatus.PENDING }
-
-            val remoteDose = DoseEvent(
-                id = id,
-                medicineId = medId,
-                patientId = doc.getString("patientId") ?: currentUserId,
-                scheduledAt = doc.getLong("scheduledAt") ?: continue,
-                windowEndsAt = doc.getLong("windowEndsAt") ?: (doc.getLong("scheduledAt")!! + 3600_000L),
-                status = status,
-                takenAt = doc.getLong("takenAt"),
-                emptyCellsAfter = doc.getLong("emptyCellsAfter")?.toInt(),
-                lateEntry = doc.getBoolean("lateEntry") ?: false,
-                manualUnverified = doc.getBoolean("manualUnverified") ?: false,
-                nextReminderAt = doc.getLong("nextReminderAt"),
-                updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
-            )
-
-            val localDose = localDoseMap[id]
-            if (localDose != null) {
-                val resolved = SyncConflictResolver.resolveDoseConflict(localDose, remoteDose)
-                if (resolved != localDose) {
-                    doseRepository.update(resolved)
+                val localDose = localDoseMap[id]
+                if (localDose != null) {
+                    val resolved = SyncConflictResolver.resolveDoseConflict(localDose, remoteDose)
+                    if (resolved != localDose) {
+                        doseRepository.update(resolved)
+                        localDoseMap[id] = resolved
+                    }
+                } else {
+                    doseRepository.insert(remoteDose)
+                    localDoseMap[id] = remoteDose
                 }
-            } else {
-                doseRepository.insert(remoteDose)
             }
+        } catch (_: Exception) {}
+
+        // 2. THEN PUSH IN BATCH: upload strictly rows matching auth patientId
+        val validLocalDoses = localDoseMap.values.filter { it.patientId == currentUserId && it.patientId.isNotBlank() }
+        if (validLocalDoses.isNotEmpty()) {
+            val batch = db.batch()
+            for (dose in validLocalDoses) {
+                val doseMap = hashMapOf<String, Any?>(
+                    "id" to dose.id,
+                    "medicineId" to dose.medicineId,
+                    "patientId" to dose.patientId,
+                    "scheduledAt" to dose.scheduledAt,
+                    "windowEndsAt" to dose.windowEndsAt,
+                    "status" to dose.status.name,
+                    "takenAt" to dose.takenAt,
+                    "emptyCellsAfter" to dose.emptyCellsAfter,
+                    "lateEntry" to dose.lateEntry,
+                    "manualUnverified" to dose.manualUnverified,
+                    "nextReminderAt" to dose.nextReminderAt,
+                    "updatedAt" to dose.updatedAt
+                )
+                val docRef = db.collection("users").document(currentUserId)
+                    .collection("doseEvents").document(dose.id)
+                batch.set(docRef, doseMap)
+
+                // Upload proof photo to Firebase Storage
+                if ((dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE) && dose.verifiedPhotoPath != null) {
+                    uploadProofPhoto(storage, currentUserId, dose.id, dose.verifiedPhotoPath)
+                }
+            }
+            batch.commit().await()
         }
     }
 

@@ -358,10 +358,10 @@ class VerificationCoordinatorTest {
 
     @Test
     fun verify_beforeScheduledAt_rejectsWithTooEarly() = runTest {
-        val futureDose = sampleDose.copy(scheduledAt = 5000L)
+        val futureDose = sampleDose.copy(scheduledAt = 3_600_000L) // 1 hour ahead
         coEvery { doseRepository.getById("dose_abc") } returns futureDose
 
-        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = 2000L)
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = 0L)
 
         assertTrue(result is CoordinatorResult.Failed)
         assertEquals(RejectReason.TOO_EARLY, (result as CoordinatorResult.Failed).reason)

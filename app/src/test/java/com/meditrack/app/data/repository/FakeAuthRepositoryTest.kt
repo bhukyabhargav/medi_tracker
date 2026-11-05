@@ -184,7 +184,7 @@ class FakeAuthRepositoryTest {
         assertNull(observedUser)
 
         // Create user 2
-        repository.createAccount("Doctor Bob", "bob@test.com", "password456", UserRole.DOCTOR, "REG-1234")
+        repository.createAccount("Doctor Bob", "bob@test.com", "password456", UserRole.DOCTOR)
         val bob = repository.verifyOtp("bob@test.com", FakeAuthRepository.DEBUG_OTP).getOrThrow()
 
         // Two users now exist in Room
@@ -223,5 +223,47 @@ class FakeAuthRepositoryTest {
         // Device-level setup flags remain preserved
         assertTrue(repository.observeIsOnboardingCompleted().first())
         assertTrue(repository.observeIsBatteryGuidanceSeen().first())
+    }
+
+    @Test
+    fun `logout preserves medicines and doses in Room without foreign key violation`() = runTest {
+        repository.createAccount("Eve", "eve@test.com", "password123", UserRole.PATIENT)
+        val eve = repository.verifyOtp("eve@test.com", FakeAuthRepository.DEBUG_OTP).getOrThrow()
+
+        // Insert medicine and dose with foreign key relationship
+        val med = com.meditrack.app.domain.model.Medicine(
+            id = "med_eve_1",
+            patientId = eve.id,
+            name = "Metformin",
+            dosageText = "500mg",
+            pillsPerDose = 1,
+            frequencyType = com.meditrack.app.domain.model.FrequencyType.DAILY,
+            timesOfDay = emptyList(),
+            startDate = System.currentTimeMillis(),
+            initialStock = 30,
+            currentStock = 30
+        )
+        db.medicineDao().insert(med)
+
+        val dose = com.meditrack.app.domain.model.DoseEvent(
+            id = "dose_eve_1",
+            medicineId = med.id,
+            patientId = eve.id,
+            scheduledAt = System.currentTimeMillis() + 3600000L,
+            windowEndsAt = System.currentTimeMillis() + 7200000L
+        )
+        db.doseEventDao().insert(dose)
+
+        // Logout must NOT throw SQLiteConstraintException and must preserve offline patient history
+        repository.logout()
+
+        assertNull(repository.getCurrentUser())
+        assertNotNull(db.medicineDao().getById("med_eve_1"))
+        assertNotNull(db.doseEventDao().getById("dose_eve_1"))
+
+        // Account deletion wipes in proper order
+        repository.deleteAccount(eve.id)
+        assertNull(db.doseEventDao().getById("dose_eve_1"))
+        assertNull(db.medicineDao().getById("med_eve_1"))
     }
 }

@@ -39,7 +39,7 @@ class DailyDoseExtensionWorker @AssistedInject constructor(
                 // Fast query for the latest scheduled timestamp instead of loading all doses
                 val latestScheduled = doseRepository.getLatestScheduledAt(medicine.id)
                 val fromMillis = if (latestScheduled != null) {
-                    latestScheduled + 1000L
+                    maxOf(now, latestScheduled + 1000L)
                 } else {
                     maxOf(now, medicine.startDate)
                 }
@@ -52,17 +52,20 @@ class DailyDoseExtensionWorker @AssistedInject constructor(
                     }
 
                     if (fromMillis <= boundedHorizon) {
-                        val newDoses = DoseScheduler.generateDoses(
+                        val rawDoses = DoseScheduler.generateDoses(
                             medicine = medicine,
                             fromEpochMillis = fromMillis,
                             toEpochMillis = boundedHorizon
                         )
+                        val newDoses = rawDoses.map { it.copy(patientId = medicine.patientId) }
                         if (newDoses.isNotEmpty()) {
                             doseRepository.insertAll(newDoses)
-                            // Schedule alarms if reminders are enabled
-                            if (medicine.reminderEnabled) {
-                                for (dose in newDoses) {
+                            val maxAlarmHorizon = now + (48 * 60 * 60 * 1000L)
+                            for (dose in newDoses) {
+                                if (medicine.reminderEnabled && dose.scheduledAt <= maxAlarmHorizon) {
                                     alarmScheduler.scheduleDoseAlarm(dose)
+                                } else {
+                                    alarmScheduler.scheduleMissedCheck(dose)
                                 }
                             }
                             Log.d(MediTrackApp.TAG, "Extended and scheduled ${newDoses.size} doses for medicine ${medicine.name}")

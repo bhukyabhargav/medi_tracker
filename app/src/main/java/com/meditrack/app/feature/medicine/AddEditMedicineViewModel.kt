@@ -101,15 +101,29 @@ class AddEditMedicineViewModel @Inject constructor(
 
     fun onNameChange(name: String) = _uiState.update { it.copy(name = name, errorMessage = null) }
     fun onDosageChange(dosage: String) = _uiState.update { it.copy(dosageText = dosage, errorMessage = null) }
-    fun onPillsPerDoseChange(pills: String) = _uiState.update { it.copy(pillsPerDoseText = pills, errorMessage = null) }
-    fun onInitialStockChange(stock: String) = _uiState.update { it.copy(initialStockText = stock, errorMessage = null) }
+    fun onPillsPerDoseTextChange(pills: String) = _uiState.update { it.copy(pillsPerDoseText = pills, errorMessage = null) }
+    fun onInitialStockTextChange(stock: String) = _uiState.update { it.copy(initialStockText = stock, errorMessage = null) }
     fun onFrequencyTypeChange(freq: FrequencyType) = _uiState.update { it.copy(frequencyType = freq, errorMessage = null) }
-    fun onIntervalHoursChange(hours: String) = _uiState.update { it.copy(intervalHoursText = hours, errorMessage = null) }
+    fun onIntervalHoursTextChange(hours: String) = _uiState.update { it.copy(intervalHoursText = hours, errorMessage = null) }
     fun onStartDateChange(date: Long) = _uiState.update { it.copy(startDate = date, errorMessage = null) }
     fun onEndDateChange(date: Long?) = _uiState.update { it.copy(endDate = date, errorMessage = null) }
     fun onFoodRelationChange(food: FoodRelation) = _uiState.update { it.copy(foodRelation = food, errorMessage = null) }
     fun onInstructionsChange(instr: String) = _uiState.update { it.copy(instructions = instr, errorMessage = null) }
-    fun onReminderEnabledChange(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }
+    fun onReminderToggle(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }
+
+    // Backward-compatibility aliases
+    fun onPillsPerDoseChange(pills: String) = onPillsPerDoseTextChange(pills)
+    fun onInitialStockChange(stock: String) = onInitialStockTextChange(stock)
+    fun onIntervalHoursChange(hours: String) = onIntervalHoursTextChange(hours)
+    fun onReminderEnabledChange(enabled: Boolean) = onReminderToggle(enabled)
+
+    fun deleteMedicine(onDeleted: () -> Unit = {}) {
+        val medicineId = _uiState.value.editingMedicineId ?: return
+        viewModelScope.launch {
+            saveMedicineUseCase.deleteMedicine(medicineId)
+            onDeleted()
+        }
+    }
 
     fun addTimeOfDay(time: LocalTime) {
         _uiState.update {

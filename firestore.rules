@@ -42,16 +42,16 @@ service cloud.firestore {
         resource.data.patientId == request.auth.uid ||
         resource.data.caregiverUid == request.auth.uid
       );
-      // Ensure linkId strictly matches patientId_caregiverUid, creator is patient, and initial status is PENDING
-      allow create: if isAuthenticated() &&
-        request.resource.data.patientId == request.auth.uid &&
-        linkId == (request.resource.data.patientId + '_' + request.resource.data.caregiverUid) &&
-        request.resource.data.status == 'PENDING';
-      allow update: if isAuthenticated() && (
-        (resource.data.patientId == request.auth.uid && request.resource.data.status in ['PENDING', 'REVOKED']) ||
-        (resource.data.caregiverUid == request.auth.uid && request.resource.data.status in ['ACCEPTED', 'REJECTED'])
-      );
+      // Clients cannot create/update caregiverLinks directly; only Cloud Functions or patient delete
+      allow create, update: if false;
       allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
+    }
+
+    // Caregiver invites collection: patient-only creation
+    match /caregiverInvites/{code} {
+      allow create: if isAuthenticated() && request.resource.data.patientUid == request.auth.uid;
+      allow read: if isAuthenticated();
+      allow update, delete: if false; // Managed by acceptCaregiverInvite Cloud Function
     }
 
     // Notification outbox / delivery events

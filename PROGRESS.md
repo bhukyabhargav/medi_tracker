@@ -263,3 +263,49 @@
 
 
 
+
+
+## Round 2 Remediation Pass ?" COMPLETED & AUDITED (2026-11-05)
+- **Summary**: Comprehensive second remediation pass addressing compilation breaks, crash risks, data loss vulnerabilities, state machine regressions, missing Stage 10 requirements, and backend redesign.
+- **Part 1 ?" Build Breaks Fixed**:
+  - Restored missing/renamed ViewModel methods in `AddEditMedicineViewModel` (`onPillsPerDoseTextChange`, `onInitialStockTextChange`, `onIntervalHoursTextChange`, `onReminderToggle`, and `deleteMedicine(onDeleted)`).
+  - Updated `AddEditMedicineViewModelTest` to construct ViewModel with `UserPreferences` and use `String` text handlers.
+  - Replaced unmocked `org.json.JSONObject` across all production classes (`ProcessStockDecrementUseCase`, `CaregiverViewModel`, `VerificationCoordinator`, `OutboxDeliveryWorker`) with a pure-Kotlin `JsonPayload` utility, adding thorough tests for quotes, backslashes, newlines, and unicode.
+  - Fixed time comparisons in `DoseScheduler`, aligned enum values in `SyncWorker` (`FoodRelation.ANY`), and synchronized doctor notification enums in `NotificationTextTest`.
+- **Part 2 ?" Crashes & Data Loss Prevention**:
+  - Bumped Room database version to 3 with `exportSchema = true` (generated and committed `schemas/.../3.json`). Removed all occurrences of `fallbackToDestructiveMigration()`.
+  - Authored SQLite schema migrations:
+    - `MIGRATION_1_2`: Added `isDeleted` and `lowStockNotified` to `medicines`. Recreated `dose_events` with `ON DELETE RESTRICT` and indices.
+    - `MIGRATION_2_3`: Added `patientId`, `lastRefillAt`, and `updatedAt` to `medicines`; `patientId` and `nextReminderAt` to `dose_events`; `invitationCode`, `expiresAt`, `updatedAt` to `doctor_links`; `revision` and `clarificationNote` to `medicine_proposals`. Recreated `users` table without `doctorRegistrationNo` via table copy. Migrated `ProposalStatus` from `APPLIED` to `ACCEPTED`. Backfilled missing `patientId` for legacy data.
+  - Added comprehensive `MigrationTest` utilizing `MigrationTestHelper` verifying 1 ? 2, 2 ? 3, and 1 ? 3 migrations with live records.
+  - Fixed `FakeAuthRepository.logout()` to clear session only and never delete local health data offline. Enforced strict foreign key deletion ordering (`dose_events` ? `medicines` ? `caregiver_links` ? `users`) for account deletion.
+  - Hardened `VerificationModule` in release builds to fail closed when TFLite model is unavailable, preventing unverified doses from passing as taken.
+- **Part 3 ?" State & Scheduling Regressions**:
+  - In `SaveMedicineUseCase.updateMedicine`: Modified to delete ONLY future pending doses (`scheduledAt > now`), preserving the currently open in-window pending dose and verified history.
+  - Clamped exact alarm scheduling in `SaveMedicineUseCase` and `DailyDoseExtensionWorker` to a 48-hour rolling horizon to prevent exceeding Android's 500-alarm system limit.
+  - Created `AlarmMaintenanceWorker` running periodically every 6 hours and at application boot/launch to refresh upcoming alarms.
+  - Updated `RefillStockUseCase` and UI dialog in `MedicinesListScreen` with a "Starting a new strip" toggle: only resets `lastRefillAt`, `baselineEmptyCells`, and `baselinePhotoPath` when starting a new strip.
+  - Implemented early intake tolerance in `VerificationCoordinator` (`AppConfig.EARLY_VERIFY_TOLERANCE_MINUTES = 30`), rejecting photos taken earlier than 30 minutes before `scheduledAt` with `RejectReason.TOO_EARLY`.
+  - Hardened `OutboxDeliveryWorker` against poison events by checking existing documents on `PERMISSION_DENIED` and marking delivered.
+- **Part 4 ?" Account Isolation, Concurrency & Notifications**:
+  - Enforced per-user data isolation across queries and workers; workers refuse to upload rows where `patientId != auth.uid`.
+  - Added `scheduleMissedCheck(dose)` to `AlarmScheduler` for medicines with reminders disabled.
+  - Created shared `MissedDoseNotifier` for posting local notifications on `CHANNEL_MISSED_DOSES`, utilized by both `MissedDoseWorker` and `OverdueDoseSafetyWorker`.
+  - Serialized `RecordVerifiedDoseUseCase` with a singleton `Mutex`, re-reading dose state inside the critical section to prevent race conditions (verified with 10-coroutine concurrency test).
+  - Configured `BootReceiver` on `ACTION_TIMEZONE_CHANGED` to regenerate future pending doses in the new timezone.
+  - Updated `AdherenceCalculator` to count `UNVERIFIED` as closed only if `windowEndsAt <= now`.
+- **Part 5 ?" Backend Redesign (Functions & Rules)**:
+  - Implemented 6-character caregiver invitation code flow with 72-hour expiry under `caregiverInvites/{code}`.
+  - Implemented Cloud Function `acceptCaregiverInvite(code)` in `functions/src/index.ts` and restricted client write access to `caregiverLinks` in `firestore.rules`.
+  - Implemented Cloud Function `onNotificationEventCreated` with server-side fanout to all accepted caregiver FCM tokens, routing `MISSED_DOSE` to `channel_missed_doses` and all others to `channel_general`.
+  - Updated `CaregiverViewModel` to read patient medicines and 7-day doses read-only from Firestore into UI state.
+  - Rewrote `SyncWorker` to perform pull-first conflict resolution followed by batched push writes for local rows matching `patientId == currentUserId`.
+- **Verification Commands & Real Results**:
+  - Real `@Test` methods counted across `app/src/test`: **224**
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` ?" **PASSED** (224 tests completed, 0 failures, 0 ignored, 100% passing)
+  - Lint check: `.\gradlew.bat lintDebug` ?" **PASSED** (0 errors)
+  - App build: `.\gradlew.bat assembleDebug` ?" **PASSED** (BUILD SUCCESSFUL)
+- **Honest Limitations**:
+  - Live push notifications via FCM require actual Firebase project deployment with valid credentials (`google-services.json`) and registered Google Play services on physical test devices.
+  - TFLite pill detection uses MLKit text recognition and CPU fallback heuristics in headless emulator/CI environments where GPU/NNAPI delegates are unavailable.
+  - Offline mode retains full local capability via Room as single source of truth, with cloud sync queued via WorkManager until network connectivity is restored.

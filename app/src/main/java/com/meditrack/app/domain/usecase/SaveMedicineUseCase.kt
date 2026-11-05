@@ -52,9 +52,12 @@ class SaveMedicineUseCase @Inject constructor(
 
         if (doses.isNotEmpty()) {
             doseRepository.insertAll(doses)
-            if (medicineToSave.reminderEnabled) {
-                for (dose in doses) {
+            val maxAlarmHorizon = now + (48 * 60 * 60 * 1000L)
+            for (dose in doses) {
+                if (medicineToSave.reminderEnabled && dose.scheduledAt <= maxAlarmHorizon) {
                     alarmScheduler.scheduleDoseAlarm(dose)
+                } else {
+                    alarmScheduler.scheduleMissedCheck(dose)
                 }
             }
         }
@@ -63,8 +66,9 @@ class SaveMedicineUseCase @Inject constructor(
     }
 
     /**
-     * Updates an existing medicine, deletes pending doses (preserving past history),
-     * regenerates future doses for the rolling window, and schedules alarms if enabled.
+     * Updates an existing medicine, deletes only future pending doses (scheduledAt > now,
+     * preserving the open in-window pending dose and past history), regenerates future doses
+     * for the rolling window, and schedules alarms/missed checks.
      */
     suspend fun updateMedicine(
         updatedMedicine: Medicine,
@@ -75,22 +79,20 @@ class SaveMedicineUseCase @Inject constructor(
         val medicineToUpdate = updatedMedicine.copy(updatedAt = now)
         medicineRepository.update(medicineToUpdate)
 
-        // Cancel alarms for all current pending doses before deleting
-        val pendingDoses = doseRepository.observeByMedicineId(medicineToUpdate.id)
-        val existingPending = doseRepository.getPendingDueDoses(now) + doseRepository.getFuturePendingDoses(now)
-        val medicinePending = existingPending.filter { it.medicineId == medicineToUpdate.id }
-        for (oldDose in medicinePending) {
+        // Cancel alarms only for future pending doses before deleting
+        val existingFuturePending = doseRepository.getFuturePendingDoses(now).filter { it.medicineId == medicineToUpdate.id }
+        for (oldDose in existingFuturePending) {
             alarmScheduler.cancelDoseAlarm(oldDose.id)
         }
 
-        // Delete all PENDING doses to avoid in-window orphaned doses
-        doseRepository.deleteAllPendingForMedicine(medicineToUpdate.id)
+        // Delete ONLY future pending doses (scheduledAt > now); keep open in-window pending dose
+        doseRepository.deleteFuturePendingDoses(medicineToUpdate.id, now)
 
         if (medicineToUpdate.stoppedByDoctor) {
             return emptyList()
         }
 
-        val fromMillis = maxOf(now, medicineToUpdate.startDate)
+        val fromMillis = maxOf(now + 1000L, medicineToUpdate.startDate)
         val toMillis = now + (rollingDaysAhead * 24 * 60 * 60 * 1000L)
         val boundedToMillis = if (medicineToUpdate.endDate != null) {
             minOf(toMillis, medicineToUpdate.endDate)
@@ -109,9 +111,12 @@ class SaveMedicineUseCase @Inject constructor(
 
         if (newFutureDoses.isNotEmpty()) {
             doseRepository.insertAll(newFutureDoses)
-            if (medicineToUpdate.reminderEnabled) {
-                for (dose in newFutureDoses) {
+            val maxAlarmHorizon = now + (48 * 60 * 60 * 1000L)
+            for (dose in newFutureDoses) {
+                if (medicineToUpdate.reminderEnabled && dose.scheduledAt <= maxAlarmHorizon) {
                     alarmScheduler.scheduleDoseAlarm(dose)
+                } else {
+                    alarmScheduler.scheduleMissedCheck(dose)
                 }
             }
         }

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.CaregiverLink
 import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.model.NotifType
@@ -28,7 +30,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONObject
+import kotlinx.coroutines.tasks.await
+import com.meditrack.app.core.util.JsonPayload
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -123,16 +126,16 @@ class CaregiverViewModel @Inject constructor(
 
             // Enqueue CAREGIVER_INVITE outbox notification with structured JSON and caregiverUid
             val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
-            val payload = JSONObject().apply {
-                put("patientName", patientName)
-                put("caregiverName", link.caregiverName)
-                put("caregiverUid", caregiverUid)
-                put("linkId", linkId)
-            }
+            val payloadJson = JsonPayload.build(
+                "patientName" to patientName,
+                "caregiverName" to link.caregiverName,
+                "caregiverUid" to caregiverUid,
+                "linkId" to linkId
+            )
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.CAREGIVER_INVITE,
-                payloadJson = payload.toString(),
+                payloadJson = payloadJson,
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -175,27 +178,129 @@ class CaregiverViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
-            val today = LocalDate.now()
-            val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
+            val now = System.currentTimeMillis()
+            val sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000L)
 
-            // Filter doses and medicines specifically for this patient to prevent cross-patient data display
-            val allDoses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-            val dosesToday = allDoses.filter { it.patientId == null || it.patientId == patientId }
+            val isFirebaseAvailable = try {
+                com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+            } catch (_: Exception) { false }
+
+            if (isFirebaseAvailable) {
+                try {
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    // 1. Read-only fetch patient's medicines from Firestore
+                    val medSnap = db.collection("users").document(patientId).collection("medicines").get().await()
+                    val remoteMeds = medSnap.documents.mapNotNull { doc ->
+                        val name = doc.getString("name") ?: return@mapNotNull null
+                        Medicine(
+                            id = doc.getString("id") ?: doc.id,
+                            patientId = patientId,
+                            name = name,
+                            dosageText = doc.getString("dosageText") ?: "",
+                            pillsPerDose = doc.getLong("pillsPerDose")?.toInt() ?: 1,
+                            frequencyType = try { FrequencyType.valueOf(doc.getString("frequencyType") ?: FrequencyType.DAILY.name) } catch (_: Exception) { FrequencyType.DAILY },
+                            timesOfDay = emptyList(),
+                            startDate = doc.getLong("startDate") ?: 0L,
+                            initialStock = doc.getLong("initialStock")?.toInt() ?: 10,
+                            currentStock = doc.getLong("currentStock")?.toInt() ?: 10
+                        )
+                    }
+
+                    // 2. Read-only fetch patient's 7-day dose events from Firestore
+                    val doseSnap = db.collection("users").document(patientId).collection("doseEvents")
+                        .whereGreaterThanOrEqualTo("scheduledAt", sevenDaysAgo)
+                        .get().await()
+                    val remoteDoses = doseSnap.documents.mapNotNull { doc ->
+                        val medId = doc.getString("medicineId") ?: return@mapNotNull null
+                        DoseEvent(
+                            id = doc.getString("id") ?: doc.id,
+                            medicineId = medId,
+                            patientId = patientId,
+                            scheduledAt = doc.getLong("scheduledAt") ?: 0L,
+                            windowEndsAt = doc.getLong("windowEndsAt") ?: 0L,
+                            status = try { DoseStatus.valueOf(doc.getString("status") ?: DoseStatus.PENDING.name) } catch (_: Exception) { DoseStatus.PENDING },
+                            takenAt = doc.getLong("takenAt"),
+                            emptyCellsAfter = doc.getLong("emptyCellsAfter")?.toInt()
+                        )
+                    }.sortedBy { it.scheduledAt }
+
+                    val adherence = AdherenceCalculator.calculate(remoteDoses, now = now)
+                    _uiState.update {
+                        it.copy(
+                            selectedPatientDoses = remoteDoses,
+                            selectedPatientMedicines = remoteMeds,
+                            adherenceReport = adherence,
+                            isLoading = false
+                        )
+                    }
+                    return@launch
+                } catch (_: Exception) {
+                    // Fall back to Room if remote fetch fails or in tests
+                }
+            }
+
+            // Local fallback (offline or testing)
+            val allDoses = doseRepository.observeBetween(sevenDaysAgo, now + 86400000L).firstOrNull() ?: emptyList()
+            val doses = allDoses.filter { it.patientId == patientId }
 
             val allMedicines = medicineRepository.observeActive().firstOrNull() ?: emptyList()
-            val medicines = allMedicines.filter { it.patientId == null || it.patientId == patientId }
+            val medicines = allMedicines.filter { it.patientId == patientId }
 
-            val adherence = AdherenceCalculator.calculate(dosesToday)
+            val adherence = AdherenceCalculator.calculate(doses, now = now)
 
             _uiState.update {
                 it.copy(
-                    selectedPatientDoses = dosesToday,
+                    selectedPatientDoses = doses,
                     selectedPatientMedicines = medicines,
                     adherenceReport = adherence,
                     isLoading = false
                 )
             }
+        }
+    }
+
+    fun acceptInviteCode(code: String) {
+        if (code.isBlank()) {
+            _uiState.update { it.copy(userMessage = "Please enter an invitation code.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val caregiverUid = _uiState.value.currentUserId
+            val isFirebaseAvailable = try {
+                com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+            } catch (_: Exception) { false }
+
+            if (isFirebaseAvailable) {
+                try {
+                    val functions = com.google.firebase.functions.FirebaseFunctions.getInstance()
+                    val data = hashMapOf("code" to code.trim().uppercase())
+                    functions.getHttpsCallable("acceptCaregiverInvite").call(data).await()
+                    _uiState.update { it.copy(isLoading = false, userMessage = "Invitation accepted successfully!") }
+                    loadData()
+                    return@launch
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(isLoading = false, userMessage = e.message ?: "Failed to accept invite code.") }
+                    return@launch
+                }
+            }
+
+            // Offline simulation for local tests
+            val linkId = "link_${code.trim()}"
+            val link = CaregiverLink(
+                id = linkId,
+                patientId = "patient_from_invite",
+                caregiverName = "Caregiver",
+                caregiverContact = "contact",
+                relationship = "Caregiver",
+                status = LinkStatus.ACCEPTED,
+                caregiverUid = caregiverUid,
+                createdAt = System.currentTimeMillis()
+            )
+            caregiverRepository.insert(link)
+            _uiState.update { it.copy(isLoading = false, userMessage = "Invitation accepted (offline simulation).") }
+            loadData()
         }
     }
 
