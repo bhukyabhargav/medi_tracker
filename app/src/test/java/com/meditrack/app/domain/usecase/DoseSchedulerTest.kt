@@ -180,4 +180,30 @@ class DoseSchedulerTest {
             assertEquals(0, local.minute)
         }
     }
+
+    @Test
+    fun hourly_frequency_across_dst_transition() {
+        val nyZone = ZoneId.of("America/New_York")
+        val medicineHourly = Medicine(
+            id = "med_hourly_dst",
+            name = "Painkiller",
+            dosageText = "1 tab",
+            pillsPerDose = 1,
+            frequencyType = FrequencyType.HOURLY,
+            intervalHours = 4,
+            timesOfDay = listOf(LocalTime.of(0, 0)),
+            startDate = LocalDate.of(2026, 3, 8).atStartOfDay(nyZone).toInstant().toEpochMilli(),
+            initialStock = 30,
+            currentStock = 30
+        )
+        val fromSpring = ZonedDateTime.of(LocalDate.of(2026, 3, 8), LocalTime.MIN, nyZone).toInstant().toEpochMilli()
+        val toSpring = ZonedDateTime.of(LocalDate.of(2026, 3, 8), LocalTime.MAX, nyZone).toInstant().toEpochMilli()
+
+        val doses = DoseScheduler.generateDoses(medicineHourly, fromSpring, toSpring, nyZone)
+        assertTrue(doses.isNotEmpty())
+        for (dose in doses) {
+            val local = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(dose.scheduledAt), nyZone)
+            assertEquals(0, local.minute)
+        }
+    }
 }

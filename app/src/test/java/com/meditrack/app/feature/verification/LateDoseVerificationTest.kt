@@ -52,6 +52,7 @@ class LateDoseVerificationTest {
     private val verificationPipeline: VerificationPipeline = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
     private val processStockDecrementUseCase: ProcessStockDecrementUseCase = mockk(relaxed = true)
+    private val processMissedDoseUseCase: com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase = mockk(relaxed = true)
 
     private lateinit var coordinator: VerificationCoordinator
     private lateinit var recordManualUnverifiedUseCase: RecordManualUnverifiedUseCase
@@ -99,6 +100,7 @@ class LateDoseVerificationTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
+            processMissedDoseUseCase = processMissedDoseUseCase,
             alarmScheduler = alarmScheduler
         )
 

@@ -37,9 +37,19 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
 
-        val isLateVerification = isLate || dose.status == DoseStatus.MISSED
+        var isLateVerification = isLate || dose.status == DoseStatus.MISSED
 
-        // If late verification on a PENDING dose whose window expired mid-verification:
+        // Check if window has expired for a PENDING dose
+        if (!isLateVerification && takenAt > dose.windowEndsAt) {
+            val nextDose = doseRepository.getNextScheduledDose(dose.medicineId, dose.scheduledAt)
+            val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, takenAt)
+            if (!canLate) {
+                return Result.failure(IllegalStateException("Intake window expired and late entry cutoff has passed."))
+            }
+            isLateVerification = true
+        }
+
+        // If late verification on a PENDING dose whose window expired:
         val effectiveCurrentStatus = if (isLateVerification && dose.status == DoseStatus.PENDING) {
             val missedResult = DoseStateMachine.transition(dose.status, DoseTransitionEvent.WindowExpired)
             if (missedResult.isFailure) return Result.failure(missedResult.exceptionOrNull()!!)
@@ -83,7 +93,7 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         doseRepository.update(updatedDose)
         alarmScheduler.cancelDoseAlarm(doseId)
 
-        // Decrement stock & evaluate low stock transition (Single Authority)
+        // Decrement stock & evaluate low stock transition atomically
         val medicine = medicineRepository.getById(dose.medicineId)
         if (medicine != null) {
             processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, takenAt)

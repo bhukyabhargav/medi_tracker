@@ -45,6 +45,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 }
 
                 val medicine = medicineRepository.getById(dose.medicineId)
+                if (medicine?.reminderEnabled == false) {
+                    Log.d(MediTrackApp.TAG, "Reminder disabled for medicine ${medicine.name}, skipping notification")
+                    return@launch
+                }
                 val medicineName = medicine?.name ?: "Medicine"
                 val dosage = medicine?.dosageText ?: ""
                 val pills = medicine?.pillsPerDose ?: 1

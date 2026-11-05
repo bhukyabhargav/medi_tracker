@@ -48,6 +48,7 @@ class VerificationCoordinatorTest {
     private val verificationPipeline: VerificationPipeline = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
     private val processStockDecrementUseCase: com.meditrack.app.domain.usecase.ProcessStockDecrementUseCase = mockk(relaxed = true)
+    private val processMissedDoseUseCase: com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase = mockk(relaxed = true)
     private lateinit var recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase
 
     private lateinit var coordinator: VerificationCoordinator
@@ -96,6 +97,7 @@ class VerificationCoordinatorTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
+            processMissedDoseUseCase = processMissedDoseUseCase,
             alarmScheduler = alarmScheduler
         )
 
@@ -352,5 +354,30 @@ class VerificationCoordinatorTest {
 
         // No DOSE_UNVERIFIED outbox event is enqueued for missed dose
         coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
+    fun verify_beforeScheduledAt_rejectsWithTooEarly() = runTest {
+        val futureDose = sampleDose.copy(scheduledAt = 5000L)
+        coEvery { doseRepository.getById("dose_abc") } returns futureDose
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = 2000L)
+
+        assertTrue(result is CoordinatorResult.Failed)
+        assertEquals(RejectReason.TOO_EARLY, (result as CoordinatorResult.Failed).reason)
+        coVerify(exactly = 0) { verificationPipeline.verify(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun verify_blurryQualityRejection_doesNotConsumeAttempts() = runTest {
+        coEvery {
+            verificationPipeline.verify(any(), any(), any(), any(), any())
+        } returns VerificationResult(passed = false, rejectReason = RejectReason.BLURRY)
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = now)
+
+        assertTrue(result is CoordinatorResult.Failed)
+        assertEquals(RejectReason.BLURRY, (result as CoordinatorResult.Failed).reason)
+        assertEquals(3, (result as CoordinatorResult.Failed).attemptsRemaining) // 0 attempts used, 3 remaining!
     }
 }

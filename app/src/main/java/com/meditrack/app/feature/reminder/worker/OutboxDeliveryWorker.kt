@@ -5,13 +5,17 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.meditrack.app.data.prefs.UserPreferences
+import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.NotificationOutbox
 import com.meditrack.app.domain.repository.CaregiverRepository
 import com.meditrack.app.domain.repository.OutboxRepository
@@ -49,58 +53,89 @@ class OutboxDeliveryWorker @AssistedInject constructor(
         } catch (_: Exception) {
             emptyList()
         }
-        val defaultCaregiverUid = connectedLinks.firstOrNull { it.status.name == "ACCEPTED" }?.caregiverUid
+        val acceptedCaregivers = connectedLinks.filter { it.status == LinkStatus.ACCEPTED && !it.caregiverUid.isNullOrBlank() }
+
+        var anyFailed = false
 
         for (event in undelivered) {
-            val success = deliverEvent(event, patientUid, defaultCaregiverUid, isFirebaseAvailable)
+            val success = deliverEvent(event, patientUid, acceptedCaregivers.mapNotNull { it.caregiverUid }, isFirebaseAvailable)
             if (success) {
                 outboxRepository.markDelivered(event.id)
             } else {
-                return Result.retry()
+                anyFailed = true
             }
         }
 
-        return Result.success()
+        return if (anyFailed) Result.retry() else Result.success()
     }
 
     private suspend fun deliverEvent(
         event: NotificationOutbox,
         patientUid: String,
-        defaultCaregiverUid: String?,
+        acceptedCaregiverUids: List<String>,
         isFirebaseAvailable: Boolean
     ): Boolean {
-        // Extract fields from payloadJson
+        // Extract fields from payloadJson safely
         var medicineName: String? = null
         var doseId: String? = null
-        var caregiverUid: String? = defaultCaregiverUid
+        var specificCaregiverUid: String? = null
 
         try {
             val json = JSONObject(event.payloadJson)
             if (json.has("name")) medicineName = json.getString("name")
             if (json.has("medicineName")) medicineName = json.getString("medicineName")
             if (json.has("doseId")) doseId = json.getString("doseId")
-            if (json.has("caregiverUid")) caregiverUid = json.getString("caregiverUid")
+            if (json.has("caregiverUid")) specificCaregiverUid = json.getString("caregiverUid")
         } catch (_: Exception) {}
 
         if (!isFirebaseAvailable) {
             // In offline/test/fake mode without Firebase configuration:
-            // Delivering to Room outbox as delivered = true succeeds deterministically
+            // Mark as delivered deterministically
+            return true
+        }
+
+        // Determine destination caregiver UIDs (deliver to all connected caregivers or specified one)
+        val targetCaregivers = if (!specificCaregiverUid.isNullOrBlank()) {
+            listOf(specificCaregiverUid)
+        } else if (acceptedCaregiverUids.isNotEmpty()) {
+            acceptedCaregiverUids
+        } else {
+            // No caregivers connected yet. Mark delivered locally to prevent infinite poison loop
             return true
         }
 
         return try {
             val firestore = FirebaseFirestore.getInstance()
-            val eventMap = hashMapOf<String, Any?>(
-                "id" to event.id,
-                "type" to event.type.name,
-                "patientUid" to patientUid,
-                "caregiverUid" to caregiverUid,
-                "medicineName" to medicineName,
-                "doseId" to doseId,
-                "createdAt" to event.createdAt,
-                "payloadJson" to event.payloadJson
-            )
-            firestore.collection("notificationEvents").document(event.id).set(eventMap).await()
+
+            for (targetCg in targetCaregivers) {
+                val eventDocId = if (targetCaregivers.size == 1) event.id else "${event.id}_${targetCg}"
+                val eventMap = hashMapOf<String, Any?>(
+                    "id" to eventDocId,
+                    "type" to event.type.name,
+                    "patientUid" to patientUid,
+                    "caregiverUid" to targetCg,
+                    "medicineName" to medicineName,
+                    "doseId" to doseId,
+                    "createdAt" to event.createdAt,
+                    "payloadJson" to event.payloadJson
+                )
+
+                try {
+                    firestore.collection("notificationEvents").document(eventDocId).set(eventMap).await()
+                } catch (e: Exception) {
+                    val msg = e.message.orEmpty()
+                    // Treat already existing / immutable document rejection as delivered to prevent poison retry loop
+                    if (e is FirebaseFirestoreException &&
+                        (e.code == FirebaseFirestoreException.Code.ALREADY_EXISTS ||
+                         e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+                         msg.contains("PERMISSION_DENIED"))
+                    ) {
+                        // Already created on Firestore previously
+                    } else {
+                        throw e
+                    }
+                }
+            }
             true
         } catch (e: Exception) {
             false
@@ -121,6 +156,24 @@ class OutboxDeliveryWorker @AssistedInject constructor(
                 .build()
 
             WorkManager.getInstance(context).enqueue(request)
+        }
+
+        fun schedule(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val periodicRequest = PeriodicWorkRequestBuilder<OutboxDeliveryWorker>(
+                15, TimeUnit.MINUTES
+            )
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME + "_periodic",
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicRequest
+            )
         }
     }
 }

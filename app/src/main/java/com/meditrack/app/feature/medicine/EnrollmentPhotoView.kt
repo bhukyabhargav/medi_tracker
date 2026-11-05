@@ -184,7 +184,7 @@ fun EnrollmentPhotoView(
                 hasCameraPermission -> {
                     CameraXCapturePreview(
                         onImageSaved = { path ->
-                            val bitmap = android.graphics.BitmapFactory.decodeFile(path)
+                            val bitmap = com.meditrack.app.core.util.ImageDecoder.decodeSampledBitmap(path)
                             if (bitmap != null) {
                                 val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
                                 if (!quality.passed) {

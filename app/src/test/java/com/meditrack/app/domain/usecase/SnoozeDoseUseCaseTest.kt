@@ -51,7 +51,17 @@ class SnoozeDoseUseCaseTest {
         assertEquals(expectedTrigger, result.getOrNull())
 
         assertEquals(1, updatedSlot.captured.snoozeCount)
+        assertEquals(expectedTrigger, updatedSlot.captured.nextReminderAt)
         assertEquals(baseTime, updatedSlot.captured.updatedAt)
+    }
+
+    @Test
+    fun snoozeDose_rejectsNonPositiveMinutes() = runTest {
+        val resultZero = useCase("dose_snooze_1", snoozeMinutes = 0, now = baseTime)
+        assertTrue(resultZero.isFailure)
+
+        val resultNegative = useCase("dose_snooze_1", snoozeMinutes = -5, now = baseTime)
+        assertTrue(resultNegative.isFailure)
     }
 
     @Test

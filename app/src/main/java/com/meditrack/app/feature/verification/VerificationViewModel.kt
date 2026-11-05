@@ -175,7 +175,7 @@ class VerificationViewModel @Inject constructor(
     fun processCapturedPhoto(photoPath: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null) }
-            val bitmap = BitmapFactory.decodeFile(photoPath)
+            val bitmap = com.meditrack.app.core.util.ImageDecoder.decodeSampledBitmap(photoPath)
             if (bitmap == null) {
                 _uiState.update {
                     it.copy(
@@ -189,7 +189,12 @@ class VerificationViewModel @Inject constructor(
             val dose = doseRepository.getById(doseId)
             val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
             if (medicine != null) {
-                val latestVerified = doseRepository.getLatestVerifiedDose(medicine.id)
+                val lastRefillAt = medicine.lastRefillAt ?: 0L
+                val latestVerified = if (lastRefillAt > 0L) {
+                    doseRepository.getLatestVerifiedDoseAfter(medicine.id, lastRefillAt)
+                } else {
+                    doseRepository.getLatestVerifiedDose(medicine.id)
+                }
                 val prevEmpty = latestVerified?.emptyCellsAfter ?: medicine.baselineEmptyCells
                 fakeStripDetector.mockPreviousEmptyCellsCount = prevEmpty
                 fakeStripDetector.mockEmptyCellsCount = prevEmpty + medicine.pillsPerDose

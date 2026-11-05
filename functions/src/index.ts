@@ -6,7 +6,8 @@ admin.initializeApp();
 
 /**
  * Cloud Function triggered on creation of a notificationEvent in Firestore.
- * Looks up the caregiver's FCM token and dispatches push notification with the spec text.
+ * Verifies that an accepted caregiver link exists, then looks up the caregiver's
+ * FCM token and dispatches push notification on channel_general.
  */
 export const onNotificationEventCreated = functions.firestore
   .document('notificationEvents/{eventId}')
@@ -14,9 +15,17 @@ export const onNotificationEventCreated = functions.firestore
     const data = snapshot.data() as NotificationPayload;
     if (!data) return null;
 
+    const patientUid = data.patientUid;
     const caregiverUid = data.caregiverUid;
-    if (!caregiverUid) {
-      functions.logger.info(`No caregiverUid for event ${context.params.eventId}. Skipping FCM dispatch.`);
+    if (!patientUid || !caregiverUid) {
+      functions.logger.info(`Missing patientUid or caregiverUid for event ${context.params.eventId}. Skipping FCM dispatch.`);
+      return null;
+    }
+
+    // Verify accepted caregiver link in Firestore
+    const linkDoc = await admin.firestore().doc(`caregiverLinks/${patientUid}_${caregiverUid}`).get();
+    if (!linkDoc.exists || linkDoc.data()?.status !== 'ACCEPTED') {
+      functions.logger.warn(`No accepted caregiver link found between patient ${patientUid} and caregiver ${caregiverUid}. Dropping push.`);
       return null;
     }
 
@@ -40,13 +49,13 @@ export const onNotificationEventCreated = functions.firestore
       data: {
         eventId: context.params.eventId,
         type: data.type,
-        patientUid: data.patientUid || '',
+        patientUid: patientUid,
         doseId: data.doseId || '',
       },
       android: {
         priority: 'high',
         notification: {
-          channelId: 'general',
+          channelId: 'channel_general',
           priority: 'high',
         },
       },

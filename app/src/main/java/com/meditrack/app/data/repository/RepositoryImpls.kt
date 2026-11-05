@@ -33,6 +33,10 @@ class MedicineRepositoryImpl @Inject constructor(
     override suspend fun delete(medicine: Medicine) = medicineDao.delete(medicine)
     override suspend fun updateStock(medicineId: String, newStock: Int) =
         medicineDao.updateStock(medicineId, newStock)
+    override suspend fun decrementStockAtomic(medicineId: String, count: Int, now: Long): Int =
+        medicineDao.decrementStockAtomic(medicineId, count, now)
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        medicineDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
@@ -62,11 +66,23 @@ class DoseRepositoryImpl @Inject constructor(
     override suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent? =
         doseEventDao.getLatestVerifiedDose(medicineId)
 
+    override suspend fun getLatestVerifiedDoseAfter(medicineId: String, afterMillis: Long): DoseEvent? =
+        doseEventDao.getLatestVerifiedDoseAfter(medicineId, afterMillis)
+
+    override suspend fun getLatestScheduledAt(medicineId: String): Long? =
+        doseEventDao.getLatestScheduledAt(medicineId)
+
     override suspend fun getNextScheduledDose(medicineId: String, scheduledAt: Long): DoseEvent? =
         doseEventDao.getNextScheduledDose(medicineId, scheduledAt)
 
     override suspend fun deleteFuturePendingDoses(medicineId: String, afterTimestamp: Long) =
         doseEventDao.deleteFuturePendingDoses(medicineId, afterTimestamp)
+
+    override suspend fun deleteAllPendingForMedicine(medicineId: String) =
+        doseEventDao.deleteAllPendingForMedicine(medicineId)
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        doseEventDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
@@ -100,13 +116,22 @@ class CaregiverRepositoryImpl @Inject constructor(
     override suspend fun update(link: CaregiverLink) = caregiverLinkDao.update(link)
     override suspend fun hasConnectedCaregiver(patientId: String): Boolean =
         caregiverLinkDao.getByStatus(patientId, LinkStatus.ACCEPTED).isNotEmpty()
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        caregiverLinkDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
 class OutboxRepositoryImpl @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val notificationOutboxDao: NotificationOutboxDao
 ) : OutboxRepository {
-    override suspend fun enqueue(outbox: NotificationOutbox) = notificationOutboxDao.insert(outbox)
+    override suspend fun enqueue(outbox: NotificationOutbox) {
+        notificationOutboxDao.insert(outbox)
+        try {
+            com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker.enqueue(context)
+        } catch (_: Exception) {}
+    }
     override suspend fun getUndelivered(): List<NotificationOutbox> = notificationOutboxDao.getUndelivered()
     override suspend fun markDelivered(id: String) = notificationOutboxDao.markDelivered(id)
 }

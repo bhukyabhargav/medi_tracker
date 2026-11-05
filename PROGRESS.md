@@ -256,7 +256,7 @@
   - `OutboxDeliveryWorkerTest.kt` (2 tests verifying undelivered row processing and delivery marking)
   - `CaregiverViewModelTest.kt` (4 tests: send invite, accept invite, reject invite, select patient adherence)
 - Verification Commands:
-  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (197 tests, 0 failures, 100% passing)
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (212 tests: 197 from Stage 9 + 15 from Stage 10, 0 failures, 100% passing)
   - Lint: `.\gradlew.bat lint` – PASSED (Clean, 0 errors)
   - Build: `.\gradlew.bat assembleDebug` – PASSED (Output copied to `app-debug.apk`)
 

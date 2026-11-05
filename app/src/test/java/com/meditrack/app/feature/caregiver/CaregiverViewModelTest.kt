@@ -69,6 +69,7 @@ class CaregiverViewModelTest {
         Dispatchers.setMain(testDispatcher)
 
         coEvery { authRepository.getCurrentUser() } returns sampleUser
+        coEvery { authRepository.getUserByContact(any()) } returns null
         coEvery { userPreferences.currentUserId } returns flowOf("patient_1")
         coEvery { caregiverRepository.observeByPatientId("patient_1") } returns flowOf(listOf(sampleLink))
         coEvery { caregiverRepository.observeAll() } returns flowOf(listOf(sampleLink))

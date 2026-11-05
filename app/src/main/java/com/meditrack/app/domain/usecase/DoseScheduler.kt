@@ -13,7 +13,6 @@ import java.time.ZonedDateTime
 object DoseScheduler {
 
     private const val MILLIS_PER_MINUTE = 60 * 1000L
-    private const val MILLIS_PER_HOUR = 60 * MILLIS_PER_MINUTE
 
     /**
      * Generates DoseEvents for a given medicine within the specified time range.
@@ -49,6 +48,7 @@ object DoseScheduler {
             DoseEvent(
                 id = "${medicine.id}_$scheduledAt",
                 medicineId = medicine.id,
+                patientId = medicine.patientId,
                 scheduledAt = scheduledAt,
                 windowEndsAt = scheduledAt + windowDurationMillis,
                 status = DoseStatus.PENDING,
@@ -92,31 +92,35 @@ object DoseScheduler {
         zoneId: ZoneId
     ): List<Long> {
         val intervalHours = medicine.intervalHours?.takeIf { it > 0 } ?: 6
-        val intervalMillis = intervalHours * MILLIS_PER_HOUR
 
         val anchorTime = medicine.timesOfDay.firstOrNull()
         val anchorDate = Instant.ofEpochMilli(medicine.startDate).atZone(zoneId).toLocalDate()
-        val baseStartMillis = if (anchorTime != null) {
-            ZonedDateTime.of(anchorDate, anchorTime, zoneId).toInstant().toEpochMilli()
+        var currentZdt = if (anchorTime != null) {
+            ZonedDateTime.of(anchorDate, anchorTime, zoneId)
         } else {
-            medicine.startDate
+            Instant.ofEpochMilli(medicine.startDate).atZone(zoneId)
         }
 
         val result = mutableListOf<Long>()
-        var current = baseStartMillis
 
-        // Fast-forward to startMillis if base is far in the past
-        if (current < startMillis) {
-            val diff = startMillis - current
-            val steps = diff / intervalMillis
-            current += steps * intervalMillis
+        // Fast forward to near startMillis if currentZdt is in the past
+        val startInstant = Instant.ofEpochMilli(startMillis)
+        while (currentZdt.toInstant().isBefore(startInstant)) {
+            val next = currentZdt.plusHours(intervalHours.toLong())
+            if (!next.isBefore(startInstant)) {
+                // Keep currentZdt at the step just before or equal to startInstant
+                break
+            }
+            currentZdt = next
         }
 
-        while (current <= endMillis) {
-            if (current >= startMillis) {
-                result.add(current)
+        val endInstant = Instant.ofEpochMilli(endMillis)
+        while (!currentZdt.toInstant().isAfter(endInstant)) {
+            val millis = currentZdt.toInstant().toEpochMilli()
+            if (millis in startMillis..endMillis) {
+                result.add(millis)
             }
-            current += intervalMillis
+            currentZdt = currentZdt.plusHours(intervalHours.toLong())
         }
 
         return result

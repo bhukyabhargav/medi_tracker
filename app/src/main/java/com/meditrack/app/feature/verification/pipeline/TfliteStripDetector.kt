@@ -16,6 +16,9 @@ class TfliteStripDetector @Inject constructor(
 
     private var interpreter: Interpreter? = null
 
+    val isModelAvailable: Boolean
+        get() = interpreter != null
+
     init {
         try {
             val assetManager = context.assets

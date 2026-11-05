@@ -2,6 +2,7 @@ package com.meditrack.app.feature.medicine
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
@@ -13,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -57,7 +59,8 @@ data class AddEditMedicineUiState(
 @HiltViewModel
 class AddEditMedicineViewModel @Inject constructor(
     private val medicineRepository: MedicineRepository,
-    private val saveMedicineUseCase: SaveMedicineUseCase
+    private val saveMedicineUseCase: SaveMedicineUseCase,
+    private val userPreferences: UserPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddEditMedicineUiState())
@@ -98,33 +101,27 @@ class AddEditMedicineViewModel @Inject constructor(
 
     fun onNameChange(name: String) = _uiState.update { it.copy(name = name, errorMessage = null) }
     fun onDosageChange(dosage: String) = _uiState.update { it.copy(dosageText = dosage, errorMessage = null) }
-    fun onPillsPerDoseTextChange(text: String) = _uiState.update { it.copy(pillsPerDoseText = text, errorMessage = null) }
-    fun onInitialStockTextChange(text: String) = _uiState.update { it.copy(initialStockText = text, errorMessage = null) }
-    fun onIntervalHoursTextChange(text: String) = _uiState.update { it.copy(intervalHoursText = text, errorMessage = null) }
-    fun onPillsPerDoseChange(pills: Int) = onPillsPerDoseTextChange(pills.toString())
-    fun onInitialStockChange(stock: Int) = onInitialStockTextChange(stock.toString())
-    fun onIntervalHoursChange(hours: Int) = onIntervalHoursTextChange(hours.toString())
-    fun onFrequencyTypeChange(type: FrequencyType) = _uiState.update { it.copy(frequencyType = type, errorMessage = null) }
+    fun onPillsPerDoseChange(pills: String) = _uiState.update { it.copy(pillsPerDoseText = pills, errorMessage = null) }
+    fun onInitialStockChange(stock: String) = _uiState.update { it.copy(initialStockText = stock, errorMessage = null) }
+    fun onFrequencyTypeChange(freq: FrequencyType) = _uiState.update { it.copy(frequencyType = freq, errorMessage = null) }
+    fun onIntervalHoursChange(hours: String) = _uiState.update { it.copy(intervalHoursText = hours, errorMessage = null) }
+    fun onStartDateChange(date: Long) = _uiState.update { it.copy(startDate = date, errorMessage = null) }
+    fun onEndDateChange(date: Long?) = _uiState.update { it.copy(endDate = date, errorMessage = null) }
     fun onFoodRelationChange(food: FoodRelation) = _uiState.update { it.copy(foodRelation = food, errorMessage = null) }
     fun onInstructionsChange(instr: String) = _uiState.update { it.copy(instructions = instr, errorMessage = null) }
-    fun onReminderToggle(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }
-    fun onStartDateChange(startMillis: Long) = _uiState.update { it.copy(startDate = startMillis, errorMessage = null) }
-    fun onEndDateChange(endMillis: Long?) = _uiState.update { it.copy(endDate = endMillis, errorMessage = null) }
+    fun onReminderEnabledChange(enabled: Boolean) = _uiState.update { it.copy(reminderEnabled = enabled, errorMessage = null) }
 
     fun addTimeOfDay(time: LocalTime) {
-        _uiState.update { state ->
-            if (!state.timesOfDay.contains(time)) {
-                state.copy(timesOfDay = (state.timesOfDay + time).sorted(), errorMessage = null)
-            } else {
-                state
-            }
+        _uiState.update {
+            val updatedTimes = (it.timesOfDay + time).distinct().sorted()
+            it.copy(timesOfDay = updatedTimes, errorMessage = null)
         }
     }
 
     fun removeTimeOfDay(time: LocalTime) {
-        _uiState.update { state ->
-            val updated = state.timesOfDay.filter { it != time }
-            state.copy(timesOfDay = updated, errorMessage = null)
+        _uiState.update {
+            val updatedTimes = it.timesOfDay - time
+            it.copy(timesOfDay = updatedTimes, errorMessage = null)
         }
     }
 
@@ -150,7 +147,10 @@ class AddEditMedicineViewModel @Inject constructor(
             endDate = state.endDate,
             reminderEnabled = state.reminderEnabled,
             timesOfDay = state.timesOfDay,
-            initialStock = state.initialStock
+            initialStock = state.initialStock,
+            frequencyType = state.frequencyType,
+            intervalHours = state.intervalHours,
+            daysOfWeek = state.daysOfWeek
         )
         return when (result) {
             is MedicineValidator.ValidationResult.Valid -> {
@@ -198,26 +198,56 @@ class AddEditMedicineViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
-                val medicineId = state.editingMedicineId ?: "med_${UUID.randomUUID()}"
-                val medicine = Medicine(
-                    id = medicineId,
-                    name = state.name.trim(),
-                    dosageText = state.dosageText.trim(),
-                    pillsPerDose = state.pillsPerDose,
-                    frequencyType = state.frequencyType,
-                    timesOfDay = state.timesOfDay,
-                    intervalHours = if (state.frequencyType == FrequencyType.HOURLY) state.intervalHours else null,
-                    daysOfWeek = if (state.frequencyType == FrequencyType.SPECIFIC_DAYS) state.daysOfWeek else null,
-                    startDate = state.startDate,
-                    endDate = state.endDate,
-                    foodRelation = state.foodRelation,
-                    instructions = state.instructions.trim(),
-                    reminderEnabled = state.reminderEnabled,
-                    initialStock = state.initialStock,
-                    currentStock = state.initialStock,
-                    baselineEmptyCells = 0,
-                    baselinePhotoPath = state.baselinePhotoPath
-                )
+                val now = System.currentTimeMillis()
+                val currentUserId = userPreferences.currentUserId.firstOrNull() ?: ""
+                val existing = state.editingMedicineId?.let { medicineRepository.getById(it) }
+
+                val medicine = if (existing != null) {
+                    existing.copy(
+                        name = state.name.trim(),
+                        dosageText = state.dosageText.trim(),
+                        pillsPerDose = state.pillsPerDose,
+                        frequencyType = state.frequencyType,
+                        timesOfDay = state.timesOfDay,
+                        intervalHours = if (state.frequencyType == FrequencyType.HOURLY) state.intervalHours else null,
+                        daysOfWeek = if (state.frequencyType == FrequencyType.SPECIFIC_DAYS) state.daysOfWeek else null,
+                        startDate = state.startDate,
+                        endDate = state.endDate,
+                        foodRelation = state.foodRelation,
+                        instructions = state.instructions.trim(),
+                        reminderEnabled = state.reminderEnabled,
+                        initialStock = state.initialStock,
+                        // PRESERVE historical state:
+                        currentStock = existing.currentStock,
+                        baselineEmptyCells = existing.baselineEmptyCells,
+                        baselinePhotoPath = state.baselinePhotoPath ?: existing.baselinePhotoPath,
+                        lowStockNotified = existing.lowStockNotified,
+                        updatedAt = now
+                    )
+                } else {
+                    Medicine(
+                        id = "med_${UUID.randomUUID()}",
+                        patientId = currentUserId,
+                        name = state.name.trim(),
+                        dosageText = state.dosageText.trim(),
+                        pillsPerDose = state.pillsPerDose,
+                        frequencyType = state.frequencyType,
+                        timesOfDay = state.timesOfDay,
+                        intervalHours = if (state.frequencyType == FrequencyType.HOURLY) state.intervalHours else null,
+                        daysOfWeek = if (state.frequencyType == FrequencyType.SPECIFIC_DAYS) state.daysOfWeek else null,
+                        startDate = state.startDate,
+                        endDate = state.endDate,
+                        foodRelation = state.foodRelation,
+                        instructions = state.instructions.trim(),
+                        reminderEnabled = state.reminderEnabled,
+                        initialStock = state.initialStock,
+                        currentStock = state.initialStock,
+                        baselineEmptyCells = 0,
+                        baselinePhotoPath = state.baselinePhotoPath,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                }
 
                 val generatedDoses = if (state.isEditing) {
                     saveMedicineUseCase.updateMedicine(medicine)
@@ -238,20 +268,6 @@ class AddEditMedicineViewModel @Inject constructor(
                         isLoading = false,
                         errorMessage = "Failed to save medicine: ${e.message}"
                     )
-                }
-            }
-        }
-    }
-
-    fun deleteMedicine(onDeleted: () -> Unit) {
-        val medicineId = _uiState.value.editingMedicineId ?: return
-        viewModelScope.launch {
-            try {
-                saveMedicineUseCase.deleteMedicine(medicineId)
-                onDeleted()
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(errorMessage = "Failed to delete medicine: ${e.message}")
                 }
             }
         }

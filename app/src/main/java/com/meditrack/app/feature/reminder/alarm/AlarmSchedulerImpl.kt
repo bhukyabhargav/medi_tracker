@@ -32,12 +32,13 @@ class AlarmSchedulerImpl @Inject constructor(
 
     override fun scheduleDoseAlarm(dose: DoseEvent, triggerAtMillis: Long) {
         val now = System.currentTimeMillis()
-        if (triggerAtMillis < now - 60_000L) {
-            Log.d(MediTrackApp.TAG, "Skipping past alarm for dose ${dose.id}")
+        if (now >= dose.windowEndsAt) {
+            Log.d(MediTrackApp.TAG, "Skipping alarm for dose ${dose.id}: intake window already expired")
             return
         }
 
-        val effectiveTrigger = maxOf(now + 500L, triggerAtMillis)
+        // If triggerAtMillis is in the past, but the dose is still inside its window, trigger immediately
+        val effectiveTrigger = maxOf(now + 1000L, triggerAtMillis)
 
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DOSE_REMINDER
@@ -90,6 +91,7 @@ class AlarmSchedulerImpl @Inject constructor(
     private fun scheduleMissedWorker(dose: DoseEvent) {
         try {
             val now = System.currentTimeMillis()
+            if (now >= dose.windowEndsAt) return
             val delayMillis = maxOf(1000L, dose.windowEndsAt - now)
 
             val missedRequest = OneTimeWorkRequestBuilder<MissedDoseWorker>()
@@ -108,7 +110,7 @@ class AlarmSchedulerImpl @Inject constructor(
         }
     }
 
-    override fun cancelDoseAlarm(doseId: String) {
+    override fun cancelDoseAlarm(doseId: String, cancelMissedWorker: Boolean) {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DOSE_REMINDER
         }
@@ -118,28 +120,44 @@ class AlarmSchedulerImpl @Inject constructor(
             intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
+
         if (pendingIntent != null && alarmManager != null) {
             alarmManager.cancel(pendingIntent)
             pendingIntent.cancel()
         }
 
-        try {
-            WorkManager.getInstance(context).cancelUniqueWork("missed_$doseId")
-        } catch (e: Exception) {
-            Log.w(MediTrackApp.TAG, "Failed to cancel missed worker for dose $doseId: ${e.message}")
+        if (cancelMissedWorker) {
+            try {
+                WorkManager.getInstance(context).cancelUniqueWork("missed_$doseId")
+            } catch (e: Exception) {
+                Log.w(MediTrackApp.TAG, "Failed to cancel missed worker for dose $doseId: ${e.message}")
+            }
         }
 
-        Log.d(MediTrackApp.TAG, "Cancelled alarm and missed worker for dose $doseId")
+        Log.d(MediTrackApp.TAG, "Cancelled alarm (missedWorkerCancelled=$cancelMissedWorker) for dose $doseId")
     }
 
     override suspend fun rescheduleAllPendingAlarms() {
         val now = System.currentTimeMillis()
         val pendingDoses = doseRepository.getPendingDueDoses(now) + doseRepository.getFuturePendingDoses(now)
-        val distinctDoses = pendingDoses.distinctBy { it.id }
+        val distinctDoses = pendingDoses.distinctBy { it.id }.filter { it.windowEndsAt > now }
 
         Log.d(MediTrackApp.TAG, "Rescheduling ${distinctDoses.size} pending dose alarms")
-        for (dose in distinctDoses) {
-            scheduleDoseAlarm(dose)
+        
+        // Group by medicine and sort by scheduled time to chain alarms (prevents exceeding 500-alarm cap)
+        val dosesByMedicine = distinctDoses.groupBy { it.medicineId }
+        for ((_, doses) in dosesByMedicine) {
+            // Schedule alarms for the near doses (e.g. within next 48 hours or next upcoming)
+            val sorted = doses.sortedBy { it.scheduledAt }
+            for (dose in sorted) {
+                // Ensure missed worker is enqueued
+                scheduleMissedWorker(dose)
+                // Schedule alarm with AlarmManager for doses in the upcoming 48-hour window
+                if (dose.scheduledAt <= now + 48 * 60 * 60 * 1000L) {
+                    val trigger = dose.nextReminderAt ?: dose.scheduledAt
+                    scheduleDoseAlarm(dose, triggerAtMillis = trigger)
+                }
+            }
         }
     }
 }

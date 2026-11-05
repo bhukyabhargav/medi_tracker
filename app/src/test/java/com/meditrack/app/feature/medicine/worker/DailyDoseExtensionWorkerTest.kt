@@ -9,6 +9,7 @@ import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -21,7 +22,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 
@@ -33,6 +33,7 @@ class DailyDoseExtensionWorkerTest {
     private val workerParams: WorkerParameters = mockk(relaxed = true)
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val doseRepository: DoseRepository = mockk(relaxed = true)
+    private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
 
     private lateinit var worker: DailyDoseExtensionWorker
     private val zoneId = ZoneId.of("UTC")
@@ -43,12 +44,13 @@ class DailyDoseExtensionWorkerTest {
             appContext = context,
             workerParams = workerParams,
             medicineRepository = medicineRepository,
-            doseRepository = doseRepository
+            doseRepository = doseRepository,
+            alarmScheduler = alarmScheduler
         )
     }
 
     @Test
-    fun doWork_extends_doses_for_active_medicines_and_returns_success() = runTest {
+    fun doWork_extends_doses_for_active_medicines_and_schedules_alarms() = runTest {
         val now = System.currentTimeMillis()
         val activeMed = Medicine(
             id = "med_active_1",
@@ -60,17 +62,19 @@ class DailyDoseExtensionWorkerTest {
             startDate = now,
             endDate = now + (3 * 24 * 60 * 60 * 1000L),
             foodRelation = FoodRelation.AFTER,
+            reminderEnabled = true,
             initialStock = 30,
             currentStock = 30
         )
 
         every { medicineRepository.observeActive() } returns flowOf(listOf(activeMed))
-        every { doseRepository.observeByMedicineId("med_active_1") } returns flowOf(emptyList())
+        coEvery { doseRepository.getLatestScheduledAt("med_active_1") } returns null
         coEvery { doseRepository.insertAll(any()) } returns Unit
 
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
         coVerify { doseRepository.insertAll(match { it.isNotEmpty() }) }
+        coVerify { alarmScheduler.scheduleDoseAlarm(any()) }
     }
 }

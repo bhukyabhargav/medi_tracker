@@ -61,15 +61,18 @@ class ProcessStockDecrementUseCaseTest {
             outboxRepository = outboxRepository,
             userPreferences = userPreferences
         ).apply {
-            notifier = { _, _, _, _ -> alertCount++ }
+            notifier = { _, _, _, _, _ -> alertCount++ }
         }
 
         coEvery { userPreferences.currentUserId } returns flowOf("patient_1")
+        coEvery { medicineRepository.decrementStockAtomic(any(), any(), any()) } returns 1
     }
 
     @Test
     fun decrement_decreasesStock_andEvaluatesLowStock() = runTest {
-        coEvery { medicineRepository.getById("med_stock") } returns sampleMedicine
+        val initialMed = sampleMedicine.copy(currentStock = 7)
+        val afterMed = sampleMedicine.copy(currentStock = 6)
+        coEvery { medicineRepository.getById("med_stock") } returns initialMed andThen afterMed
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
 
         val medSlot = slot<Medicine>()
@@ -90,7 +93,8 @@ class ProcessStockDecrementUseCaseTest {
     fun decrement_whenCrossingThreshold_withCaregiver_triggersSingleAlertAndOutbox() = runTest {
         // Stock drops from 6 -> 5 (< 6.0 threshold, becomes low!)
         val medWith6 = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
-        coEvery { medicineRepository.getById("med_stock") } returns medWith6
+        val medWith5 = sampleMedicine.copy(currentStock = 5, lowStockNotified = false)
+        coEvery { medicineRepository.getById("med_stock") } returns medWith6 andThen medWith5
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
 
         val outboxSlot = slot<NotificationOutbox>()
@@ -121,7 +125,8 @@ class ProcessStockDecrementUseCaseTest {
     fun decrement_whenAlreadyLow_doesNotSpamAlertOrOutbox() = runTest {
         // Stock is already low (4 pills) and lowStockNotified is true
         val alreadyLowMed = sampleMedicine.copy(currentStock = 4, lowStockNotified = true)
-        coEvery { medicineRepository.getById("med_stock") } returns alreadyLowMed
+        val afterMed = sampleMedicine.copy(currentStock = 3, lowStockNotified = true)
+        coEvery { medicineRepository.getById("med_stock") } returns alreadyLowMed andThen afterMed
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
 
         val result = useCase("med_stock", pillsToDecrement = 1, now = 6000L)
@@ -138,7 +143,8 @@ class ProcessStockDecrementUseCaseTest {
     @Test
     fun decrement_whenCrossingThreshold_withoutCaregiver_promptsCaregiverConnection() = runTest {
         val medWith6 = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
-        coEvery { medicineRepository.getById("med_stock") } returns medWith6
+        val medWith5 = sampleMedicine.copy(currentStock = 5, lowStockNotified = false)
+        coEvery { medicineRepository.getById("med_stock") } returns medWith6 andThen medWith5
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns false
 
         val result = useCase("med_stock", pillsToDecrement = 1, now = 7000L)
@@ -156,7 +162,8 @@ class ProcessStockDecrementUseCaseTest {
     @Test
     fun stockNeverDropsBelowZero() = runTest {
         val medWith1 = sampleMedicine.copy(currentStock = 1, lowStockNotified = true)
-        coEvery { medicineRepository.getById("med_stock") } returns medWith1
+        val medWith0 = sampleMedicine.copy(currentStock = 0, lowStockNotified = true)
+        coEvery { medicineRepository.getById("med_stock") } returns medWith1 andThen medWith0
 
         val result = useCase("med_stock", pillsToDecrement = 5)
 
@@ -168,16 +175,16 @@ class ProcessStockDecrementUseCaseTest {
     fun thresholdBoundary_exactlyAtThreshold_isNotLow_oneBelow_isLow() = runTest {
         // Daily rate: 2 times/day * 1 pill = 2.0 pills/day.
         // Threshold: 2.0 * 3 days = 6.0 pills.
-        // Exact threshold (6 pills): remaining < threshold is FALSE -> NOT low stock
         val medAtThreshold = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
         assertFalse("Stock exactly equal to pillsPerDay * 3 (6) must NOT be considered low stock", StockCalculator.isLow(medAtThreshold))
 
-        // One below threshold (5 pills): remaining < threshold is TRUE -> IS low stock
         val medOneBelow = sampleMedicine.copy(currentStock = 5, lowStockNotified = false)
         assertTrue("Stock one below threshold (5) MUST be considered low stock", StockCalculator.isLow(medOneBelow))
 
         // Decrement to exact threshold (7 -> 6): should not trigger low stock or alert
-        coEvery { medicineRepository.getById("med_stock") } returns sampleMedicine.copy(currentStock = 7, lowStockNotified = false)
+        val med7 = sampleMedicine.copy(currentStock = 7, lowStockNotified = false)
+        val med6 = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
+        coEvery { medicineRepository.getById("med_stock") } returns med7 andThen med6
         val resultTo6 = useCase("med_stock", pillsToDecrement = 1)
         assertEquals(6, resultTo6?.newStock)
         assertFalse(resultTo6?.isLow == true)
@@ -185,11 +192,28 @@ class ProcessStockDecrementUseCaseTest {
         assertEquals(0, alertCount)
 
         // Decrement to one below threshold (6 -> 5): triggers low stock and single alert
-        coEvery { medicineRepository.getById("med_stock") } returns sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
+        val med5 = sampleMedicine.copy(currentStock = 5, lowStockNotified = false)
+        coEvery { medicineRepository.getById("med_stock") } returns med6 andThen med5
         val resultTo5 = useCase("med_stock", pillsToDecrement = 1)
         assertEquals(5, resultTo5?.newStock)
         assertTrue(resultTo5?.isLow == true)
         assertTrue(resultTo5?.transitionedToLow == true)
+        assertEquals(1, alertCount)
+    }
+
+    @Test
+    fun decrement_medicineCreatedWithLowStock_firesAlertOnFirstDecrement() = runTest {
+        // Medicine created with 2 pills (already low, lowStockNotified = false)
+        val med2 = sampleMedicine.copy(currentStock = 2, lowStockNotified = false)
+        val med1 = sampleMedicine.copy(currentStock = 1, lowStockNotified = false)
+        coEvery { medicineRepository.getById("med_stock") } returns med2 andThen med1
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
+
+        val result = useCase("med_stock", pillsToDecrement = 1)
+        assertNotNull(result)
+        assertEquals(1, result?.newStock)
+        assertTrue(result?.isLow == true)
+        assertTrue("Should trigger alert for low-start medicine on first decrement", result?.transitionedToLow == true)
         assertEquals(1, alertCount)
     }
 }

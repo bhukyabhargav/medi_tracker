@@ -41,6 +41,7 @@ enum class RejectReason {
     PILLS_NOT_REMOVED,
     WRONG_PILL_COUNT,
     DUPLICATE_PHOTO,
+    TOO_EARLY,
     /**
      * Retained for schema backwards-compatibility.
      * Dose verification no longer rejects on medicine name text mismatch.
@@ -69,7 +70,8 @@ enum class ProposalStatus {
     PENDING,
     ACCEPTED,
     DECLINED,
-    APPLIED
+    CLARIFICATION_REQUESTED,
+    SUPERSEDED
 }
 
 enum class NotifType {
@@ -78,8 +80,13 @@ enum class NotifType {
     DOSE_UNVERIFIED,
     DOSE_TAKEN_LATE,
     CAREGIVER_INVITE,
-    DOCTOR_INVITE,
-    MEDICINE_PRESCRIBED,
-    MEDICINE_CHANGED_BY_DOCTOR,
-    MEDICINE_STOPPED_BY_DOCTOR
+    DOCTOR_INVITE_RECEIVED,
+    DOCTOR_INVITE_ACCEPTED,
+    DOCTOR_INVITE_DECLINED,
+    DOCTOR_INVITE_REVOKED,
+    PRESCRIPTION_PROPOSAL_RECEIVED,
+    PRESCRIPTION_ACCEPTED,
+    PRESCRIPTION_DECLINED,
+    PRESCRIPTION_CLARIFICATION_REQUESTED,
+    PRESCRIPTION_REVISED
 }

@@ -35,9 +35,9 @@ object SyncConflictResolver {
 
     /**
      * Resolves conflict between local and remote Medicine:
-     * Last-write-wins by createdAt / updatedAt timestamp.
+     * Last-write-wins by updatedAt timestamp.
      */
     fun resolveMedicineConflict(local: Medicine, remote: Medicine): Medicine {
-        return if (remote.createdAt > local.createdAt) remote else local
+        return if (remote.updatedAt > local.updatedAt) remote else local
     }
 }

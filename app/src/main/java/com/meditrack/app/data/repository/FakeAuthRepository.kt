@@ -1,5 +1,9 @@
 package com.meditrack.app.data.repository
 
+import com.meditrack.app.BuildConfig
+import com.meditrack.app.data.db.dao.CaregiverLinkDao
+import com.meditrack.app.data.db.dao.DoseEventDao
+import com.meditrack.app.data.db.dao.MedicineDao
 import com.meditrack.app.data.db.dao.UserDao
 import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.User
@@ -18,21 +22,20 @@ import javax.inject.Singleton
 
 /**
  * Deterministic local fake authentication repository for development and offline testing.
- *
- * NOTE: Credentials hashing here is a demo-only SHA-256 digest scoped for local offline-first
- * verification and development. Real backend authentication and multi-factor authentication
- * will be provided by Firebase Auth in Stage 7 and Stage 10.
  */
 @Singleton
 class FakeAuthRepository @Inject constructor(
     private val userDao: UserDao,
+    private val medicineDao: MedicineDao,
+    private val doseEventDao: DoseEventDao,
+    private val caregiverLinkDao: CaregiverLinkDao,
     private val userPreferences: UserPreferences
 ) : AuthRepository {
 
     private data class PendingAccount(
         val user: User,
         val passwordDigest: String,
-        val otpCode: String = DEBUG_OTP
+        val otpCode: String
     )
 
     private val pendingAccounts = ConcurrentHashMap<String, PendingAccount>()
@@ -42,10 +45,6 @@ class FakeAuthRepository @Inject constructor(
         private const val DEMO_SALT = "MediTrackLocalDemoSalt_2026"
     }
 
-    /**
-     * Reactively observes the user currently logged in according to [UserPreferences.currentUserId].
-     * If logged out or session is empty, emits null.
-     */
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeCurrentUser(): Flow<User?> {
         return userPreferences.currentUserId.flatMapLatest { userId ->
@@ -68,12 +67,16 @@ class FakeAuthRepository @Inject constructor(
         return userDao.getUserById(userId)
     }
 
+    override suspend fun getUserByContact(contact: String): User? {
+        val (normalized, _) = normalizeContact(contact)
+        return userDao.getUserByContact(normalized)
+    }
+
     override suspend fun createAccount(
         name: String,
         emailOrPhone: String,
         password: String,
-        role: UserRole,
-        doctorRegistrationNo: String?
+        role: UserRole
     ): Result<String> {
         val (normalizedContact, isEmail) = normalizeContact(emailOrPhone)
         if (normalizedContact.isEmpty()) {
@@ -101,14 +104,15 @@ class FakeAuthRepository @Inject constructor(
             email = if (isEmail) normalizedContact else null,
             phone = if (!isEmail) normalizedContact else null,
             role = role,
-            doctorRegistrationNo = if (role == UserRole.DOCTOR) doctorRegistrationNo?.trim() else null
+            createdAt = System.currentTimeMillis()
         )
 
         val passwordDigest = hashPassword(password)
+        val otpCode = if (BuildConfig.DEBUG) DEBUG_OTP else (100000..999999).random().toString()
         pendingAccounts[normalizedContact] = PendingAccount(
             user = user,
             passwordDigest = passwordDigest,
-            otpCode = DEBUG_OTP
+            otpCode = otpCode
         )
 
         return Result.success(userId)
@@ -119,8 +123,11 @@ class FakeAuthRepository @Inject constructor(
         val pending = pendingAccounts[normalizedContact]
             ?: return Result.failure(IllegalStateException("No pending registration found for $emailOrPhone"))
 
-        if (otp.trim() != DEBUG_OTP && otp.trim() != pending.otpCode) {
-            return Result.failure(IllegalArgumentException("Invalid verification code. Enter $DEBUG_OTP"))
+        val expectedOtp = pending.otpCode
+        val isOtpValid = otp.trim() == expectedOtp || (BuildConfig.DEBUG && otp.trim() == DEBUG_OTP)
+
+        if (!isOtpValid) {
+            return Result.failure(IllegalArgumentException("Invalid verification code."))
         }
 
         // Verified successfully: persist user to Room, store password digest, set session, and clean pending registration
@@ -155,6 +162,14 @@ class FakeAuthRepository @Inject constructor(
     }
 
     override suspend fun logout() {
+        val currentUserId = userPreferences.currentUserId.firstOrNull()
+        if (currentUserId != null) {
+            // Isolate user data: wipe active patient rows from Room to prevent cross-account leak
+            medicineDao.deleteAllByPatientId(currentUserId)
+            doseEventDao.deleteAllByPatientId(currentUserId)
+            caregiverLinkDao.deleteAllByPatientId(currentUserId)
+        }
+        userDao.clearUsers()
         userPreferences.clearSession()
     }
 
@@ -172,7 +187,6 @@ class FakeAuthRepository @Inject constructor(
         return if (isEmail) {
             trimmed.lowercase() to true
         } else {
-            // Strip whitespace and dashes from phone while keeping digits and '+'
             val cleanPhone = trimmed.replace(" ", "").replace("-", "")
             cleanPhone to false
         }

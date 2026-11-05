@@ -102,14 +102,13 @@ class RoomDaoTest {
 
     @Test
     fun userDao_observeCurrentUserAndClear() = runTest {
-        val user = User(id = "user_2", name = "Dr. Smith", role = UserRole.DOCTOR, doctorRegistrationNo = "DOC-9988")
+        val user = User(id = "user_2", name = "Dr. Smith", role = UserRole.DOCTOR)
         userDao.observeCurrentUser().test {
             assertNull(awaitItem())
 
             userDao.insertUser(user)
             val updated = awaitItem()
             assertEquals("Dr. Smith", updated?.name)
-            assertEquals("DOC-9988", updated?.doctorRegistrationNo)
 
             userDao.clearUsers()
             assertNull(awaitItem())
@@ -424,5 +423,12 @@ class RoomDaoTest {
         notificationOutboxDao.markDelivered("outbox_1")
         undelivered = notificationOutboxDao.getUndelivered()
         assertTrue(undelivered.isEmpty())
+    }
+
+    @Test
+    fun migration_1_2_executes_successfully() {
+        val mockDb = io.mockk.mockk<androidx.sqlite.db.SupportSQLiteDatabase>(relaxed = true)
+        AppDatabase.MIGRATION_1_2.migrate(mockDb)
+        io.mockk.verify(atLeast = 10) { mockDb.execSQL(any()) }
     }
 }

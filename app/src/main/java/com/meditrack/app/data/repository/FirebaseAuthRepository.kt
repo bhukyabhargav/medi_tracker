@@ -13,7 +13,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.tasks.await
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,18 +50,19 @@ class FirebaseAuthRepository @Inject constructor(
         return userDao.getUserById(currentId)
     }
 
+    override suspend fun getUserByContact(contact: String): User? = fakeAuthRepository.getUserByContact(contact)
+
     override suspend fun createAccount(
         name: String,
         emailOrPhone: String,
         password: String,
-        role: UserRole,
-        doctorRegistrationNo: String?
+        role: UserRole
     ): Result<String> {
         val auth = firebaseAuth
         val db = firestore
         if (auth == null || db == null) {
             // Fallback to fake authentication when Firebase is not initialized
-            return fakeAuthRepository.createAccount(name, emailOrPhone, password, role, doctorRegistrationNo)
+            return fakeAuthRepository.createAccount(name, emailOrPhone, password, role)
         }
 
         return try {
@@ -77,7 +77,6 @@ class FirebaseAuthRepository @Inject constructor(
                 email = if (emailOrPhone.contains("@")) emailOrPhone.trim() else null,
                 phone = if (!emailOrPhone.contains("@")) emailOrPhone.trim() else null,
                 role = role,
-                doctorRegistrationNo = doctorRegistrationNo,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -88,7 +87,6 @@ class FirebaseAuthRepository @Inject constructor(
                 "email" to user.email,
                 "phone" to user.phone,
                 "role" to user.role.name,
-                "doctorRegistrationNo" to user.doctorRegistrationNo,
                 "createdAt" to user.createdAt
             )
             db.collection("users").document(user.id).set(userMap).await()
@@ -104,11 +102,7 @@ class FirebaseAuthRepository @Inject constructor(
     }
 
     override suspend fun verifyOtp(emailOrPhone: String, otp: String): Result<User> {
-        if (!isFirebaseAvailable) {
-            return fakeAuthRepository.verifyOtp(emailOrPhone, otp)
-        }
-        val current = getCurrentUser()
-        return if (current != null) Result.success(current) else fakeAuthRepository.verifyOtp(emailOrPhone, otp)
+        return fakeAuthRepository.verifyOtp(emailOrPhone, otp)
     }
 
     override suspend fun login(emailOrPhone: String, password: String): Result<User> {
@@ -136,7 +130,6 @@ class FirebaseAuthRepository @Inject constructor(
                         email = doc.getString("email"),
                         phone = doc.getString("phone"),
                         role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.PATIENT },
-                        doctorRegistrationNo = doc.getString("doctorRegistrationNo"),
                         createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
                     )
                     userDao.insertUser(user)
@@ -154,9 +147,7 @@ class FirebaseAuthRepository @Inject constructor(
             userPreferences.setLoggedIn(user.id)
             Result.success(user)
         } catch (e: Exception) {
-            // If online login fails due to network/configuration, attempt local authentication
-            val fallback = fakeAuthRepository.login(emailOrPhone, password)
-            if (fallback.isSuccess) fallback else Result.failure(e)
+            Result.failure(e)
         }
     }
 

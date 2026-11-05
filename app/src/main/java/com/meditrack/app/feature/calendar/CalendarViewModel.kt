@@ -78,14 +78,16 @@ class CalendarViewModel @Inject constructor(
 
         val startOfMonth = ZonedDateTime.of(month.atDay(1), LocalTime.MIN, zoneId).toInstant().toEpochMilli()
         val endOfMonth = ZonedDateTime.of(month.atEndOfMonth(), LocalTime.MAX, zoneId).toInstant().toEpochMilli()
+        val queryHorizon = endOfMonth + (7 * 24 * 60 * 60 * 1000L) // Include cross-boundary window for nextScheduled
 
         combine(
-            doseRepository.observeBetween(startOfMonth, endOfMonth),
+            doseRepository.observeBetween(startOfMonth, queryHorizon),
             medicineRepository.observeAll()
-        ) { monthDoses, allMedicines ->
+        ) { allHorizonDoses, allMedicines ->
             val medMap = allMedicines.associateBy { it.id }
+            val monthDoses = allHorizonDoses.filter { it.scheduledAt <= endOfMonth }
 
-            // Group doses by day
+            // Group doses by day for current month
             val dosesByDay = monthDoses.groupBy { dose ->
                 Instant.ofEpochMilli(dose.scheduledAt).atZone(zoneId).toLocalDate()
             }
@@ -101,7 +103,8 @@ class CalendarViewModel @Inject constructor(
             val doseItems = dosesForSelectedDate.sortedBy { it.scheduledAt }.map { dose ->
                 val med = medMap[dose.medicineId]
                 val isMissed = dose.status == DoseStatus.MISSED
-                val nextScheduled = monthDoses
+                // Look ahead across month boundary to find next scheduled dose
+                val nextScheduled = allHorizonDoses
                     .filter { it.medicineId == dose.medicineId && it.scheduledAt > dose.scheduledAt }
                     .minByOrNull { it.scheduledAt }?.scheduledAt
 

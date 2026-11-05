@@ -73,7 +73,12 @@ object AdherenceCalculator {
         }
 
         val adherencePercentage = (verifiedTaken.toDouble() / closedDoses) * 100.0
-        val roundedPercentage = adherencePercentage.roundToInt()
+        // Never round 99.x% to 100% if not strictly 100% to maintain clinical accuracy
+        val roundedPercentage = if (adherencePercentage < 100.0 && adherencePercentage.roundToInt() == 100) {
+            99
+        } else {
+            adherencePercentage.roundToInt()
+        }
         val percentageFormatted = "$roundedPercentage%"
 
         val displayText = if (takenLate > 0) {

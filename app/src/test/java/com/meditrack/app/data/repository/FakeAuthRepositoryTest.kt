@@ -38,7 +38,7 @@ class FakeAuthRepositoryTest {
             .build()
         userDao = db.userDao()
         userPreferences = UserPreferences(context)
-        repository = FakeAuthRepository(userDao, userPreferences)
+        repository = FakeAuthRepository(userDao, db.medicineDao(), db.doseEventDao(), db.caregiverLinkDao(), userPreferences)
     }
 
     @After
@@ -157,8 +157,7 @@ class FakeAuthRepositoryTest {
             name = "Dr. Alice",
             emailOrPhone = "doctor@hospital.org",
             password = "doctorSecurePass",
-            role = UserRole.DOCTOR,
-            doctorRegistrationNo = null
+            role = UserRole.DOCTOR
         )
         assertTrue(result.isSuccess)
         repository.verifyOtp("doctor@hospital.org", FakeAuthRepository.DEBUG_OTP)
@@ -166,7 +165,6 @@ class FakeAuthRepositoryTest {
         val user = userDao.getUserByContact("doctor@hospital.org")
         assertNotNull(user)
         assertEquals(UserRole.DOCTOR, user?.role)
-        assertNull(user?.doctorRegistrationNo)
     }
 
     @Test

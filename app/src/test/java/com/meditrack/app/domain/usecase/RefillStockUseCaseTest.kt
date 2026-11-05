@@ -59,6 +59,18 @@ class RefillStockUseCaseTest {
     }
 
     @Test
+    fun refill_resetsBaselineAndSetsLastRefillAt() = runTest {
+        coEvery { medicineRepository.getById("med_refill") } returns sampleMedicine.copy(baselineEmptyCells = 10)
+        val result = useCase("med_refill", additionalPills = 10, newBaselineEmptyCells = 0, now = 5000L)
+        assertTrue(result.isSuccess)
+        val updated = result.getOrThrow()
+        assertEquals(12, updated.currentStock)
+        assertEquals(0, updated.baselineEmptyCells)
+        assertEquals(5000L, updated.lastRefillAt)
+        assertFalse(updated.lowStockNotified)
+    }
+
+    @Test
     fun refill_rejectsNonPositivePillCounts() = runTest {
         val resultZero = useCase("med_refill", additionalPills = 0)
         assertTrue(resultZero.isFailure)

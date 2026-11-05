@@ -42,10 +42,14 @@ service cloud.firestore {
         resource.data.patientId == request.auth.uid ||
         resource.data.caregiverUid == request.auth.uid
       );
-      allow create: if isAuthenticated() && request.resource.data.patientId == request.auth.uid;
+      // Ensure linkId strictly matches patientId_caregiverUid, creator is patient, and initial status is PENDING
+      allow create: if isAuthenticated() &&
+        request.resource.data.patientId == request.auth.uid &&
+        linkId == (request.resource.data.patientId + '_' + request.resource.data.caregiverUid) &&
+        request.resource.data.status == 'PENDING';
       allow update: if isAuthenticated() && (
-        resource.data.patientId == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid
+        (resource.data.patientId == request.auth.uid && request.resource.data.status in ['PENDING', 'REVOKED']) ||
+        (resource.data.caregiverUid == request.auth.uid && request.resource.data.status in ['ACCEPTED', 'REJECTED'])
       );
       allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
     }

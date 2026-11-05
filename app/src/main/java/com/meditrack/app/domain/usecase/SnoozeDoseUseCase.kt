@@ -13,9 +13,10 @@ class SnoozeDoseUseCase @Inject constructor(
 
     /**
      * Reschedules a pending dose for snooze:
+     * - Validates snoozeMinutes > 0
      * - Validates snoozeCount < MAX_SNOOZES_PER_DOSE
      * - Enforces that target snooze time does not push past dose.windowEndsAt
-     * - Increments snoozeCount
+     * - Increments snoozeCount and sets nextReminderAt
      * Returns the target alarm trigger time in epoch millis on success.
      */
     suspend operator fun invoke(
@@ -23,6 +24,10 @@ class SnoozeDoseUseCase @Inject constructor(
         snoozeMinutes: Int = 15,
         now: Long = System.currentTimeMillis()
     ): Result<Long> {
+        if (snoozeMinutes <= 0) {
+            return Result.failure(IllegalArgumentException("Snooze duration must be greater than zero."))
+        }
+
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
 
@@ -41,6 +46,7 @@ class SnoozeDoseUseCase @Inject constructor(
 
         val updatedDose = dose.copy(
             snoozeCount = dose.snoozeCount + 1,
+            nextReminderAt = targetTriggerTime,
             updatedAt = now
         )
         doseRepository.update(updatedDose)

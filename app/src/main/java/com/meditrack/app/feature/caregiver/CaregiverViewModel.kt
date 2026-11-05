@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -86,10 +87,10 @@ class CaregiverViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // In caregiver role: observe all links where this user is caregiver
+            // In caregiver role: observe links where this user is the caregiver and link is ACCEPTED
             caregiverRepository.observeAll().collect { links ->
                 val currentId = _uiState.value.currentUserId
-                val patients = links.filter { it.caregiverUid == currentId || it.status == LinkStatus.ACCEPTED }
+                val patients = links.filter { it.caregiverUid == currentId && it.status == LinkStatus.ACCEPTED }
                 _uiState.update { it.copy(linkedPatients = patients) }
             }
         }
@@ -103,7 +104,11 @@ class CaregiverViewModel @Inject constructor(
 
         viewModelScope.launch {
             val patientId = _uiState.value.currentUserId
-            val linkId = "link_${UUID.randomUUID()}"
+            val targetCaregiver = authRepository.getUserByContact(contact.trim())
+            val caregiverUid = targetCaregiver?.id ?: "cg_${contact.trim().replace(Regex("[^a-zA-Z0-9]"), "_")}"
+            // Ensure link ID format strictly conforms to {patientId}_{caregiverUid} per firestore.rules
+            val linkId = "${patientId}_${caregiverUid}"
+
             val link = CaregiverLink(
                 id = linkId,
                 patientId = patientId,
@@ -111,16 +116,23 @@ class CaregiverViewModel @Inject constructor(
                 caregiverContact = contact.trim(),
                 relationship = relationship.ifBlank { "Caregiver" },
                 status = LinkStatus.PENDING,
+                caregiverUid = caregiverUid,
                 createdAt = System.currentTimeMillis()
             )
             caregiverRepository.insert(link)
 
-            // Enqueue CAREGIVER_INVITE outbox notification
+            // Enqueue CAREGIVER_INVITE outbox notification with structured JSON and caregiverUid
             val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
+            val payload = JSONObject().apply {
+                put("patientName", patientName)
+                put("caregiverName", link.caregiverName)
+                put("caregiverUid", caregiverUid)
+                put("linkId", linkId)
+            }
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.CAREGIVER_INVITE,
-                payloadJson = """{"patientName":"$patientName","caregiverName":"${link.caregiverName}","linkId":"$linkId"}""",
+                payloadJson = payload.toString(),
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -167,8 +179,13 @@ class CaregiverViewModel @Inject constructor(
             val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
-            val dosesToday = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-            val medicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
+            // Filter doses and medicines specifically for this patient to prevent cross-patient data display
+            val allDoses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
+            val dosesToday = allDoses.filter { it.patientId == null || it.patientId == patientId }
+
+            val allMedicines = medicineRepository.observeActive().firstOrNull() ?: emptyList()
+            val medicines = allMedicines.filter { it.patientId == null || it.patientId == patientId }
+
             val adherence = AdherenceCalculator.calculate(dosesToday)
 
             _uiState.update {

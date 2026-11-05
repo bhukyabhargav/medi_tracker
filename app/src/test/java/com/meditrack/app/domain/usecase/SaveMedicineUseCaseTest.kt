@@ -104,7 +104,7 @@ class SaveMedicineUseCaseTest {
         )
 
         coVerify { medicineRepository.update(med) }
-        coVerify { doseRepository.deleteFuturePendingDoses(eq("med_1"), any()) }
+        coVerify { doseRepository.deleteAllPendingForMedicine(eq("med_1")) }
         coVerify { doseRepository.insertAll(any()) }
         assertTrue(doses.isNotEmpty())
     }
@@ -116,7 +116,7 @@ class SaveMedicineUseCaseTest {
 
         useCase.deleteMedicine("med_delete_me")
 
-        coVerify { doseRepository.deleteFuturePendingDoses(eq("med_delete_me"), any()) }
+        coVerify { doseRepository.deleteAllPendingForMedicine(eq("med_delete_me")) }
         coVerify { medicineRepository.update(match { it.id == "med_delete_me" && it.isDeleted }) }
     }
 }

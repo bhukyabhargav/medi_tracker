@@ -17,6 +17,7 @@ import com.meditrack.app.domain.repository.OutboxRepository
 import com.meditrack.app.feature.reminder.NotificationChannels
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import org.json.JSONObject
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,8 +39,8 @@ class ProcessStockDecrementUseCase @Inject constructor(
     private val outboxRepository: OutboxRepository,
     private val userPreferences: UserPreferences
 ) {
-    internal var notifier: (context: Context, medName: String, remaining: Int, promptCaregiver: Boolean) -> Unit = { ctx, name, remaining, promptCaregiver ->
-        showLocalLowStockNotification(ctx, name, remaining, promptCaregiver)
+    internal var notifier: (context: Context, medName: String, remaining: Int, promptCaregiver: Boolean, medId: String) -> Unit = { ctx, name, remaining, promptCaregiver, medId ->
+        showLocalLowStockNotification(ctx, name, remaining, promptCaregiver, medId)
     }
 
     suspend operator fun invoke(
@@ -49,45 +50,52 @@ class ProcessStockDecrementUseCase @Inject constructor(
     ): StockDecrementResult? {
         val medicine = medicineRepository.getById(medicineId) ?: return null
 
-        val wasLow = StockCalculator.isLow(medicine) || medicine.lowStockNotified
-        val newStock = maxOf(0, medicine.currentStock - pillsToDecrement)
-        val tempUpdated = medicine.copy(currentStock = newStock)
-        val isNowLow = StockCalculator.isLow(tempUpdated)
+        // Atomic decrement in Room
+        medicineRepository.decrementStockAtomic(medicineId, pillsToDecrement, now)
+        val afterDecrement = medicineRepository.getById(medicineId) ?: return null
+        val newStock = afterDecrement.currentStock
 
-        val transitionedToLow = !wasLow && isNowLow
+        val isNowLow = StockCalculator.isLow(afterDecrement)
+        // Alert if stock is now low and the user has not yet been notified (handles low-start medicines)
+        val shouldAlert = !medicine.lowStockNotified && isNowLow
 
         var outboxEnqueued = false
         var promptCaregiver = false
 
-        if (transitionedToLow) {
+        if (shouldAlert) {
             val currentUserId = userPreferences.currentUserId.first()
             val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
 
             if (hasCaregiver) {
-                // Enqueue a LOW_STOCK outbox event: "<Medicine> is running low – refill needed."
+                // Enqueue a LOW_STOCK outbox event with safe JSONObject
+                val payload = JSONObject().apply {
+                    put("medicineId", medicine.id)
+                    put("name", medicine.name)
+                    put("remaining", newStock)
+                }
                 val outboxEvent = NotificationOutbox(
                     id = "outbox_${UUID.randomUUID()}",
                     type = NotifType.LOW_STOCK,
-                    payloadJson = """{"medicineId":"${medicine.id}","name":"${medicine.name}","remaining":$newStock}""",
+                    payloadJson = payload.toString(),
                     createdAt = now,
                     delivered = false
                 )
                 outboxRepository.enqueue(outboxEvent)
                 outboxEnqueued = true
             } else {
-                // If no caregiver is connected: prompt to add caregiver
                 promptCaregiver = true
             }
 
             // Show local alert to the patient: "<Medicine> is running low."
             try {
-                notifier(context, medicine.name, newStock, promptCaregiver)
+                notifier(context, medicine.name, newStock, promptCaregiver, medicine.id)
             } catch (_: Exception) {}
         }
 
-        val finalMedicine = medicine.copy(
-            currentStock = newStock,
-            lowStockNotified = if (isNowLow) true else false
+        // Maintain lowStockNotified flag without resetting it to false on non-low decrement
+        val finalMedicine = afterDecrement.copy(
+            lowStockNotified = medicine.lowStockNotified || shouldAlert,
+            updatedAt = now
         )
         medicineRepository.update(finalMedicine)
 
@@ -95,7 +103,7 @@ class ProcessStockDecrementUseCase @Inject constructor(
             medicine = finalMedicine,
             newStock = newStock,
             isLow = isNowLow,
-            transitionedToLow = transitionedToLow,
+            transitionedToLow = shouldAlert,
             outboxEnqueued = outboxEnqueued,
             promptCaregiver = promptCaregiver
         )
@@ -106,7 +114,8 @@ class ProcessStockDecrementUseCase @Inject constructor(
             context: Context,
             medicineName: String,
             remainingPills: Int,
-            promptCaregiver: Boolean = false
+            promptCaregiver: Boolean = false,
+            medicineId: String = medicineName
         ) {
             try {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -115,9 +124,10 @@ class ProcessStockDecrementUseCase @Inject constructor(
                 val intent = Intent(context, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 }
+                val notificationId = medicineId.hashCode()
                 val pendingIntent = PendingIntent.getActivity(
                     context,
-                    medicineName.hashCode(),
+                    notificationId,
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
@@ -137,7 +147,7 @@ class ProcessStockDecrementUseCase @Inject constructor(
                     .setContentIntent(pendingIntent)
                     .build()
 
-                notificationManager.notify(medicineName.hashCode(), notification)
+                notificationManager.notify(notificationId, notification)
             } catch (_: Exception) {}
         }
     }

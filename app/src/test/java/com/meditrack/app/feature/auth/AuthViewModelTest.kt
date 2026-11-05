@@ -146,8 +146,7 @@ class AuthViewModelTest {
                 name = "Dr. Smith",
                 emailOrPhone = "doctor@test.com",
                 password = "doctorpass",
-                role = UserRole.DOCTOR,
-                doctorRegistrationNo = null
+                role = UserRole.DOCTOR
             )
         } returns Result.success("doctor_1")
 
@@ -171,8 +170,7 @@ class AuthViewModelTest {
                 name = "Alice Caregiver",
                 emailOrPhone = "caregiver@test.com",
                 password = "securepassword",
-                role = UserRole.CAREGIVER,
-                doctorRegistrationNo = null
+                role = UserRole.CAREGIVER
             )
         } returns Result.success("user_1")
 

@@ -16,6 +16,8 @@ interface MedicineRepository {
     suspend fun update(medicine: Medicine)
     suspend fun delete(medicine: Medicine)
     suspend fun updateStock(medicineId: String, newStock: Int)
+    suspend fun decrementStockAtomic(medicineId: String, count: Int, now: Long = System.currentTimeMillis()): Int
+    suspend fun deleteAllByPatientId(patientId: String)
 }
 
 interface DoseRepository {
@@ -30,8 +32,12 @@ interface DoseRepository {
     suspend fun getFuturePendingDoses(now: Long): List<DoseEvent>
     suspend fun getOverduePendingDoses(now: Long): List<DoseEvent>
     suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent?
+    suspend fun getLatestVerifiedDoseAfter(medicineId: String, afterMillis: Long): DoseEvent?
+    suspend fun getLatestScheduledAt(medicineId: String): Long?
     suspend fun getNextScheduledDose(medicineId: String, scheduledAt: Long): DoseEvent?
     suspend fun deleteFuturePendingDoses(medicineId: String, afterTimestamp: Long)
+    suspend fun deleteAllPendingForMedicine(medicineId: String)
+    suspend fun deleteAllByPatientId(patientId: String)
 }
 
 interface VerificationRepository {
@@ -47,6 +53,7 @@ interface CaregiverRepository {
     suspend fun insert(link: CaregiverLink)
     suspend fun update(link: CaregiverLink)
     suspend fun hasConnectedCaregiver(patientId: String): Boolean
+    suspend fun deleteAllByPatientId(patientId: String)
 }
 
 interface OutboxRepository {

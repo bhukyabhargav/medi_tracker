@@ -10,15 +10,24 @@ service firebase.storage {
       return isAuthenticated() && request.auth.uid == patientUid;
     }
 
-    // Proof photos: proofs/{patientUid}/{doseId}.jpg
-    match /proofs/{patientUid}/{doseId}.jpg {
+    function isAcceptedCaregiver(patientUid) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/caregiverLinks/$(patientUid + '_' + request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/caregiverLinks/$(patientUid + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
+    // Proof photos: proofs/{patientUid}/{filename}
+    match /proofs/{patientUid}/{filename} {
       // Patient can upload proof photo (must be image <= 5MB)
       allow write: if isOwner(patientUid)
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
 
-      // Patient and authenticated users (e.g. linked caregiver) can read
-      allow read: if isAuthenticated();
+      // Only patient or linked accepted caregiver can read proof photos
+      allow read: if isOwner(patientUid) || isAcceptedCaregiver(patientUid);
+
+      // Patient can delete own proof photos
+      allow delete: if isOwner(patientUid);
     }
   }
 }
