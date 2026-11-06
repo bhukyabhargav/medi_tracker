@@ -35,6 +35,11 @@ class ProcessMissedDoseUseCase @Inject constructor(
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
 
+        if (now < dose.windowEndsAt) {
+            // Never close a dose before its intake window has ended (clock changes, early jobs).
+            return Result.success(false)
+        }
+
         if (dose.status != DoseStatus.PENDING && dose.status != DoseStatus.UNVERIFIED) {
             // Already taken, skipped, or previously marked missed
             return Result.success(false)

@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.meditrack.app.MainActivity
 import com.meditrack.app.MediTrackApp
+import com.meditrack.app.core.config.AppConfig
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.feature.reminder.NotificationChannels
@@ -39,6 +40,13 @@ class AlarmSchedulerImpl @Inject constructor(
 
         // If triggerAtMillis is in the past, but the dose is still inside its window, trigger immediately
         val effectiveTrigger = maxOf(now + 1000L, triggerAtMillis)
+
+        // Beyond the alarm horizon only the MISSED check is enqueued; AlarmMaintenanceWorker arms
+        // the exact alarm later (keeps us far below Android's per-app alarm limit).
+        if (effectiveTrigger > now + AppConfig.ALARM_HORIZON_HOURS * 60 * 60 * 1000L) {
+            scheduleMissedWorker(dose)
+            return
+        }
 
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DOSE_REMINDER

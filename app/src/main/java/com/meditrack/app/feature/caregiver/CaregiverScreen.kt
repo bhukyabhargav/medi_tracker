@@ -136,7 +136,8 @@ fun CaregiverScreen(
                     selectedPatientId = uiState.selectedPatientId,
                     selectedDoses = uiState.selectedPatientDoses,
                     adherenceReport = uiState.adherenceReport,
-                    onSelectPatient = viewModel::selectPatient
+                    onSelectPatient = viewModel::selectPatient,
+                    onAcceptInviteCode = viewModel::acceptInviteCode
                 )
             }
 
@@ -356,8 +357,11 @@ private fun CaregiverPortalView(
     selectedPatientId: String?,
     selectedDoses: List<DoseEvent>,
     adherenceReport: com.meditrack.app.domain.usecase.AdherenceReport?,
-    onSelectPatient: (String) -> Unit
+    onSelectPatient: (String) -> Unit,
+    onAcceptInviteCode: (String) -> Unit = {}
 ) {
+    var inviteCodeInput by remember { mutableStateOf("") }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -391,6 +395,52 @@ private fun CaregiverPortalView(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                         )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "Accept Patient Invitation",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Enter the 6-10 character code shared by your patient to link their account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inviteCodeInput,
+                            onValueChange = { inviteCodeInput = it.uppercase().trim() },
+                            placeholder = { Text("e.g. 7K9P2X") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                if (inviteCodeInput.isNotBlank()) {
+                                    onAcceptInviteCode(inviteCodeInput)
+                                    inviteCodeInput = ""
+                                }
+                            },
+                            enabled = inviteCodeInput.isNotBlank()
+                        ) {
+                            Text("Link")
+                        }
                     }
                 }
             }

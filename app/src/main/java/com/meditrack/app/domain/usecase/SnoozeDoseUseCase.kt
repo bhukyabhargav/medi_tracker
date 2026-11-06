@@ -24,8 +24,10 @@ class SnoozeDoseUseCase @Inject constructor(
         snoozeMinutes: Int = 15,
         now: Long = System.currentTimeMillis()
     ): Result<Long> {
-        if (snoozeMinutes <= 0) {
-            return Result.failure(IllegalArgumentException("Snooze duration must be greater than zero."))
+        if (snoozeMinutes <= 0 || snoozeMinutes > AppConfig.MAX_SNOOZE_MINUTES) {
+            return Result.failure(
+                IllegalArgumentException("Snooze duration must be between 1 and ${AppConfig.MAX_SNOOZE_MINUTES} minutes.")
+            )
         }
 
         val dose = doseRepository.getById(doseId)

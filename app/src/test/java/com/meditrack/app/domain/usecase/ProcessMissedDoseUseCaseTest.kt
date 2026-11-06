@@ -107,4 +107,13 @@ class ProcessMissedDoseUseCaseTest {
         coVerify(exactly = 0) { doseRepository.update(any()) }
         coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
     }
+
+    @Test
+    fun processMissedDose_doesNothingBeforeWindowEnds() = runTest {
+        coEvery { doseRepository.getById("dose_missed_1") } returns sampleDose
+        val result = useCase("dose_missed_1", now = 4000L) // window ends at 4600L
+        assertTrue(result.isSuccess)
+        assertFalse(result.getOrThrow())
+        coVerify(exactly = 0) { doseRepository.update(any()) }
+    }
 }

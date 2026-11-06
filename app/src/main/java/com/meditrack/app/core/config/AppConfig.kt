@@ -8,6 +8,9 @@ object AppConfig {
         get() = debugDoseWindowMinutes ?: DOSE_WINDOW_MINUTES
     val SNOOZE_PRESETS_MINUTES = listOf(15, 30)   // plus custom (list cannot be const)
     const val MAX_SNOOZES_PER_DOSE = 3
+    const val MAX_SNOOZE_MINUTES = 240            // custom snooze upper bound
+    const val ALARM_HORIZON_HOURS = 48            // max exact alarm window (Android ~500 alarm limit)
+    const val ALARM_MAINTENANCE_INTERVAL_HOURS = 6L
 
     // Verification
     const val MAX_VERIFICATION_ATTEMPTS = 3

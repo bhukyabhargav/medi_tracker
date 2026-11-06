@@ -45,6 +45,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 }
 
                 val medicine = medicineRepository.getById(dose.medicineId)
+                if (medicine != null && (medicine.isDeleted || medicine.stoppedByDoctor)) {
+                    Log.d(MediTrackApp.TAG, "Medicine ${medicine.name} is deleted or stopped, skipping notification")
+                    return@launch
+                }
                 if (medicine?.reminderEnabled == false) {
                     Log.d(MediTrackApp.TAG, "Reminder disabled for medicine ${medicine.name}, skipping notification")
                     return@launch

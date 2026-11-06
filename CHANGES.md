@@ -119,8 +119,15 @@ This document provides a comprehensive log of all code changes, architecture enh
 
 ---
 
-## 6. Verification Results
-- **Unit Test Count**: Exactly **224** `@Test` methods counted across `app/src/test`.
-- **`./gradlew.bat testDebugUnitTest`**: **PASSED** (224 tests completed, 0 failures, 0 ignored, 100% passing).
+## 6. Verification Results & Defensive Hardening
+- **Unit Test Count**: Exactly **225** `@Test` methods counted across `app/src/test` (including `processMissedDose_doesNothingBeforeWindowEnds`).
+- **`./gradlew.bat testDebugUnitTest`**: **PASSED** (225 tests completed, 0 failures, 0 ignored, 100% passing).
 - **`./gradlew.bat lintDebug`**: **PASSED** (0 lint errors).
 - **`./gradlew.bat assembleDebug`**: **PASSED** (Debug APK generated successfully).
+- **Defensive Enhancements Incorporated**:
+  - `Converters.kt`: Tolerant enum mapping (`enumValueOrNull` / `enumValueOrDefault`) guarding against crashes on unexpected DB values.
+  - `ProcessMissedDoseUseCase.kt`: Added guard preventing early closure before `windowEndsAt`.
+  - `SnoozeDoseUseCase.kt` & `AppConfig.kt`: Enforced 240-minute maximum snooze boundary.
+  - `AlarmSchedulerImpl.kt`: Added internal 48-hour rolling alarm horizon clamp.
+  - `VerificationPipeline.kt`: Added friendly guidance message for negative pill deltas.
+  - `CaregiverScreen.kt`: Added invitation code redemption card to `CaregiverPortalView`.

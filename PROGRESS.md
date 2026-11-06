@@ -301,10 +301,17 @@
   - Updated `CaregiverViewModel` to read patient medicines and 7-day doses read-only from Firestore into UI state.
   - Rewrote `SyncWorker` to perform pull-first conflict resolution followed by batched push writes for local rows matching `patientId == currentUserId`.
 - **Verification Commands & Real Results**:
-  - Real `@Test` methods counted across `app/src/test`: **224**
-  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` ?" **PASSED** (224 tests completed, 0 failures, 0 ignored, 100% passing)
-  - Lint check: `.\gradlew.bat lintDebug` ?" **PASSED** (0 errors)
-  - App build: `.\gradlew.bat assembleDebug` ?" **PASSED** (BUILD SUCCESSFUL)
+  - Real `@Test` methods counted across `app/src/test`: **225**
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` — **PASSED** (225 tests completed, 0 failures, 0 ignored, 100% passing)
+  - Lint check: `.\gradlew.bat lintDebug` — **PASSED** (0 errors)
+  - App build: `.\gradlew.bat assembleDebug` — **PASSED** (BUILD SUCCESSFUL)
+- **Defensive Enhancements & Comparative Hardening**:
+  - `Converters.kt`: Added `enumValueOrNull` and `enumValueOrDefault` helpers to make Room database enum reading completely crash-proof against unexpected/legacy schema values.
+  - `ProcessMissedDoseUseCase.kt`: Added window boundary guard `if (now < dose.windowEndsAt) return Result.success(false)` preventing premature closure of pending doses before window expiration (+ unit test).
+  - `SnoozeDoseUseCase.kt` & `AppConfig.kt`: Enforced explicit upper bound on snoozes (`MAX_SNOOZE_MINUTES = 240`).
+  - `AlarmSchedulerImpl.kt`: Clamped scheduling to rolling horizon internally (`ALARM_HORIZON_HOURS = 48`) delegating overdue alarms to WorkManager.
+  - `VerificationPipeline.kt`: Added explicit guidance for negative strip deltas (`delta < 0`) prompting the user to use the refill strip toggle.
+  - `CaregiverScreen.kt`: Added invitation code entry card to `CaregiverPortalView` allowing caregivers to link patient accounts directly in the UI.
 - **Honest Limitations**:
   - Live push notifications via FCM require actual Firebase project deployment with valid credentials (`google-services.json`) and registered Google Play services on physical test devices.
   - TFLite pill detection uses MLKit text recognition and CPU fallback heuristics in headless emulator/CI environments where GPU/NNAPI delegates are unavailable.

@@ -51,65 +51,71 @@ class Converters {
     fun fromUserRole(value: UserRole?): String? = value?.name
 
     @TypeConverter
-    fun toUserRole(value: String?): UserRole? = value?.let { enumValueOf<UserRole>(it) }
+    fun toUserRole(value: String?): UserRole? = value?.let { enumValueOrDefault<UserRole>(it, UserRole.PATIENT) }
 
     @TypeConverter
     fun fromFrequencyType(value: FrequencyType?): String? = value?.name
 
     @TypeConverter
-    fun toFrequencyType(value: String?): FrequencyType? = value?.let { enumValueOf<FrequencyType>(it) }
+    fun toFrequencyType(value: String?): FrequencyType? = value?.let { enumValueOrNull<FrequencyType>(it) }
 
     @TypeConverter
     fun fromFoodRelation(value: FoodRelation?): String? = value?.name
 
     @TypeConverter
-    fun toFoodRelation(value: String?): FoodRelation? = value?.let { enumValueOf<FoodRelation>(it) }
+    fun toFoodRelation(value: String?): FoodRelation? = value?.let { enumValueOrDefault<FoodRelation>(it, FoodRelation.ANY) }
 
     @TypeConverter
     fun fromDoseStatus(value: DoseStatus?): String? = value?.name
 
     @TypeConverter
-    fun toDoseStatus(value: String?): DoseStatus? = value?.let { enumValueOf<DoseStatus>(it) }
+    fun toDoseStatus(value: String?): DoseStatus? = value?.let { enumValueOrNull<DoseStatus>(it) }
 
     @TypeConverter
     fun fromVerificationResultType(value: VerificationResultType?): String? = value?.name
 
     @TypeConverter
-    fun toVerificationResultType(value: String?): VerificationResultType? = value?.let { enumValueOf<VerificationResultType>(it) }
+    fun toVerificationResultType(value: String?): VerificationResultType? = value?.let { enumValueOrNull<VerificationResultType>(it) }
 
     @TypeConverter
     fun fromRejectReason(value: RejectReason?): String? = value?.name
 
     @TypeConverter
-    fun toRejectReason(value: String?): RejectReason? = value?.let { enumValueOf<RejectReason>(it) }
+    fun toRejectReason(value: String?): RejectReason? = value?.let { enumValueOrNull<RejectReason>(it) }
 
     @TypeConverter
     fun fromLinkStatus(value: LinkStatus?): String? = value?.name
 
     @TypeConverter
-    fun toLinkStatus(value: String?): LinkStatus? = value?.let { enumValueOf<LinkStatus>(it) }
+    fun toLinkStatus(value: String?): LinkStatus? = value?.let { enumValueOrNull<LinkStatus>(it) }
 
     @TypeConverter
     fun fromDoctorLinkStatus(value: DoctorLinkStatus?): String? = value?.name
 
     @TypeConverter
-    fun toDoctorLinkStatus(value: String?): DoctorLinkStatus? = value?.let { enumValueOf<DoctorLinkStatus>(it) }
+    fun toDoctorLinkStatus(value: String?): DoctorLinkStatus? = value?.let { enumValueOrNull<DoctorLinkStatus>(it) }
 
     @TypeConverter
     fun fromProposalType(value: ProposalType?): String? = value?.name
 
     @TypeConverter
-    fun toProposalType(value: String?): ProposalType? = value?.let { enumValueOf<ProposalType>(it) }
+    fun toProposalType(value: String?): ProposalType? = value?.let { enumValueOrNull<ProposalType>(it) }
 
     @TypeConverter
     fun fromProposalStatus(value: ProposalStatus?): String? = value?.name
 
     @TypeConverter
-    fun toProposalStatus(value: String?): ProposalStatus? = value?.let { enumValueOf<ProposalStatus>(it) }
+    fun toProposalStatus(value: String?): ProposalStatus? = value?.let { enumValueOrNull<ProposalStatus>(it) }
 
     @TypeConverter
     fun fromNotifType(value: NotifType?): String? = value?.name
 
     @TypeConverter
-    fun toNotifType(value: String?): NotifType? = value?.let { enumValueOf<NotifType>(it) }
+    fun toNotifType(value: String?): NotifType? = value?.let { enumValueOrNull<NotifType>(it) }
+
+    private inline fun <reified T : Enum<T>> enumValueOrNull(raw: String): T? =
+        enumValues<T>().firstOrNull { it.name == raw }
+
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(raw: String, default: T): T =
+        enumValues<T>().firstOrNull { it.name == raw } ?: default
 }
