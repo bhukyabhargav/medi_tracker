@@ -364,3 +364,35 @@
 - **Known limitations / TODO for later stages**:
   - Stage 11: Prescription OCR scanning via ML Kit.
   - Stage 12: Account settings and GDPR profile deletion.
+
+---
+
+## Stage 11 – Scan medicine / prescription – DONE (2026-11-07)
+- **Summary**: Implemented Stage 11 camera and OCR workflow to pre-fill medicine schedules directly from prescriptions, doctor slips, and medicine packaging. Built pure-Kotlin `PrescriptionParser` with robust heuristics for medical abbreviations (OD, BD, TDS, QID, 1-0-1, 1-1-1, hourly intervals), integrated on-device Google ML Kit Text Recognition (`com.google.mlkit:text-recognition`), wired CameraX preview with viewfinder frame and Stage 5 `ImageQualityGate` reuse, added Android System Photo Picker (`ActivityResultContracts.PickVisualMedia`) strictly isolated to prescription onboarding, created an editable review dialog allowing confirmation or manual corrections, and wired navigation directly into `AddEditMedicineScreen` pre-filled via route parameters and `SavedStateHandle`.
+- **Files added/changed**:
+  - `app/src/main/java/com/meditrack/app/feature/scan/PrescriptionParser.kt` (NEW: Pure-Kotlin parser extracting medicine name, dosage, frequency, times of day, pills per dose, food relation, and instructions)
+  - `app/src/main/java/com/meditrack/app/feature/scan/ScanPrescriptionViewModel.kt` (NEW: ViewModel orchestrating CameraX capture, quality gate checks, ML Kit OCR processing, and review dialog state)
+  - `app/src/main/java/com/meditrack/app/feature/scan/ScanPrescriptionScreen.kt` (NEW: CameraX live preview with framing overlay, flash toggle, system photo picker button, quality check failure alert, and editable review dialog)
+  - `app/src/main/java/com/meditrack/app/feature/scan/ScanPlaceholder.kt` (REMOVED: Replaced with real implementation)
+  - `app/src/main/java/com/meditrack/app/core/navigation/Screen.kt` (Added `Screen.ScanPrescription` and updated `Screen.AddMedicine` with optional prefill query arguments)
+  - `app/src/main/java/com/meditrack/app/feature/medicine/AddEditMedicineViewModel.kt` (Added `SavedStateHandle` injection to prefill state fields when navigating from Scan)
+  - `app/src/main/java/com/meditrack/app/feature/home/HomeScreen.kt` (Wired `onNavigateToScan` to the "Scan Rx" icon button in `QuickActionsRow`)
+  - `app/src/main/java/com/meditrack/app/MainActivity.kt` (Added `Screen.ScanPrescription` composable and updated `Screen.AddMedicine` route registration)
+  - `app/src/main/res/values/strings.xml` (Added Stage 11 UI strings for scan actions, permissions, and review dialog)
+- **Tests added**:
+  - `app/src/test/java/com/meditrack/app/feature/scan/PrescriptionParserTest.kt` (NEW: 14 test cases covering OD, BD, TDS, QID, 1-0-1, 1-1-1, every 8 hours, Latin abbreviations, multi-line doctor prescriptions, and safe defaults)
+  - `app/src/test/java/com/meditrack/app/feature/scan/ScanPrescriptionViewModelTest.kt` (NEW: 5 tests verifying OCR state updates, user manual edits, dialog dismissal, and pill count coercions)
+  - `app/src/test/java/com/meditrack/app/feature/scan/ScanGallerySecurityTest.kt` (NEW: 2 tests including **Negative Test** verifying that photo picking is strictly absent from dose verification and only exists in prescription scanning)
+  - `app/src/test/java/com/meditrack/app/feature/medicine/AddEditMedicineViewModelTest.kt` (Added test verifying `SavedStateHandle` prefill)
+- **Verification Pack**: `docs/verification/STAGE_11_VERIFY.md`
+- **Decisions / Assumptions**:
+  - System Photo Picker (`PickVisualMedia`) is enabled only in `ScanPrescriptionScreen` and strictly excluded from `CaptureScreen` / `VerificationPipeline` (enforced by automated AST/source security test).
+  - Review dialog allows users to edit or correct any OCR fields before committing to `AddMedicine`.
+  - Camera permission denial returns cleanly to Home without breaking user state.
+- **Verification Results**:
+  - Total automated unit tests: **271** (22 new tests added in Stage 11)
+  - `./gradlew.bat testDebugUnitTest` – **PASSED** (271 tests completed, 0 failures, 100% passing)
+  - `./gradlew.bat lintDebug` – **PASSED** (0 errors)
+  - `./gradlew.bat assembleDebug` – **PASSED** (BUILD SUCCESSFUL)
+- **Known limitations / TODO for later stages**:
+  - Stage 12: Profile, settings, privacy, and GDPR data deletion.

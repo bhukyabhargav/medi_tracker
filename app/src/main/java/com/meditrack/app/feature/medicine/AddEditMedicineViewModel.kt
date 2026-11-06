@@ -1,5 +1,6 @@
 package com.meditrack.app.feature.medicine
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.data.prefs.UserPreferences
@@ -60,11 +61,59 @@ data class AddEditMedicineUiState(
 class AddEditMedicineViewModel @Inject constructor(
     private val medicineRepository: MedicineRepository,
     private val saveMedicineUseCase: SaveMedicineUseCase,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddEditMedicineUiState())
     val uiState: StateFlow<AddEditMedicineUiState> = _uiState.asStateFlow()
+
+    init {
+        val prefillName = savedStateHandle.get<String>("name")
+        val prefillDosage = savedStateHandle.get<String>("dosage")
+        val prefillFrequency = savedStateHandle.get<String>("frequency")
+        val prefillTimes = savedStateHandle.get<String>("times")
+        val prefillPills = savedStateHandle.get<String>("pillsPerDose")
+        val prefillInstructions = savedStateHandle.get<String>("instructions")
+
+        if (!prefillName.isNullOrBlank() || !prefillDosage.isNullOrBlank() ||
+            !prefillFrequency.isNullOrBlank() || !prefillTimes.isNullOrBlank() ||
+            !prefillPills.isNullOrBlank() || !prefillInstructions.isNullOrBlank()
+        ) {
+            val parsedFreq = try {
+                if (!prefillFrequency.isNullOrBlank()) FrequencyType.valueOf(prefillFrequency) else FrequencyType.DAILY
+            } catch (e: Exception) {
+                FrequencyType.DAILY
+            }
+
+            val parsedTimes = if (!prefillTimes.isNullOrBlank()) {
+                prefillTimes.split(",")
+                    .mapNotNull {
+                        try {
+                            LocalTime.parse(it.trim())
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    .ifEmpty { listOf(LocalTime.of(8, 0)) }
+            } else {
+                listOf(LocalTime.of(8, 0))
+            }
+
+            val parsedPills = prefillPills?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+            _uiState.update { current ->
+                current.copy(
+                    name = prefillName ?: current.name,
+                    dosageText = prefillDosage ?: current.dosageText,
+                    frequencyType = parsedFreq,
+                    timesOfDay = parsedTimes,
+                    pillsPerDoseText = parsedPills.toString(),
+                    instructions = prefillInstructions ?: current.instructions
+                )
+            }
+        }
+    }
 
     fun loadMedicine(medicineId: String) {
         viewModelScope.launch {

@@ -82,6 +82,7 @@ fun HomeScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToCaregiver: () -> Unit = {},
+    onNavigateToScan: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -265,7 +266,8 @@ fun HomeScreen(
                         onNavigateToHistory = onNavigateToHistory,
                         onNavigateToCalendar = onNavigateToCalendar,
                         onNavigateToCaregiver = onNavigateToCaregiver,
-                        onConnectDoctor = { showDoctorDialog = true }
+                        onConnectDoctor = { showDoctorDialog = true },
+                        onNavigateToScan = onNavigateToScan
                     )
                 }
 
@@ -655,19 +657,21 @@ fun QuickActionsRow(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToCaregiver: () -> Unit = {},
-    onConnectDoctor: () -> Unit = {}
+    onConnectDoctor: () -> Unit = {},
+    onNavigateToScan: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val calendarLabel = stringResource(R.string.action_calendar)
     val historyLabel = stringResource(R.string.action_history)
     val caregiverLabel = stringResource(R.string.action_caregiver)
+    val scanLabel = stringResource(R.string.action_scan)
     val linkDoctorLabel = "Link Doctor"
 
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
         Pair(Icons.Default.MedicalServices, linkDoctorLabel),
-        Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
+        Pair(Icons.Default.QrCodeScanner, scanLabel),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),
         Pair(Icons.Default.People, caregiverLabel),
@@ -685,6 +689,7 @@ fun QuickActionsRow(
                         addMedicineLabel -> onNavigateToAddMedicine()
                         "My Medicines" -> onNavigateToMedicinesList()
                         linkDoctorLabel -> onConnectDoctor()
+                        scanLabel -> onNavigateToScan()
                         calendarLabel -> onNavigateToCalendar()
                         historyLabel -> onNavigateToHistory()
                         caregiverLabel -> onNavigateToCaregiver()

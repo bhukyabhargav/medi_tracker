@@ -168,6 +168,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToCaregiver = {
                                     navController.navigate(Screen.Caregiver.route)
+                                },
+                                onNavigateToScan = {
+                                    navController.navigate(Screen.ScanPrescription.route)
                                 }
                             )
                         }
@@ -206,7 +209,36 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        composable(Screen.AddMedicine.route) {
+                        composable(Screen.ScanPrescription.route) {
+                            com.meditrack.app.feature.scan.ScanPrescriptionScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onContinueToAddMedicine = { name, dosage, frequency, times, pillsPerDose, instructions ->
+                                    val route = Screen.AddMedicine.createRoute(
+                                        name = name,
+                                        dosage = dosage,
+                                        frequency = frequency.name,
+                                        times = times.joinToString(",") { it.toString() },
+                                        pillsPerDose = pillsPerDose,
+                                        instructions = instructions
+                                    )
+                                    navController.navigate(route) {
+                                        popUpTo(Screen.Home.route)
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.AddMedicine.route,
+                            arguments = listOf(
+                                navArgument("name") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("dosage") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("frequency") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("times") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("pillsPerDose") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("instructions") { type = NavType.StringType; nullable = true; defaultValue = null }
+                            )
+                        ) {
                             com.meditrack.app.feature.medicine.AddEditMedicineScreen(
                                 onNavigateBack = { navController.popBackStack() },
                                 onNavigateToHome = {

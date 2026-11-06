@@ -122,4 +122,15 @@
     <string name="btn_back_to_home">Back to Home</string>
     <string name="btn_view_medicines">View Medicines</string>
     <string name="debug_generated_doses_title">Generated Doses</string>
+
+    <!-- Scan Prescription Strings -->
+    <string name="scan_prescription_title">Scan Medicine / Prescription</string>
+    <string name="scan_gallery_button">Choose from Gallery</string>
+    <string name="scan_capture_button">Capture Photo</string>
+    <string name="scan_review_title">Review Extracted Details</string>
+    <string name="scan_confirm_button">Continue to Add Medicine</string>
+    <string name="scan_retake_button">Retake</string>
+    <string name="scan_permission_rationale">Camera permission is required to scan prescription or medicine packaging.</string>
+    <string name="scan_permission_grant">Grant Permission</string>
+    <string name="scan_instruction_hint">Position prescription or medicine box within the frame</string>
 </resources>

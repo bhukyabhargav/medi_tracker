@@ -49,6 +49,30 @@ class AddEditMedicineViewModelTest {
     }
 
     @Test
+    fun savedStateHandle_prefills_form_fields_from_scan() {
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "name" to "Amoxicillin",
+                "dosage" to "250mg",
+                "frequency" to "DAILY",
+                "times" to "08:00,14:00,20:00",
+                "pillsPerDose" to "2",
+                "instructions" to "for 7 days"
+            )
+        )
+        val prefilledVm = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences, handle)
+        val state = prefilledVm.uiState.value
+
+        assertEquals("Amoxicillin", state.name)
+        assertEquals("250mg", state.dosageText)
+        assertEquals(FrequencyType.DAILY, state.frequencyType)
+        assertEquals(listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0)), state.timesOfDay)
+        assertEquals(2, state.pillsPerDose)
+        assertEquals("for 7 days", state.instructions)
+        assertEquals(AddEditStep.FORM, state.currentStep)
+    }
+
+    @Test
     fun validation_failure_sets_error_and_stays_on_form() {
         viewModel.onNameChange("")
         assertFalse(viewModel.validateForm())

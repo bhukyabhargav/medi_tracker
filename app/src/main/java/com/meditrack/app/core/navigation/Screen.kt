@@ -12,7 +12,26 @@ sealed class Screen(val route: String) {
     data object Home : Screen("home")
     data object DebugTools : Screen("debug_tools")
     data object MedicinesList : Screen("medicines_list")
-    data object AddMedicine : Screen("add_medicine")
+    data object AddMedicine : Screen("add_medicine?name={name}&dosage={dosage}&frequency={frequency}&times={times}&pillsPerDose={pillsPerDose}&instructions={instructions}") {
+        fun createRoute(
+            name: String? = null,
+            dosage: String? = null,
+            frequency: String? = null,
+            times: String? = null,
+            pillsPerDose: Int? = null,
+            instructions: String? = null
+        ): String {
+            val params = mutableListOf<String>()
+            if (!name.isNullOrBlank()) params.add("name=${java.net.URLEncoder.encode(name, "UTF-8")}")
+            if (!dosage.isNullOrBlank()) params.add("dosage=${java.net.URLEncoder.encode(dosage, "UTF-8")}")
+            if (!frequency.isNullOrBlank()) params.add("frequency=${java.net.URLEncoder.encode(frequency, "UTF-8")}")
+            if (!times.isNullOrBlank()) params.add("times=${java.net.URLEncoder.encode(times, "UTF-8")}")
+            if (pillsPerDose != null && pillsPerDose > 0) params.add("pillsPerDose=$pillsPerDose")
+            if (!instructions.isNullOrBlank()) params.add("instructions=${java.net.URLEncoder.encode(instructions, "UTF-8")}")
+            return if (params.isEmpty()) "add_medicine" else "add_medicine?${params.joinToString("&")}"
+        }
+    }
+    data object ScanPrescription : Screen("scan_prescription")
     data object EditMedicine : Screen("edit_medicine/{medicineId}") {
         fun createRoute(medicineId: String) = "edit_medicine/$medicineId"
     }
