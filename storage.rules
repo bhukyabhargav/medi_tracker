@@ -16,6 +16,13 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/caregiverLinks/$(patientUid + '_' + request.auth.uid)).data.status == 'ACCEPTED';
     }
 
+    // Helper: is linked accepted doctor for patient (Stage 10B)
+    function isAcceptedDoctor(patientUid) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/doctorLinks/$(patientUid + '_' + request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/doctorLinks/$(patientUid + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
     // Proof photos: proofs/{patientUid}/{filename}
     match /proofs/{patientUid}/{filename} {
       // Patient can upload proof photo (must be image <= 5MB)
@@ -23,10 +30,10 @@ service firebase.storage {
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
 
-      // Only patient or linked accepted caregiver can read proof photos
-      allow read: if isOwner(patientUid) || isAcceptedCaregiver(patientUid);
+      // Patient, linked accepted caregiver, or linked accepted doctor can read proof photos
+      allow read: if isOwner(patientUid) || isAcceptedCaregiver(patientUid) || isAcceptedDoctor(patientUid);
 
-      // Patient can delete own proof photos
+      // Only patient can delete own proof photos; doctors and caregivers cannot delete
       allow delete: if isOwner(patientUid);
     }
   }

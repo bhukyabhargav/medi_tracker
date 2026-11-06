@@ -38,6 +38,22 @@ class HomeViewModelTest {
     private val authRepository: AuthRepository = mockk(relaxed = true)
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val doseRepository: DoseRepository = mockk(relaxed = true)
+    private val doctorRepository: com.meditrack.app.domain.repository.DoctorRepository = mockk(relaxed = true)
+    private val acceptProposalUseCase: com.meditrack.app.domain.usecase.AcceptProposalUseCase = mockk(relaxed = true)
+    private val declineProposalUseCase: com.meditrack.app.domain.usecase.DeclineProposalUseCase = mockk(relaxed = true)
+    private val requestClarificationUseCase: com.meditrack.app.domain.usecase.RequestClarificationUseCase = mockk(relaxed = true)
+    private val doctorLinkUseCase: com.meditrack.app.domain.usecase.DoctorLinkUseCase = mockk(relaxed = true)
+
+    private fun createViewModel() = HomeViewModel(
+        authRepository,
+        medicineRepository,
+        doseRepository,
+        doctorRepository,
+        acceptProposalUseCase,
+        declineProposalUseCase,
+        requestClarificationUseCase,
+        doctorLinkUseCase
+    )
 
     private val testZoneId = ZoneId.of("UTC")
     // Base time: 2026-11-01 at 22:00:00 (10:00 PM) UTC
@@ -95,7 +111,7 @@ class HomeViewModelTest {
         val doseFlow = MutableStateFlow<List<DoseEvent>>(emptyList())
         coEvery { doseRepository.observeBetween(any(), any()) } returns doseFlow
 
-        val viewModel = HomeViewModel(authRepository, medicineRepository, doseRepository)
+        val viewModel = createViewModel()
         viewModel.timeProvider = { baseEpochMillis } // 10:00 PM today
         viewModel.zoneProvider = { testZoneId }
         viewModel.loadDashboard()
@@ -137,7 +153,7 @@ class HomeViewModelTest {
         )
         val morningEpochMillis = morningDateTime.toInstant().toEpochMilli()
 
-        val viewModel = HomeViewModel(authRepository, medicineRepository, doseRepository)
+        val viewModel = createViewModel()
         viewModel.timeProvider = { morningEpochMillis }
         viewModel.zoneProvider = { testZoneId }
         viewModel.loadDashboard()
@@ -165,7 +181,7 @@ class HomeViewModelTest {
         val doseFlow = MutableStateFlow<List<DoseEvent>>(emptyList())
         coEvery { doseRepository.observeBetween(any(), any()) } returns doseFlow
 
-        val viewModel = HomeViewModel(authRepository, medicineRepository, doseRepository)
+        val viewModel = createViewModel()
         viewModel.timeProvider = { baseEpochMillis }
         viewModel.zoneProvider = { testZoneId }
         viewModel.loadDashboard()

@@ -49,7 +49,12 @@ class SplashViewModel @Inject constructor(
                 return@launch
             }
 
-            _navigationTarget.value = SplashNavigationTarget.Navigate(Screen.Home.route)
+            val currentUser = authRepository.getCurrentUser()
+            if (currentUser?.role == com.meditrack.app.domain.model.UserRole.DOCTOR) {
+                _navigationTarget.value = SplashNavigationTarget.Navigate(Screen.DoctorDashboard.route)
+            } else {
+                _navigationTarget.value = SplashNavigationTarget.Navigate(Screen.Home.route)
+            }
         }
     }
 }

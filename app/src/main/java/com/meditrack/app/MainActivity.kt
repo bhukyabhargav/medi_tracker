@@ -294,6 +294,40 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        composable(Screen.DoctorDashboard.route) {
+                            com.meditrack.app.feature.doctor.DoctorDashboardScreen(
+                                onNavigateToPatientDetail = { patientId ->
+                                    navController.navigate(Screen.DoctorPatientDetail.createRoute(patientId))
+                                },
+                                onNavigateToDebugTools = {
+                                    if (BuildConfig.DEBUG) {
+                                        navController.navigate(Screen.DebugTools.route)
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.DoctorPatientDetail.route,
+                            arguments = listOf(navArgument("patientId") { type = NavType.StringType })
+                        ) {
+                            com.meditrack.app.feature.doctor.DoctorPatientDetailScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToCreateProposal = { patientId ->
+                                    navController.navigate(Screen.CreateProposal.createRoute(patientId))
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = Screen.CreateProposal.route,
+                            arguments = listOf(navArgument("patientId") { type = NavType.StringType })
+                        ) {
+                            com.meditrack.app.feature.doctor.CreateProposalScreen(
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
                         if (BuildConfig.DEBUG) {
                             composable(Screen.DebugTools.route) {
                                 DebugToolsScreen(

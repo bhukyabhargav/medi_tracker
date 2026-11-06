@@ -23,12 +23,14 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,14 +40,23 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,8 +86,107 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showDoctorDialog by remember { mutableStateOf(false) }
+    var doctorCodeInput by remember { mutableStateOf("") }
+    var showClarifyDialog by remember { mutableStateOf(false) }
+    var activeClarifyProposalId by remember { mutableStateOf("") }
+    var clarifyNoteInput by remember { mutableStateOf("") }
+
+    LaunchedEffect(uiState.userMessage, uiState.userError) {
+        uiState.userMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearFeedback()
+        }
+        uiState.userError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearFeedback()
+        }
+    }
+
+    if (showDoctorDialog) {
+        AlertDialog(
+            onDismissRequest = { showDoctorDialog = false },
+            title = { Text("Connect to Doctor") },
+            text = {
+                Column {
+                    Text(
+                        "Enter the 6-character invitation code provided by your doctor:",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = doctorCodeInput,
+                        onValueChange = { doctorCodeInput = it.uppercase() },
+                        label = { Text("Invitation Code (e.g. DOC892)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (doctorCodeInput.isNotBlank()) {
+                            viewModel.redeemDoctorInvite(doctorCodeInput)
+                            showDoctorDialog = false
+                            doctorCodeInput = ""
+                        }
+                    }
+                ) {
+                    Text("Connect")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDoctorDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showClarifyDialog) {
+        AlertDialog(
+            onDismissRequest = { showClarifyDialog = false },
+            title = { Text("Request Clarification") },
+            text = {
+                Column {
+                    Text(
+                        "Send a question or clarification note to your doctor regarding this proposal:",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = clarifyNoteInput,
+                        onValueChange = { clarifyNoteInput = it },
+                        label = { Text("Clarification Note") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (clarifyNoteInput.isNotBlank()) {
+                            viewModel.requestClarification(activeClarifyProposalId, clarifyNoteInput)
+                            showClarifyDialog = false
+                            clarifyNoteInput = ""
+                        }
+                    }
+                ) {
+                    Text("Send Request")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClarifyDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -154,7 +264,8 @@ fun HomeScreen(
                         onNavigateToMedicinesList = onNavigateToMedicinesList,
                         onNavigateToHistory = onNavigateToHistory,
                         onNavigateToCalendar = onNavigateToCalendar,
-                        onNavigateToCaregiver = onNavigateToCaregiver
+                        onNavigateToCaregiver = onNavigateToCaregiver,
+                        onConnectDoctor = { showDoctorDialog = true }
                     )
                 }
 
@@ -218,6 +329,98 @@ fun HomeScreen(
                     }
                 }
 
+                // Section 1.6: Doctor Prescription Proposals (Stage 10B)
+                if (uiState.pendingProposals.isNotEmpty()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "Prescription Proposals (${uiState.pendingProposals.size})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "A doctor cannot activate medicines without your approval. Review and decide below.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                uiState.pendingProposals.forEach { proposal ->
+                                    val payload = remember(proposal.payloadJson) {
+                                        com.meditrack.app.domain.model.PrescriptionProposalPayload.fromJson(proposal.payloadJson)
+                                    }
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "${proposal.type.name}: ${payload.medicineName}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Text(
+                                                    text = "Rev ${proposal.revision} • ${proposal.status.name}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                            Text(
+                                                text = "Dosage: ${payload.dosageText} • ${payload.pillsPerDose} pill(s) • ${payload.timesOfDay.joinToString(", ")}",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                            if (payload.instructions.isNotBlank()) {
+                                                Text(
+                                                    text = "Instructions: ${payload.instructions}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.outline
+                                                )
+                                            }
+                                            if (!proposal.clarificationNote.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Clarification note: \"${proposal.clarificationNote}\"",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(onClick = { viewModel.acceptProposal(proposal.id) }) {
+                                                    Text("Accept")
+                                                }
+                                                OutlinedButton(onClick = { viewModel.declineProposal(proposal.id) }) {
+                                                    Text("Decline")
+                                                }
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        activeClarifyProposalId = proposal.id
+                                                        showClarifyDialog = true
+                                                    }
+                                                ) {
+                                                    Text("Clarify")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Section 2: Today's Medicines
                 item {
                     Row(
@@ -265,6 +468,15 @@ fun HomeScreen(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                             )
+                                            if (!medicine.prescribedByDoctorName.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Prescribed by Dr. ${medicine.prescribedByDoctorName}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -442,16 +654,19 @@ fun QuickActionsRow(
     onNavigateToMedicinesList: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
-    onNavigateToCaregiver: () -> Unit = {}
+    onNavigateToCaregiver: () -> Unit = {},
+    onConnectDoctor: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val calendarLabel = stringResource(R.string.action_calendar)
     val historyLabel = stringResource(R.string.action_history)
     val caregiverLabel = stringResource(R.string.action_caregiver)
+    val linkDoctorLabel = "Link Doctor"
 
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
+        Pair(Icons.Default.MedicalServices, linkDoctorLabel),
         Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),
@@ -469,6 +684,7 @@ fun QuickActionsRow(
                     when (label) {
                         addMedicineLabel -> onNavigateToAddMedicine()
                         "My Medicines" -> onNavigateToMedicinesList()
+                        linkDoctorLabel -> onConnectDoctor()
                         calendarLabel -> onNavigateToCalendar()
                         historyLabel -> onNavigateToHistory()
                         caregiverLabel -> onNavigateToCaregiver()

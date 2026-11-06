@@ -46,4 +46,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindOutboxRepository(impl: OutboxRepositoryImpl): OutboxRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDoctorRepository(impl: com.meditrack.app.data.repository.DoctorRepositoryImpl): com.meditrack.app.domain.repository.DoctorRepository
 }

@@ -57,6 +57,7 @@ enum class LinkStatus {
 enum class DoctorLinkStatus {
     PENDING,
     ACCEPTED,
+    DECLINED,
     REVOKED
 }
 

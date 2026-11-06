@@ -392,6 +392,33 @@ fun DebugToolsScreen(
                     }
                 }
             }
+
+            Text(
+                text = "Doctor Mode (Stage 10B)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Doctor Link & Proposal Controls",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.seedDoctorProposal() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isActionInProgress
+                    ) {
+                        Text("Seed Fake Doctor & Proposal (Amoxicillin)")
+                    }
+                }
+            }
         }
     }
 }

@@ -14,6 +14,7 @@ import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.model.MedicineProposal
+import com.meditrack.app.domain.model.ProposalStatus
 import com.meditrack.app.domain.model.NotificationOutbox
 import com.meditrack.app.domain.model.User
 import com.meditrack.app.domain.model.VerificationAttempt
@@ -189,8 +190,23 @@ interface DoctorLinkDao {
     @Query("SELECT * FROM doctor_links WHERE patientId = :patientId")
     fun observeByPatientId(patientId: String): Flow<List<DoctorLink>>
 
+    @Query("SELECT * FROM doctor_links WHERE doctorUid = :doctorUid AND status = 'ACCEPTED'")
+    fun observeAcceptedByDoctorUid(doctorUid: String): Flow<List<DoctorLink>>
+
     @Query("SELECT * FROM doctor_links WHERE patientId = :patientId AND status = :status")
     suspend fun getByStatus(patientId: String, status: DoctorLinkStatus = DoctorLinkStatus.ACCEPTED): List<DoctorLink>
+
+    @Query("SELECT * FROM doctor_links WHERE doctorUid = :doctorUid AND patientId = :patientId LIMIT 1")
+    suspend fun getByDoctorAndPatient(doctorUid: String, patientId: String): DoctorLink?
+
+    @Query("SELECT * FROM doctor_links WHERE invitationCode = :code LIMIT 1")
+    suspend fun getByInvitationCode(code: String): DoctorLink?
+
+    @Query("SELECT * FROM doctor_links WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): DoctorLink?
+
+    @Query("DELETE FROM doctor_links WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 @Dao
@@ -204,8 +220,20 @@ interface MedicineProposalDao {
     @Query("SELECT * FROM medicine_proposals WHERE patientId = :patientId ORDER BY createdAt DESC")
     fun observeByPatientId(patientId: String): Flow<List<MedicineProposal>>
 
+    @Query("SELECT * FROM medicine_proposals WHERE patientId = :patientId AND status = :status ORDER BY createdAt DESC")
+    fun observeByPatientIdAndStatus(patientId: String, status: ProposalStatus): Flow<List<MedicineProposal>>
+
+    @Query("SELECT * FROM medicine_proposals WHERE doctorUid = :doctorUid ORDER BY createdAt DESC")
+    fun observeByDoctorUid(doctorUid: String): Flow<List<MedicineProposal>>
+
     @Query("SELECT * FROM medicine_proposals WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MedicineProposal?
+
+    @Query("SELECT * FROM medicine_proposals WHERE patientId = :patientId AND doctorUid = :doctorUid ORDER BY createdAt DESC")
+    suspend fun getByPatientAndDoctor(patientId: String, doctorUid: String): List<MedicineProposal>
+
+    @Query("DELETE FROM medicine_proposals WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 @Dao

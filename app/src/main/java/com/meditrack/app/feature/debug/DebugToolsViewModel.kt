@@ -49,6 +49,7 @@ class DebugToolsViewModel @Inject constructor(
     private val alarmScheduler: AlarmScheduler,
     private val processMissedDoseUseCase: ProcessMissedDoseUseCase,
     private val caregiverRepository: CaregiverRepository,
+    private val doctorRepository: com.meditrack.app.domain.repository.DoctorRepository,
     private val userPreferences: UserPreferences
 ) : ViewModel() {
 
@@ -336,6 +337,60 @@ class DebugToolsViewModel @Inject constructor(
                 _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Seeded connected caregiver: ${link.caregiverName} (${link.relationship})") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Error seeding caregiver: ${e.message}") }
+            }
+        }
+    }
+
+    fun seedDoctorProposal() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isActionInProgress = true, statusMessage = null) }
+            try {
+                val userId = userPreferences.currentUserId.first() ?: "patient_1"
+                val doctorUid = "doc_house_01"
+                val doctorName = "Gregory House, M.D."
+
+                val link = com.meditrack.app.domain.model.DoctorLink(
+                    id = "debug_dlink_${UUID.randomUUID().toString().take(6)}",
+                    patientId = userId,
+                    doctorUid = doctorUid,
+                    doctorName = doctorName,
+                    doctorContact = "+1-555-DOCS",
+                    status = com.meditrack.app.domain.model.DoctorLinkStatus.ACCEPTED
+                )
+                doctorRepository.insertDoctorLink(link)
+
+                val payload = com.meditrack.app.domain.model.PrescriptionProposalPayload(
+                    medicineName = "Amoxicillin 500mg",
+                    dosageText = "500mg",
+                    pillsPerDose = 1,
+                    frequencyType = FrequencyType.DAILY,
+                    timesOfDay = listOf("08:00", "20:00"),
+                    startDate = System.currentTimeMillis(),
+                    instructions = "Take after food with a full glass of water.",
+                    initialStock = 20,
+                    doctorName = doctorName
+                )
+
+                val proposal = com.meditrack.app.domain.model.MedicineProposal(
+                    id = "debug_prop_${UUID.randomUUID().toString().take(6)}",
+                    patientId = userId,
+                    doctorUid = doctorUid,
+                    type = com.meditrack.app.domain.model.ProposalType.ADD,
+                    payloadJson = payload.toJson(),
+                    status = com.meditrack.app.domain.model.ProposalStatus.PENDING,
+                    revision = 1,
+                    createdAt = System.currentTimeMillis()
+                )
+                doctorRepository.insertProposal(proposal)
+
+                _uiState.update {
+                    it.copy(
+                        isActionInProgress = false,
+                        statusMessage = "Seeded proposal for '${payload.medicineName}' from $doctorName. Review on Home screen."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isActionInProgress = false, statusMessage = "Error: ${e.message}") }
             }
         }
     }

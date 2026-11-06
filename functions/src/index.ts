@@ -6,7 +6,7 @@ admin.initializeApp();
 
 /**
  * Cloud Function triggered on creation of a notificationEvent in Firestore.
- * Performs server-side fanout to all accepted caregiver FCM tokens with appropriate channel routing.
+ * Performs server-side fanout to all accepted caregiver or doctor FCM tokens with appropriate channel routing.
  */
 export const onNotificationEventCreated = functions.firestore
   .document('notificationEvents/{eventId}')
@@ -15,12 +15,61 @@ export const onNotificationEventCreated = functions.firestore
     if (!data) return null;
 
     const patientUid = data.patientUid;
+    const { title, body } = getNotificationText(data);
+    const channelId = data.type === 'MISSED_DOSE' ? 'channel_missed_doses' : 'channel_general';
+
+    // Handle Doctor Notification Events
+    if (data.type.startsWith('DOCTOR_INVITE_') || data.type.startsWith('PRESCRIPTION_')) {
+      const targetUid = (data.type === 'DOCTOR_INVITE_RECEIVED' || data.type === 'PRESCRIPTION_PROPOSAL_RECEIVED' || data.type === 'PRESCRIPTION_REVISED')
+        ? patientUid
+        : (data.doctorUid || null);
+
+      if (!targetUid) {
+        functions.logger.info(`No recipient UID for doctor event ${context.params.eventId}.`);
+        return null;
+      }
+
+      const targetDoc = await admin.firestore().doc(`users/${targetUid}`).get();
+      const fcmToken = targetDoc.data()?.fcmToken;
+      if (!fcmToken) {
+        functions.logger.warn(`No FCM token found for user ${targetUid}.`);
+        return null;
+      }
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: { title, body },
+        data: {
+          eventId: context.params.eventId,
+          type: data.type,
+          patientUid: patientUid || '',
+          proposalId: data.proposalId || '',
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId,
+            priority: 'high',
+          },
+        },
+      };
+
+      try {
+        const response = await admin.messaging().send(message);
+        functions.logger.info(`Delivered push to ${targetUid}: ${response}`);
+        return response;
+      } catch (error) {
+        functions.logger.error(`Error sending push notification to ${targetUid}:`, error);
+        return null;
+      }
+    }
+
+    // Handle Caregiver Notification Events
     if (!patientUid) {
       functions.logger.info(`Missing patientUid for event ${context.params.eventId}. Skipping FCM dispatch.`);
       return null;
     }
 
-    // Determine target caregivers (specific caregiver if specified, otherwise fanout to all accepted caregivers)
     let targetCaregiverUids: string[] = [];
     if (data.caregiverUid) {
       const linkDoc = await admin.firestore().doc(`caregiverLinks/${patientUid}_${data.caregiverUid}`).get();
@@ -43,9 +92,6 @@ export const onNotificationEventCreated = functions.firestore
       return null;
     }
 
-    const { title, body } = getNotificationText(data);
-    const channelId = data.type === 'MISSED_DOSE' ? 'channel_missed_doses' : 'channel_general';
-
     const dispatchPromises = targetCaregiverUids.map(async (caregiverUid) => {
       const caregiverDoc = await admin.firestore().doc(`users/${caregiverUid}`).get();
       const fcmToken = caregiverDoc.data()?.fcmToken;
@@ -56,10 +102,7 @@ export const onNotificationEventCreated = functions.firestore
 
       const message: admin.messaging.Message = {
         token: fcmToken,
-        notification: {
-          title,
-          body,
-        },
+        notification: { title, body },
         data: {
           eventId: context.params.eventId,
           type: data.type,
@@ -90,7 +133,6 @@ export const onNotificationEventCreated = functions.firestore
 
 /**
  * Callable Cloud Function to accept a caregiver invitation code.
- * Validates code, 72-hour expiration, and creates accepted link in caregiverLinks/{patientId}_{caregiverUid}.
  */
 export const acceptCaregiverInvite = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -130,7 +172,6 @@ export const acceptCaregiverInvite = functions.https.onCall(async (data, context
     throw new functions.https.HttpsError('invalid-argument', 'Cannot accept your own invitation.');
   }
 
-  // Lookup caregiver details
   const caregiverUserDoc = await admin.firestore().doc(`users/${caregiverUid}`).get();
   const caregiverName = caregiverUserDoc.data()?.name || inviteData.caregiverName || 'Caregiver';
   const caregiverContact = caregiverUserDoc.data()?.phone || caregiverUserDoc.data()?.email || inviteData.caregiverContact || '';
@@ -164,5 +205,94 @@ export const acceptCaregiverInvite = functions.https.onCall(async (data, context
     success: true,
     linkId,
     patientId: patientUid,
+  };
+});
+
+/**
+ * Callable Cloud Function to accept a doctor invitation code (Stage 10B).
+ */
+export const acceptDoctorInvite = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be signed in to accept an invitation.');
+  }
+
+  const patientUid = context.auth.uid;
+  const code = (data?.code || '').trim().toUpperCase();
+
+  if (!code || code.length < 6) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid doctor invitation code.');
+  }
+
+  // Find invitation in doctorInvitations or doctorLinks
+  const inviteQuery = await admin.firestore()
+    .collection('doctorInvitations')
+    .where('inviteCode', '==', code)
+    .limit(1)
+    .get();
+
+  let inviteData: any = null;
+  let inviteDocRef: admin.firestore.DocumentReference | null = null;
+
+  if (!inviteQuery.empty) {
+    inviteDocRef = inviteQuery.docs[0].ref;
+    inviteData = inviteQuery.docs[0].data();
+  } else {
+    // Check doctorLinks by invitationCode
+    const linkQuery = await admin.firestore()
+      .collection('doctorLinks')
+      .where('invitationCode', '==', code)
+      .limit(1)
+      .get();
+    if (!linkQuery.empty) {
+      inviteDocRef = linkQuery.docs[0].ref;
+      inviteData = linkQuery.docs[0].data();
+    }
+  }
+
+  if (!inviteData) {
+    throw new functions.https.HttpsError('not-found', 'Doctor invitation code not found.');
+  }
+
+  const now = Date.now();
+  if (inviteData.expiresAt && now > inviteData.expiresAt) {
+    throw new functions.https.HttpsError('failed-precondition', 'Doctor invitation code has expired.');
+  }
+
+  const doctorUid = inviteData.doctorUid;
+  if (!doctorUid || doctorUid === patientUid) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid doctor invitation reference.');
+  }
+
+  const linkId = `${patientUid}_${doctorUid}`;
+  const linkRef = admin.firestore().doc(`doctorLinks/${linkId}`);
+
+  const batch = admin.firestore().batch();
+  batch.set(linkRef, {
+    id: linkId,
+    patientId: patientUid,
+    doctorUid: doctorUid,
+    doctorName: inviteData.doctorName || 'Doctor',
+    doctorContact: inviteData.doctorContact || '',
+    status: 'ACCEPTED',
+    createdAt: inviteData.createdAt || now,
+    updatedAt: now,
+  });
+
+  if (inviteDocRef) {
+    batch.update(inviteDocRef, {
+      status: 'ACCEPTED',
+      patientId: patientUid,
+      updatedAt: now,
+    });
+  }
+
+  await batch.commit();
+
+  functions.logger.info(`Patient ${patientUid} accepted doctor ${doctorUid} invitation. Link: ${linkId}`);
+
+  return {
+    success: true,
+    linkId,
+    doctorUid,
   };
 });

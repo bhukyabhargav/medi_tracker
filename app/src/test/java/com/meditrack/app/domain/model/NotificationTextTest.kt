@@ -54,5 +54,14 @@ class NotificationTextTest {
 
         val (_, docPropClar) = NotificationText.buildText(NotifType.PRESCRIPTION_CLARIFICATION_REQUESTED, patientName = "Bob", medicineName = "Metformin")
         assertEquals("Bob requested clarification on Metformin.", docPropClar)
+
+        val (_, docInviteDeclined) = NotificationText.buildText(NotifType.DOCTOR_INVITE_DECLINED, patientName = "Bob")
+        assertEquals("Bob declined your doctor connection.", docInviteDeclined)
+
+        val (_, docInviteRevoked) = NotificationText.buildText(NotifType.DOCTOR_INVITE_REVOKED)
+        assertEquals("Doctor access has been revoked.", docInviteRevoked)
+
+        val (_, docPropRevised) = NotificationText.buildText(NotifType.PRESCRIPTION_REVISED, doctorName = "House", medicineName = "Metformin")
+        assertEquals("Dr House updated the prescription proposal for Metformin. Review the new revision.", docPropRevised)
     }
 }

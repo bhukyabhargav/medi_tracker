@@ -18,20 +18,28 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/caregiverLinks/$(patientId + '_' + request.auth.uid)).data.status == 'ACCEPTED';
     }
 
+    // Helper: is linked accepted doctor for patient (Stage 10B)
+    function isAcceptedDoctor(patientId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/doctorLinks/$(patientId + '_' + request.auth.uid))
+        && get(/databases/$(database)/documents/doctorLinks/$(patientId + '_' + request.auth.uid)).data.status == 'ACCEPTED';
+    }
+
     // User profile documents
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+      allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
       allow write: if isOwner(userId);
 
       // Patient medicines subcollection
       match /medicines/{medicineId} {
-        allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+        allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
+        // Doctors and caregivers can NEVER write directly to medicines
         allow write: if isOwner(userId);
       }
 
       // Patient dose events subcollection
       match /doseEvents/{doseId} {
-        allow read: if isOwner(userId) || isAcceptedCaregiver(userId);
+        allow read: if isOwner(userId) || isAcceptedCaregiver(userId) || isAcceptedDoctor(userId);
+        // Doctors and caregivers can NEVER write directly to doses (cannot mark taken)
         allow write: if isOwner(userId);
       }
     }
@@ -42,7 +50,7 @@ service cloud.firestore {
         resource.data.patientId == request.auth.uid ||
         resource.data.caregiverUid == request.auth.uid
       );
-      // Clients cannot create/update caregiverLinks directly; only Cloud Functions or patient delete
+      // Clients cannot create/update caregiverLinks directly; managed by Cloud Functions
       allow create, update: if false;
       allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
     }
@@ -54,12 +62,71 @@ service cloud.firestore {
       allow update, delete: if false; // Managed by acceptCaregiverInvite Cloud Function
     }
 
+    // Doctor links collection (Stage 10B)
+    match /doctorLinks/{linkId} {
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid ||
+        resource.data.patientId == '' // Unredeemed invite
+      );
+      allow create: if isAuthenticated();
+      // Patient can accept, decline, or revoke access; doctor cannot alter patient consent
+      allow update: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        request.resource.data.patientId == request.auth.uid
+      );
+      allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
+    }
+
+    // Doctor invitations collection (Stage 10B)
+    match /doctorInvitations/{inviteId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.doctorUid == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.doctorUid == request.auth.uid ||
+        request.auth.uid == request.resource.data.patientUid
+      );
+      allow delete: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
+    }
+
+    // Prescription proposals collection (Stage 10B)
+    match /medicineProposals/{proposalId} {
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
+      );
+      // Doctor can create proposals ONLY if actively connected (DoctorLink == ACCEPTED)
+      allow create: if isAuthenticated() && isAcceptedDoctor(request.resource.data.patientId)
+        && request.resource.data.doctorUid == request.auth.uid;
+      // Patient can update status (ACCEPT, DECLINE, CLARIFICATION); doctor can SUPERSEDE on revision
+      allow update: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        (resource.data.doctorUid == request.auth.uid && request.resource.data.status == 'SUPERSEDED')
+      );
+      allow delete: if false; // Preserves complete audit trail
+    }
+
+    // Prescription proposal revisions collection (Stage 10B audit log)
+    match /medicineProposalRevisions/{revisionId} {
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
+      );
+      allow create: if isAuthenticated() && isAcceptedDoctor(request.resource.data.patientId)
+        && request.resource.data.doctorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Notification outbox / delivery events
     match /notificationEvents/{eventId} {
-      allow create: if isAuthenticated() && request.resource.data.patientUid == request.auth.uid;
+      allow create: if isAuthenticated() && (
+        request.resource.data.patientUid == request.auth.uid ||
+        request.resource.data.doctorUid == request.auth.uid
+      );
       allow read: if isAuthenticated() && (
         resource.data.patientUid == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid
+        resource.data.caregiverUid == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
       );
       allow update, delete: if false; // Immutable audit log
     }

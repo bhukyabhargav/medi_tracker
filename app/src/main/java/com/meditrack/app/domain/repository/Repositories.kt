@@ -61,3 +61,21 @@ interface OutboxRepository {
     suspend fun getUndelivered(): List<NotificationOutbox>
     suspend fun markDelivered(id: String)
 }
+
+interface DoctorRepository {
+    fun observeDoctorLinksByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    fun observeAcceptedLinksByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>>
+    suspend fun getDoctorLinkById(id: String): com.meditrack.app.domain.model.DoctorLink?
+    suspend fun getDoctorLinkByDoctorAndPatient(doctorUid: String, patientId: String): com.meditrack.app.domain.model.DoctorLink?
+    suspend fun getDoctorLinkByInviteCode(code: String): com.meditrack.app.domain.model.DoctorLink?
+    suspend fun insertDoctorLink(link: com.meditrack.app.domain.model.DoctorLink)
+    suspend fun updateDoctorLink(link: com.meditrack.app.domain.model.DoctorLink)
+    suspend fun deleteDoctorLink(id: String)
+
+    fun observeProposalsByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>>
+    fun observeProposalsByDoctorUid(doctorUid: String): Flow<List<com.meditrack.app.domain.model.MedicineProposal>>
+    suspend fun getProposalById(id: String): com.meditrack.app.domain.model.MedicineProposal?
+    suspend fun insertProposal(proposal: com.meditrack.app.domain.model.MedicineProposal)
+    suspend fun updateProposal(proposal: com.meditrack.app.domain.model.MedicineProposal)
+    suspend fun deleteProposal(id: String)
+}

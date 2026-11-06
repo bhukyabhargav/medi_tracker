@@ -316,3 +316,51 @@
   - Live push notifications via FCM require actual Firebase project deployment with valid credentials (`google-services.json`) and registered Google Play services on physical test devices.
   - TFLite pill detection uses MLKit text recognition and CPU fallback heuristics in headless emulator/CI environments where GPU/NNAPI delegates are unavailable.
   - Offline mode retains full local capability via Room as single source of truth, with cloud sync queued via WorkManager until network connectivity is restored.
+
+---
+
+## Stage 10B – Doctor Mode – DONE (2026-11-07)
+- **Summary**: Implemented end-to-end Doctor Mode centered on the core principle: *"The doctor proposes, the patient decides, and MediTrack activates the medicine only after patient acceptance."* Built `ProposalStateMachine`, prescription proposal workflows (`ADD`, `EDIT`, `STOP`), doctor dashboard and patient monitoring, patient review & decision UI, doctor badging, 9 doctor notification types with Cloud Function fanout, and strict security rules preventing doctors from marking doses taken or altering records.
+- **Files added/changed**:
+  - `app/src/main/java/com/meditrack/app/domain/statemachine/ProposalStateMachine.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/model/PrescriptionProposalPayload.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/CreateProposalUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/AcceptProposalUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/DeclineProposalUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/RequestClarificationUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/ReviseProposalUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/usecase/DoctorLinkUseCase.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/DoctorDashboardViewModel.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/DoctorDashboardScreen.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/DoctorPatientDetailViewModel.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/DoctorPatientDetailScreen.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/CreateProposalViewModel.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/feature/doctor/CreateProposalScreen.kt` (NEW)
+  - `app/src/main/java/com/meditrack/app/domain/model/Enums.kt` (added `DoctorLinkStatus.DECLINED`)
+  - `app/src/main/java/com/meditrack/app/data/db/dao/Daos.kt` (extended `DoctorLinkDao` & `MedicineProposalDao`)
+  - `app/src/main/java/com/meditrack/app/domain/repository/Repositories.kt` (added `DoctorRepository`)
+  - `app/src/main/java/com/meditrack/app/data/repository/RepositoryImpls.kt` (added `DoctorRepositoryImpl`)
+  - `app/src/main/java/com/meditrack/app/core/di/RepositoryModule.kt` (bound `DoctorRepository`)
+  - `app/src/main/java/com/meditrack/app/core/navigation/Screen.kt` (added doctor routes)
+  - `app/src/main/java/com/meditrack/app/feature/home/HomeViewModel.kt` (proposal & doctor link state)
+  - `app/src/main/java/com/meditrack/app/feature/home/HomeScreen.kt` (proposal review card, doctor badging, link doctor action)
+  - `app/src/main/java/com/meditrack/app/MainActivity.kt` (nav graph composables)
+  - `app/src/main/java/com/meditrack/app/feature/onboarding/SplashViewModel.kt` (role-based landing)
+  - `app/src/main/java/com/meditrack/app/feature/debug/DebugToolsViewModel.kt` & `DebugToolsScreen.kt` (doctor simulation tools)
+  - `firestore.rules` & `storage.rules` (doctor link, proposal, and proof photo security)
+  - `functions/src/notificationText.ts` & `functions/src/index.ts` (9 doctor notifications and `acceptDoctorInvite` function)
+- **Tests added**:
+  - `app/src/test/java/com/meditrack/app/domain/statemachine/ProposalStateMachineTest.kt` (10 tests)
+  - `app/src/test/java/com/meditrack/app/domain/usecase/DoctorProposalUseCasesTest.kt` (8 tests)
+  - `app/src/test/java/com/meditrack/app/domain/usecase/DoctorAccessControlTest.kt` (6 tests including **Mandatory Bypass Test**)
+  - `app/src/test/java/com/meditrack/app/domain/model/NotificationTextTest.kt` (extended)
+- **Verification Pack**: `docs/verification/STAGE_10B_VERIFY.md`
+- **Decisions / Assumptions**: Room DB v3 schema preserved without new migrations; doctor account requires no licence check (per spec); pending proposals have zero clinical effect until explicitly accepted by patient; doctor edits affect future doses only.
+- **Verification Results**:
+  - Total automated unit tests: **249**
+  - `./gradlew.bat testDebugUnitTest` — **PASSED** (249 tests completed, 0 failures, 0 ignored, 100% passing)
+  - `./gradlew.bat lintDebug` — **PASSED** (0 errors)
+  - `./gradlew.bat assembleDebug` — **PASSED** (BUILD SUCCESSFUL)
+- **Known limitations / TODO for later stages**:
+  - Stage 11: Prescription OCR scanning via ML Kit.
+  - Stage 12: Account settings and GDPR profile deletion.
