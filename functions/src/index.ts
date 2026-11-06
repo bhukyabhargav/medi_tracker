@@ -29,6 +29,40 @@ export const onNotificationEventCreated = functions.firestore
         return null;
       }
 
+      // Security check: If prescription event, strictly verify an active ACCEPTED doctor link
+      if (data.type.startsWith('PRESCRIPTION_')) {
+        if (!patientUid || !data.doctorUid) {
+          functions.logger.warn(`Missing patient or doctor UID for prescription event ${context.params.eventId}.`);
+          return null;
+        }
+        const linkDoc = await admin.firestore().doc(`doctorLinks/${patientUid}_${data.doctorUid}`).get();
+        if (!linkDoc.exists || linkDoc.data()?.status !== 'ACCEPTED') {
+          functions.logger.warn(`Rejected unverified prescription event ${context.params.eventId}: No active accepted link between patient ${patientUid} and doctor ${data.doctorUid}.`);
+          return null;
+        }
+      }
+
+      // Security check: Fetch trusted doctor and patient names from users collection to prevent phishing
+      let trustedDoctorName = 'Doctor';
+      if (data.doctorUid) {
+        const docUser = await admin.firestore().doc(`users/${data.doctorUid}`).get();
+        trustedDoctorName = docUser.data()?.name || 'Doctor';
+      }
+
+      let trustedPatientName = 'A patient';
+      if (patientUid) {
+        const patUser = await admin.firestore().doc(`users/${patientUid}`).get();
+        trustedPatientName = patUser.data()?.name || 'A patient';
+      }
+
+      const sanitizedPayload: NotificationPayload = {
+        ...data,
+        doctorName: trustedDoctorName,
+        patientName: trustedPatientName,
+      };
+
+      const { title, body } = getNotificationText(sanitizedPayload);
+
       const targetDoc = await admin.firestore().doc(`users/${targetUid}`).get();
       const fcmToken = targetDoc.data()?.fcmToken;
       if (!fcmToken) {

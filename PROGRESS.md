@@ -396,3 +396,48 @@
   - `./gradlew.bat assembleDebug` – **PASSED** (BUILD SUCCESSFUL)
 - **Known limitations / TODO for later stages**:
   - Stage 12: Profile, settings, privacy, and GDPR data deletion.
+
+---
+
+## Stage 10B & 11 Security Hardening & Remediation – SIGNED OFF (2026-11-07)
+- **Summary**: Comprehensive security hardening and backend integration pass resolving doctor link forgery, invitation leaks, unverified doctor notifications, missing Firebase cloud synchronization for Doctor Mode, proposal validation/idempotency, and Stage 11 OCR edge cases and memory safety.
+- **Key Fixes & Hardening**:
+  1. **Doctor Link Forgery Elimination (`firestore.rules`)**:
+     - Disallowed client-side `doctorLinks` creation (`allow create: if false;`). Links are created strictly server-side by the `acceptDoctorInvite` Cloud Function upon verification of valid invite codes.
+     - Restricted link updates exclusively to patients revoking access (`status == 'REVOKED'`).
+  2. **Invitation Privacy & Hijack Prevention (`firestore.rules`)**:
+     - Restricted `caregiverInvites` reads to owning patient (`resource.data.patientUid == request.auth.uid`).
+     - Restricted `doctorInvitations` reads to issuing doctor; forced `status == 'PENDING'` on creation; disallowed client update/delete.
+  3. **Strict Proposal State & Payload Freezing (`firestore.rules`)**:
+     - Forced `status == 'PENDING'` and `revision == 1` on proposal creation by accepted doctors.
+     - Froze `payloadJson`, `doctorUid`, and `patientId` on update; restricted status changes to patient actions (`ACCEPTED`, `DECLINED`, `CLARIFICATION_REQUESTED`) or doctor superseding (`SUPERSEDED`).
+  4. **Anti-Phishing Push Notification Protection (`functions/src/index.ts`)**:
+     - Cloud Function `onNotificationEventCreated` strictly verifies an active `doctorLinks` entry with `status === 'ACCEPTED'` before dispatching prescription push events.
+     - Doctor and patient display names are retrieved from server-side `users` documents, discarding unverified client payloads.
+  5. **AcceptProposalUseCase Idempotency & Validation (`AcceptProposalUseCase.kt`)**:
+     - Validates proposal fields against `MedicineValidator` before acceptance.
+     - Derives deterministic medicine ID (`med_prop_${proposal.id}`) preventing duplicate medicine creation across crashes or network retries.
+     - Returns early with success if proposal is already accepted (idempotent replay).
+  6. **Firebase Cloud Synchronization for Doctor Mode**:
+     - `DoctorLinkUseCase`: writes doctor invitations to Firestore `doctorInvitations`; redeems invitations via `acceptDoctorInvite` HTTPS callable function; synchronizes accepted links into Room with fallback to local simulation for offline tests.
+     - `DoctorRepositoryImpl`: writes and updates prescription proposals in Firestore `medicineProposals`.
+     - `DoctorPatientDetailViewModel`: queries remote patient medicines (`users/{patientId}/medicines`) and dose events (`users/{patientId}/doseEvents`) from Firestore so doctors on separate physical devices can view real patient adherence records.
+     - `DoctorDashboardViewModel`: synchronizes accepted patient links from Firestore for connected doctors.
+     - `SyncWorker`: added bidirectional background synchronization for `doctorLinks` and `medicineProposals` across both patient and doctor roles.
+  7. **Stage 11 Navigation, Memory & OCR Edge Cases**:
+     - `MainActivity.kt`: switched manual add navigation to `Screen.AddMedicine.createRoute()` avoiding literal `{name}` template strings; carried `intervalHours` and `foodRelation` through navigation arguments.
+     - `AddEditMedicineViewModel.kt`: added `.cleanPrefill()` sanitizer discarding template placeholders; added interval and food relation parsing.
+     - `ScanPrescriptionScreen.kt` & `ScanPrescriptionViewModel.kt`: subsampled large gallery bitmaps to max dimension 1600px; wrapped decoding in `Throwable` catch to prevent `OutOfMemoryError`; properly closed `TextRecognizer` in `onCleared()`; added Food Relation chips and interval hours editing to review dialog.
+     - `PrescriptionParser.kt`: resolved "B6 tablet" bug preventing '6' from being misinterpreted as a 6-pill dose count.
+- **Automated Tests Added**:
+  - `DoctorProposalUseCasesTest`: `acceptProposal_validatesPayload_andRejectsInvalid`, `acceptProposal_isIdempotent_doesNotDuplicateMedicineOnRetry`, `acceptProposal_alreadyAccepted_returnsImmediatelyWithoutAction`.
+  - `PrescriptionParserTest`: `parse_vitamin_b6_tablet_does_not_parse_6_as_pill_count`, `parse_b6_tablet_alone_defaults_to_1_pill_not_6`, `parse_take_2_tablets_vitamin_b6`.
+  - `AddEditMedicineViewModelTest`: `savedStateHandle_ignores_literal_template_placeholders_and_prefills_interval_food`.
+- **Verification Results**:
+  - Total automated unit tests: **278** (all passing, 0 failures, 0 skipped across 47 test classes)
+  - `./gradlew.bat testDebugUnitTest` — **PASSED** (278 tests completed, 100% passing)
+  - `./gradlew.bat lintDebug` — **PASSED** (0 errors)
+  - `./gradlew.bat assembleDebug` — **PASSED** (BUILD SUCCESSFUL)
+- **Honest Limitations**:
+  - Firebase features (Cloud Functions, Firestore remote sync, FCM) require valid project credentials (`google-services.json`) and active network connectivity on physical devices. In offline/debug mode, local Room repositories provide full standalone capability.
+  - Image downsampling caps resolution at 1600px on the longest dimension, which prevents OOM on high-resolution cameras (e.g. 50MP–108MP sensors) while retaining sufficient resolution for OCR legibility.

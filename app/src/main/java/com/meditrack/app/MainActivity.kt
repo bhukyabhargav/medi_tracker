@@ -152,7 +152,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onNavigateToAddMedicine = {
-                                    navController.navigate(Screen.AddMedicine.route)
+                                    navController.navigate(Screen.AddMedicine.createRoute())
                                 },
                                 onNavigateToMedicinesList = {
                                     navController.navigate(Screen.MedicinesList.route)
@@ -199,7 +199,7 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.MedicinesList.route) {
                             com.meditrack.app.feature.medicine.MedicinesListScreen(
                                 onNavigateBack = { navController.popBackStack() },
-                                onNavigateToAddMedicine = { navController.navigate(Screen.AddMedicine.route) },
+                                onNavigateToAddMedicine = { navController.navigate(Screen.AddMedicine.createRoute()) },
                                 onNavigateToEditMedicine = { medId ->
                                     navController.navigate(Screen.EditMedicine.createRoute(medId))
                                 },
@@ -212,13 +212,15 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.ScanPrescription.route) {
                             com.meditrack.app.feature.scan.ScanPrescriptionScreen(
                                 onNavigateBack = { navController.popBackStack() },
-                                onContinueToAddMedicine = { name, dosage, frequency, times, pillsPerDose, instructions ->
+                                onContinueToAddMedicine = { name, dosage, frequency, times, pillsPerDose, intervalHours, foodRelation, instructions ->
                                     val route = Screen.AddMedicine.createRoute(
                                         name = name,
                                         dosage = dosage,
                                         frequency = frequency.name,
                                         times = times.joinToString(",") { it.toString() },
                                         pillsPerDose = pillsPerDose,
+                                        intervalHours = intervalHours,
+                                        foodRelation = foodRelation.name,
                                         instructions = instructions
                                     )
                                     navController.navigate(route) {
@@ -236,6 +238,8 @@ class MainActivity : ComponentActivity() {
                                 navArgument("frequency") { type = NavType.StringType; nullable = true; defaultValue = null },
                                 navArgument("times") { type = NavType.StringType; nullable = true; defaultValue = null },
                                 navArgument("pillsPerDose") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("intervalHours") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("foodRelation") { type = NavType.StringType; nullable = true; defaultValue = null },
                                 navArgument("instructions") { type = NavType.StringType; nullable = true; defaultValue = null }
                             )
                         ) {

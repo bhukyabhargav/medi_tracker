@@ -73,6 +73,30 @@ class AddEditMedicineViewModelTest {
     }
 
     @Test
+    fun savedStateHandle_ignores_literal_template_placeholders_and_prefills_interval_food() {
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "name" to "{name}",
+                "dosage" to "{dosage}",
+                "frequency" to "HOURLY",
+                "intervalHours" to "8",
+                "foodRelation" to "BEFORE",
+                "instructions" to "{instructions}"
+            )
+        )
+        val vm = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences, handle)
+        val state = vm.uiState.value
+
+        assertEquals("", state.name)
+        assertEquals("", state.dosageText)
+        assertEquals(FrequencyType.HOURLY, state.frequencyType)
+        assertEquals("8", state.intervalHoursText)
+        assertEquals(8, state.intervalHours)
+        assertEquals(FoodRelation.BEFORE, state.foodRelation)
+        assertEquals("", state.instructions)
+    }
+
+    @Test
     fun validation_failure_sets_error_and_stays_on_form() {
         viewModel.onNameChange("")
         assertFalse(viewModel.validateForm())

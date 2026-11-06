@@ -61,12 +61,16 @@ All tests run via `./gradlew.bat testDebugUnitTest`.
 | `parse_multiline_doctor_prescription` | Doctor clinic Rx note (multi-line) | Omeprazole | 20mg | DAILY [08:00], BEFORE | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
 | `parse_dolo_650mg_1_1_1_after_food` | "Dolo 650mg 1-1-1 after food" | Dolo | 650mg | DAILY [08:00, 14:00, 20:00], AFTER | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
 | `parse_take_2_tablets_per_dose` | "Take 2 tablets Paracetamol 500mg BD" | Paracetamol | 500mg | pillsPerDose=2, DAILY [08:00, 20:00] | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
+| `parse_vitamin_b6_tablet_does_not_parse_6_as_pill_count` | "Take 1 Vitamin B6 tablet daily" | Vitamin B6 | null | pillsPerDose=1, DAILY [08:00] | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
+| `parse_b6_tablet_alone_defaults_to_1_pill_not_6` | "B6 tablet daily" | B6 | null | pillsPerDose=1, DAILY [08:00] | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
+| `parse_take_2_tablets_vitamin_b6` | "Take 2 tablets Vitamin B6 daily" | Vitamin B6 | null | pillsPerDose=2, DAILY [08:00] | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
 | `parse_empty_or_blank_input_returns_safe_defaults` | "   " | null | null | Safe defaults (pills=1, DAILY) | `./gradlew testDebugUnitTest --tests "*PrescriptionParserTest*"` |
 
 ### Additional Stage 11 Automated Tests
 | Test Class | Test Name | What it proves |
 |---|---|---|
 | `AddEditMedicineViewModelTest` | `savedStateHandle_prefills_form_fields_from_scan` | Confirms `AddEditMedicineViewModel` properly initializes its form fields (`name`, `dosage`, `frequency`, `times`, `pillsPerDose`, `instructions`) from route query parameters. |
+| `AddEditMedicineViewModelTest` | `savedStateHandle_ignores_literal_template_placeholders_and_prefills_interval_food` | Proves route placeholders `{name}`, `{dosage}`, `{instructions}` are sanitized/ignored on manual add and `foodRelation` + `intervalHours` are pre-filled. |
 | `ScanPrescriptionViewModelTest` | `processOcrText_updates_ui_state_with_extracted_prescription` | Confirms OCR text correctly updates ViewModel UI state, populating extracted fields and triggering the review dialog. |
 | `ScanPrescriptionViewModelTest` | `user_manual_edits_update_state` | Confirms user can modify any extracted field prior to confirming continuation. |
 | `ScanPrescriptionViewModelTest` | `dismissReviewDialog_hides_dialog` | Proves retake/dismiss dismisses the review dialog to return to capture mode. |

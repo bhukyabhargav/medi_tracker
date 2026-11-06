@@ -139,8 +139,14 @@ class OutboxRepositoryImpl @Inject constructor(
 @Singleton
 class DoctorRepositoryImpl @Inject constructor(
     private val doctorLinkDao: com.meditrack.app.data.db.dao.DoctorLinkDao,
-    private val medicineProposalDao: com.meditrack.app.data.db.dao.MedicineProposalDao
+    private val medicineProposalDao: com.meditrack.app.data.db.dao.MedicineProposalDao,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context? = null
 ) : com.meditrack.app.domain.repository.DoctorRepository {
+
+    private val isFirebaseAvailable: Boolean
+        get() = try {
+            if (context != null) com.google.firebase.FirebaseApp.getApps(context).isNotEmpty() else false
+        } catch (_: Throwable) { false }
 
     override fun observeDoctorLinksByPatientId(patientId: String): Flow<List<com.meditrack.app.domain.model.DoctorLink>> =
         doctorLinkDao.observeByPatientId(patientId)
@@ -175,11 +181,45 @@ class DoctorRepositoryImpl @Inject constructor(
     override suspend fun getProposalById(id: String): com.meditrack.app.domain.model.MedicineProposal? =
         medicineProposalDao.getById(id)
 
-    override suspend fun insertProposal(proposal: com.meditrack.app.domain.model.MedicineProposal) =
+    override suspend fun insertProposal(proposal: com.meditrack.app.domain.model.MedicineProposal) {
         medicineProposalDao.insert(proposal)
+        if (isFirebaseAvailable) {
+            try {
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val propMap = hashMapOf<String, Any?>(
+                    "id" to proposal.id,
+                    "patientId" to proposal.patientId,
+                    "doctorUid" to proposal.doctorUid,
+                    "type" to proposal.type.name,
+                    "medicineId" to proposal.medicineId,
+                    "payloadJson" to proposal.payloadJson,
+                    "status" to proposal.status.name,
+                    "revision" to proposal.revision,
+                    "clarificationNote" to proposal.clarificationNote,
+                    "createdAt" to proposal.createdAt,
+                    "resolvedAt" to proposal.resolvedAt
+                )
+                db.collection("medicineProposals").document(proposal.id).set(propMap)
+            } catch (_: Exception) {}
+        }
+    }
 
-    override suspend fun updateProposal(proposal: com.meditrack.app.domain.model.MedicineProposal) =
+    override suspend fun updateProposal(proposal: com.meditrack.app.domain.model.MedicineProposal) {
         medicineProposalDao.update(proposal)
+        if (isFirebaseAvailable) {
+            try {
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val updates = mutableMapOf<String, Any?>(
+                    "status" to proposal.status.name,
+                    "resolvedAt" to proposal.resolvedAt
+                )
+                if (proposal.clarificationNote != null) {
+                    updates["clarificationNote"] = proposal.clarificationNote
+                }
+                db.collection("medicineProposals").document(proposal.id).update(updates)
+            } catch (_: Exception) {}
+        }
+    }
 
     override suspend fun deleteProposal(id: String) =
         medicineProposalDao.deleteById(id)

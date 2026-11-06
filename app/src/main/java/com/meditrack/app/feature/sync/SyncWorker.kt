@@ -40,6 +40,7 @@ class SyncWorker @AssistedInject constructor(
     private val medicineRepository: MedicineRepository,
     private val doseRepository: DoseRepository,
     private val caregiverRepository: CaregiverRepository,
+    private val doctorRepository: com.meditrack.app.domain.repository.DoctorRepository,
     private val userPreferences: UserPreferences
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -66,6 +67,9 @@ class SyncWorker @AssistedInject constructor(
 
             // 2. Sync Dose Events: Pull remote first & resolve, then push local batch + Upload photos
             syncDoseEvents(db, storage, currentUserId)
+
+            // 3. Sync Doctor Links & Proposals (Stage 10B)
+            syncDoctorLinksAndProposals(db, currentUserId)
 
             Result.success()
         } catch (e: Exception) {
@@ -263,6 +267,118 @@ class SyncWorker @AssistedInject constructor(
 
             val storageRef = storage.reference.child("proofs/$patientUid/$doseId.jpg")
             storageRef.putFile(Uri.fromFile(file)).await()
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun syncDoctorLinksAndProposals(db: FirebaseFirestore, currentUserId: String) {
+        try {
+            // Patient links
+            val patientLinksSnap = db.collection("doctorLinks")
+                .whereEqualTo("patientId", currentUserId)
+                .get().await()
+            for (doc in patientLinksSnap.documents) {
+                val statusStr = doc.getString("status") ?: "PENDING"
+                val status = runCatching { com.meditrack.app.domain.model.DoctorLinkStatus.valueOf(statusStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.DoctorLinkStatus.PENDING)
+                val link = com.meditrack.app.domain.model.DoctorLink(
+                    id = doc.id,
+                    patientId = currentUserId,
+                    doctorUid = doc.getString("doctorUid") ?: "",
+                    doctorName = doc.getString("doctorName") ?: "Doctor",
+                    doctorContact = doc.getString("doctorContact") ?: "",
+                    status = status,
+                    invitationCode = doc.getString("invitationCode"),
+                    expiresAt = doc.getLong("expiresAt"),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+                doctorRepository.insertDoctorLink(link)
+            }
+
+            // Doctor links
+            val docLinksSnap = db.collection("doctorLinks")
+                .whereEqualTo("doctorUid", currentUserId)
+                .get().await()
+            for (doc in docLinksSnap.documents) {
+                val statusStr = doc.getString("status") ?: "PENDING"
+                val status = runCatching { com.meditrack.app.domain.model.DoctorLinkStatus.valueOf(statusStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.DoctorLinkStatus.PENDING)
+                val link = com.meditrack.app.domain.model.DoctorLink(
+                    id = doc.id,
+                    patientId = doc.getString("patientId") ?: "",
+                    doctorUid = currentUserId,
+                    doctorName = doc.getString("doctorName") ?: "Doctor",
+                    doctorContact = doc.getString("doctorContact") ?: "",
+                    status = status,
+                    invitationCode = doc.getString("invitationCode"),
+                    expiresAt = doc.getLong("expiresAt"),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+                doctorRepository.insertDoctorLink(link)
+            }
+
+            // Proposals as Patient
+            val patientPropsSnap = db.collection("medicineProposals")
+                .whereEqualTo("patientId", currentUserId)
+                .get().await()
+            for (doc in patientPropsSnap.documents) {
+                val id = doc.getString("id") ?: doc.id
+                val docUid = doc.getString("doctorUid") ?: continue
+                val typeStr = doc.getString("type") ?: com.meditrack.app.domain.model.ProposalType.ADD.name
+                val type = runCatching { com.meditrack.app.domain.model.ProposalType.valueOf(typeStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.ProposalType.ADD)
+                val statusStr = doc.getString("status") ?: com.meditrack.app.domain.model.ProposalStatus.PENDING.name
+                val status = runCatching { com.meditrack.app.domain.model.ProposalStatus.valueOf(statusStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.ProposalStatus.PENDING)
+                val payloadJson = doc.getString("payloadJson") ?: ""
+
+                val proposal = com.meditrack.app.domain.model.MedicineProposal(
+                    id = id,
+                    patientId = currentUserId,
+                    doctorUid = docUid,
+                    type = type,
+                    medicineId = doc.getString("medicineId"),
+                    payloadJson = payloadJson,
+                    status = status,
+                    revision = doc.getLong("revision")?.toInt() ?: 1,
+                    clarificationNote = doc.getString("clarificationNote"),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    resolvedAt = doc.getLong("resolvedAt")
+                )
+                doctorRepository.insertProposal(proposal)
+            }
+
+            // Proposals as Doctor
+            val doctorPropsSnap = db.collection("medicineProposals")
+                .whereEqualTo("doctorUid", currentUserId)
+                .get().await()
+            for (doc in doctorPropsSnap.documents) {
+                val id = doc.getString("id") ?: doc.id
+                val patId = doc.getString("patientId") ?: continue
+                val typeStr = doc.getString("type") ?: com.meditrack.app.domain.model.ProposalType.ADD.name
+                val type = runCatching { com.meditrack.app.domain.model.ProposalType.valueOf(typeStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.ProposalType.ADD)
+                val statusStr = doc.getString("status") ?: com.meditrack.app.domain.model.ProposalStatus.PENDING.name
+                val status = runCatching { com.meditrack.app.domain.model.ProposalStatus.valueOf(statusStr) }
+                    .getOrDefault(com.meditrack.app.domain.model.ProposalStatus.PENDING)
+                val payloadJson = doc.getString("payloadJson") ?: ""
+
+                val proposal = com.meditrack.app.domain.model.MedicineProposal(
+                    id = id,
+                    patientId = patId,
+                    doctorUid = currentUserId,
+                    type = type,
+                    medicineId = doc.getString("medicineId"),
+                    payloadJson = payloadJson,
+                    status = status,
+                    revision = doc.getLong("revision")?.toInt() ?: 1,
+                    clarificationNote = doc.getString("clarificationNote"),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    resolvedAt = doc.getLong("resolvedAt")
+                )
+                doctorRepository.insertProposal(proposal)
+            }
         } catch (_: Exception) {}
     }
 

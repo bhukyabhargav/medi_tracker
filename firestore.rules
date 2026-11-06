@@ -58,7 +58,7 @@ service cloud.firestore {
     // Caregiver invites collection: patient-only creation
     match /caregiverInvites/{code} {
       allow create: if isAuthenticated() && request.resource.data.patientUid == request.auth.uid;
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && resource.data.patientUid == request.auth.uid;
       allow update, delete: if false; // Managed by acceptCaregiverInvite Cloud Function
     }
 
@@ -66,27 +66,28 @@ service cloud.firestore {
     match /doctorLinks/{linkId} {
       allow read: if isAuthenticated() && (
         resource.data.patientId == request.auth.uid ||
-        resource.data.doctorUid == request.auth.uid ||
-        resource.data.patientId == '' // Unredeemed invite
+        resource.data.doctorUid == request.auth.uid
       );
-      allow create: if isAuthenticated();
-      // Patient can accept, decline, or revoke access; doctor cannot alter patient consent
-      allow update: if isAuthenticated() && (
-        resource.data.patientId == request.auth.uid ||
-        request.resource.data.patientId == request.auth.uid
-      );
-      allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
+      // Link creation must be server-side only through acceptDoctorInvite Cloud Function
+      allow create: if false;
+      // Patient can only revoke access; doctor cannot alter consent
+      allow update: if isAuthenticated()
+        && resource.data.patientId == request.auth.uid
+        && request.resource.data.status == 'REVOKED'
+        && request.resource.data.doctorUid == resource.data.doctorUid
+        && request.resource.data.patientId == resource.data.patientId;
+      allow delete: if false; // Preserves complete audit trail
     }
 
     // Doctor invitations collection (Stage 10B)
     match /doctorInvitations/{inviteId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.doctorUid == request.auth.uid;
-      allow update: if isAuthenticated() && (
-        resource.data.doctorUid == request.auth.uid ||
-        request.auth.uid == request.resource.data.patientUid
-      );
-      allow delete: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
+      // Restrict read to the issuing doctor to prevent invite leakage and hijacking
+      allow read: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
+      allow create: if isAuthenticated()
+        && request.resource.data.doctorUid == request.auth.uid
+        && request.resource.data.status == 'PENDING';
+      // Redemption and status changes are managed server-side by acceptDoctorInvite Cloud Function
+      allow update, delete: if false;
     }
 
     // Prescription proposals collection (Stage 10B)
@@ -96,13 +97,25 @@ service cloud.firestore {
         resource.data.doctorUid == request.auth.uid
       );
       // Doctor can create proposals ONLY if actively connected (DoctorLink == ACCEPTED)
+      // Force status == 'PENDING' and revision == 1 on creation
       allow create: if isAuthenticated() && isAcceptedDoctor(request.resource.data.patientId)
-        && request.resource.data.doctorUid == request.auth.uid;
-      // Patient can update status (ACCEPT, DECLINE, CLARIFICATION); doctor can SUPERSEDE on revision
-      allow update: if isAuthenticated() && (
-        resource.data.patientId == request.auth.uid ||
-        (resource.data.doctorUid == request.auth.uid && request.resource.data.status == 'SUPERSEDED')
-      );
+        && request.resource.data.doctorUid == request.auth.uid
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.revision == 1;
+      // Patient can update status (ACCEPTED, DECLINED, CLARIFICATION_REQUESTED); doctor can SUPERSEDE on revision.
+      // Payload JSON and participant UIDs are immutable on update.
+      allow update: if isAuthenticated()
+        && request.resource.data.payloadJson == resource.data.payloadJson
+        && request.resource.data.doctorUid == resource.data.doctorUid
+        && request.resource.data.patientId == resource.data.patientId
+        && (
+          (resource.data.patientId == request.auth.uid && (
+            request.resource.data.status == 'ACCEPTED' ||
+            request.resource.data.status == 'DECLINED' ||
+            request.resource.data.status == 'CLARIFICATION_REQUESTED'
+          )) ||
+          (resource.data.doctorUid == request.auth.uid && request.resource.data.status == 'SUPERSEDED')
+        );
       allow delete: if false; // Preserves complete audit trail
     }
 

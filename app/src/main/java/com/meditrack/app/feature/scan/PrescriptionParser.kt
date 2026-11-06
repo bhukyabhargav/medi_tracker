@@ -33,7 +33,7 @@ object PrescriptionParser {
     )
 
     private val PILLS_PER_DOSE_REGEX = Regex(
-        """(?i)(?:take\s+)?(\d+)\s*(?:tablet|tablets|tab|tabs|capsule|capsules|cap|caps|pill|pills)\b"""
+        """(?i)(?:take\s+(\d+)\s*(?:tablets?|capsules?|tabs?|caps?|pills?)\b|(?<![a-zA-Z\d])(\d+)\s*(?:tablets?|capsules?|tabs?|caps?|pills?)\b)"""
     )
 
     private val DURATION_REGEX = Regex(
@@ -169,7 +169,8 @@ object PrescriptionParser {
     private fun parsePillsPerDose(text: String): Int {
         val match = PILLS_PER_DOSE_REGEX.find(text)
         if (match != null) {
-            val count = match.groupValues[1].toIntOrNull()
+            val countStr = match.groupValues[1].ifBlank { match.groupValues[2] }
+            val count = countStr.toIntOrNull()
             if (count != null && count in 1..10) {
                 return count
             }

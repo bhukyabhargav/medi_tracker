@@ -3,10 +3,10 @@ package com.meditrack.app.feature.scan
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -95,6 +95,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.meditrack.app.R
+import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import java.time.LocalTime
 
@@ -108,6 +109,8 @@ fun ScanPrescriptionScreen(
         frequency: FrequencyType,
         times: List<LocalTime>,
         pillsPerDose: Int,
+        intervalHours: Int?,
+        foodRelation: FoodRelation,
         instructions: String
     ) -> Unit,
     viewModel: ScanPrescriptionViewModel = hiltViewModel(),
@@ -158,18 +161,38 @@ fun ScanPrescriptionScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             try {
+                val maxSide = 1600
                 val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+                        val width = info.size.width
+                        val height = info.size.height
+                        if (width > maxSide || height > maxSide) {
+                            val scale = maxSide.toFloat() / maxOf(width, height)
+                            decoder.setTargetSize((width * scale).toInt(), (height * scale).toInt())
+                        }
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                         decoder.isMutableRequired = true
                     }
                 } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                    val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, boundsOptions)
+                    }
+                    var sampleSize = 1
+                    while (boundsOptions.outWidth / sampleSize > maxSide || boundsOptions.outHeight / sampleSize > maxSide) {
+                        sampleSize *= 2
+                    }
+                    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, decodeOptions)
+                    }
                 }
-                viewModel.onGalleryImageSelected(bitmap)
-            } catch (e: Exception) {
-                Log.e("MediTrack", "Failed to load image from gallery: ${e.message}", e)
+
+                if (bitmap != null) {
+                    viewModel.onGalleryImageSelected(bitmap)
+                }
+            } catch (t: Throwable) {
+                Log.e("MediTrack", "Failed to load image from gallery: ${t.message}", t)
             }
         }
     }
@@ -573,6 +596,47 @@ fun ScanPrescriptionScreen(
                                 )
                             }
 
+                            // Interval Hours (if Hourly selected)
+                            if (uiState.frequencyType == FrequencyType.HOURLY) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = (uiState.intervalHours ?: 6).toString(),
+                                    onValueChange = { viewModel.onIntervalHoursChange(it.toIntOrNull()?.coerceAtLeast(1)) },
+                                    label = { Text("Interval Hours (e.g. 8)") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Food Relation Selection
+                            Text(
+                                text = "Food Relation",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.foodRelation == FoodRelation.ANY,
+                                    onClick = { viewModel.onFoodRelationChange(FoodRelation.ANY) },
+                                    label = { Text("Any Time") }
+                                )
+                                FilterChip(
+                                    selected = uiState.foodRelation == FoodRelation.BEFORE,
+                                    onClick = { viewModel.onFoodRelationChange(FoodRelation.BEFORE) },
+                                    label = { Text("Before Food") }
+                                )
+                                FilterChip(
+                                    selected = uiState.foodRelation == FoodRelation.AFTER,
+                                    onClick = { viewModel.onFoodRelationChange(FoodRelation.AFTER) },
+                                    label = { Text("After Food") }
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
 
                             // Instructions
@@ -606,6 +670,8 @@ fun ScanPrescriptionScreen(
                                             uiState.frequencyType,
                                             uiState.timesOfDay,
                                             uiState.pillsPerDose,
+                                            uiState.intervalHours,
+                                            uiState.foodRelation,
                                             uiState.instructions
                                         )
                                     },
@@ -617,6 +683,20 @@ fun ScanPrescriptionScreen(
                         }
                     }
                 }
+            }
+
+            // Error Alert Dialog
+            uiState.errorMessage?.let { errorMsg ->
+                AlertDialog(
+                    onDismissRequest = { viewModel.clearError() },
+                    title = { Text("Notice") },
+                    text = { Text(errorMsg) },
+                    confirmButton = {
+                        Button(onClick = { viewModel.clearError() }) {
+                            Text("OK")
+                        }
+                    }
+                )
             }
         }
     }

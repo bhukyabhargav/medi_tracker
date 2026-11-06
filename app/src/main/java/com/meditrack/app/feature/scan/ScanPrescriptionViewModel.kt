@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.feature.verification.quality.ImageQualityGate
 import com.meditrack.app.feature.verification.quality.QualityResult
@@ -29,6 +30,8 @@ data class ScanPrescriptionUiState(
     val frequencyType: FrequencyType = FrequencyType.DAILY,
     val timesOfDay: List<LocalTime> = listOf(LocalTime.of(8, 0)),
     val pillsPerDoseText: String = "1",
+    val intervalHours: Int? = null,
+    val foodRelation: FoodRelation = FoodRelation.ANY,
     val instructions: String = "",
     val rawOcrText: String = ""
 ) {
@@ -48,19 +51,28 @@ class ScanPrescriptionViewModel @Inject constructor() : ViewModel() {
     fun onCapturedBitmap(bitmap: Bitmap) {
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessing = true, errorMessage = null) }
-            // Quality gate check (blur, brightness, glare)
-            val qualityResult = ImageQualityGate.analyze(bitmap)
-            if (!qualityResult.passed) {
+            try {
+                // Quality gate check (blur, brightness, glare)
+                val qualityResult = ImageQualityGate.analyze(bitmap)
+                if (!qualityResult.passed) {
+                    _uiState.update {
+                        it.copy(
+                            isProcessing = false,
+                            qualityFailure = qualityResult
+                        )
+                    }
+                    return@launch
+                }
+
+                processOcr(bitmap)
+            } catch (t: Throwable) {
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        qualityFailure = qualityResult
+                        errorMessage = "Image analysis failed: ${t.message ?: "Unknown error"}"
                     )
                 }
-                return@launch
             }
-
-            processOcr(bitmap)
         }
     }
 
@@ -87,11 +99,11 @@ class ScanPrescriptionViewModel @Inject constructor() : ViewModel() {
                         )
                     }
                 }
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             _uiState.update {
                 it.copy(
                     isProcessing = false,
-                    errorMessage = "Error initializing text recognition: ${e.message}"
+                    errorMessage = "Error initializing text recognition: ${t.message ?: "Out of memory"}"
                 )
             }
         }
@@ -108,6 +120,8 @@ class ScanPrescriptionViewModel @Inject constructor() : ViewModel() {
                 frequencyType = parsed.frequencyType,
                 timesOfDay = parsed.timesOfDay,
                 pillsPerDoseText = parsed.pillsPerDose.toString(),
+                intervalHours = parsed.intervalHours,
+                foodRelation = parsed.foodRelation,
                 instructions = parsed.instructions,
                 rawOcrText = text
             )
@@ -118,9 +132,20 @@ class ScanPrescriptionViewModel @Inject constructor() : ViewModel() {
     fun onDosageChange(dosage: String) = _uiState.update { it.copy(dosageText = dosage) }
     fun onFrequencyTypeChange(freq: FrequencyType) = _uiState.update { it.copy(frequencyType = freq) }
     fun onPillsPerDoseTextChange(pills: String) = _uiState.update { it.copy(pillsPerDoseText = pills) }
+    fun onIntervalHoursChange(hours: Int?) = _uiState.update { it.copy(intervalHours = hours) }
+    fun onFoodRelationChange(food: FoodRelation) = _uiState.update { it.copy(foodRelation = food) }
     fun onInstructionsChange(inst: String) = _uiState.update { it.copy(instructions = inst) }
 
     fun dismissReviewDialog() = _uiState.update { it.copy(showReviewDialog = false) }
     fun dismissQualityFailure() = _uiState.update { it.copy(qualityFailure = null) }
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            textRecognizer.close()
+        } catch (_: Throwable) {
+            // Safe cleanup
+        }
+    }
 }

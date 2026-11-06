@@ -37,6 +37,11 @@ class AcceptProposalUseCase @Inject constructor(
             return Result.failure(IllegalStateException("Proposal does not belong to this patient."))
         }
 
+        // Idempotency: if already accepted, return success immediately
+        if (proposal.status == ProposalStatus.ACCEPTED) {
+            return Result.success(proposal)
+        }
+
         val transitionResult = ProposalStateMachine.transition(proposal.status, ProposalTransitionEvent.Accept)
         if (transitionResult.isFailure) {
             return Result.failure(transitionResult.exceptionOrNull() ?: IllegalStateException("Illegal state transition"))
@@ -50,58 +55,99 @@ class AcceptProposalUseCase @Inject constructor(
                     runCatching { LocalTime.parse(it) }.getOrNull()
                 }.ifEmpty { listOf(LocalTime.of(8, 0)) }
 
-                val newMedicine = Medicine(
-                    id = "med_${UUID.randomUUID()}",
-                    patientId = patientId,
+                val validation = MedicineValidator.validate(
                     name = payload.medicineName,
-                    dosageText = payload.dosageText,
                     pillsPerDose = payload.pillsPerDose,
-                    frequencyType = payload.frequencyType,
-                    timesOfDay = times,
-                    intervalHours = payload.intervalHours,
-                    daysOfWeek = payload.daysOfWeek,
                     startDate = payload.startDate,
                     endDate = payload.endDate,
-                    foodRelation = payload.foodRelation,
-                    instructions = payload.instructions,
+                    reminderEnabled = true,
+                    timesOfDay = times,
                     initialStock = payload.initialStock,
-                    currentStock = payload.initialStock,
-                    prescribedByDoctorUid = proposal.doctorUid,
-                    prescribedByDoctorName = payload.doctorName.ifBlank { "Doctor" },
-                    stoppedByDoctor = false
+                    frequencyType = payload.frequencyType,
+                    intervalHours = payload.intervalHours,
+                    daysOfWeek = payload.daysOfWeek
                 )
-                saveMedicineUseCase.saveNewMedicine(newMedicine)
-            }
-            ProposalType.EDIT -> {
-                val medId = proposal.medicineId
-                val existing = if (medId != null) medicineRepository.getById(medId) else null
-                if (existing != null) {
-                    val times = if (payload.timesOfDay.isNotEmpty()) {
-                        payload.timesOfDay.mapNotNull { runCatching { LocalTime.parse(it) }.getOrNull() }
-                    } else existing.timesOfDay
+                if (validation is MedicineValidator.ValidationResult.Invalid) {
+                    return Result.failure(IllegalArgumentException("Invalid proposal payload: ${validation.errorMessage}"))
+                }
 
-                    val updatedMed = existing.copy(
-                        name = payload.medicineName.ifBlank { existing.name },
-                        dosageText = payload.dosageText.ifBlank { existing.dosageText },
+                // Deterministic ID ensures idempotency across crashes or retries
+                val targetMedId = proposal.medicineId ?: "med_prop_${proposal.id}"
+                val existing = medicineRepository.getById(targetMedId)
+                if (existing == null) {
+                    val newMedicine = Medicine(
+                        id = targetMedId,
+                        patientId = patientId,
+                        name = payload.medicineName,
+                        dosageText = payload.dosageText,
                         pillsPerDose = payload.pillsPerDose,
                         frequencyType = payload.frequencyType,
                         timesOfDay = times,
-                        intervalHours = payload.intervalHours ?: existing.intervalHours,
-                        daysOfWeek = payload.daysOfWeek ?: existing.daysOfWeek,
+                        intervalHours = payload.intervalHours,
+                        daysOfWeek = payload.daysOfWeek,
                         startDate = payload.startDate,
-                        endDate = payload.endDate ?: existing.endDate,
+                        endDate = payload.endDate,
                         foodRelation = payload.foodRelation,
                         instructions = payload.instructions,
+                        initialStock = payload.initialStock,
+                        currentStock = payload.initialStock,
                         prescribedByDoctorUid = proposal.doctorUid,
-                        prescribedByDoctorName = payload.doctorName.ifBlank { existing.prescribedByDoctorName }
+                        prescribedByDoctorName = payload.doctorName.ifBlank { "Doctor" },
+                        stoppedByDoctor = false
                     )
-                    saveMedicineUseCase.updateMedicine(updatedMed)
+                    saveMedicineUseCase.saveNewMedicine(newMedicine)
                 }
+            }
+            ProposalType.EDIT -> {
+                val medId = proposal.medicineId
+                    ?: return Result.failure(IllegalArgumentException("Medicine id missing for EDIT proposal"))
+                val existing = medicineRepository.getById(medId)
+                    ?: return Result.failure(IllegalArgumentException("Medicine not found for EDIT proposal: $medId"))
+
+                val times = if (payload.timesOfDay.isNotEmpty()) {
+                    payload.timesOfDay.mapNotNull { runCatching { LocalTime.parse(it) }.getOrNull() }
+                } else existing.timesOfDay
+
+                val validation = MedicineValidator.validate(
+                    name = payload.medicineName.ifBlank { existing.name },
+                    pillsPerDose = payload.pillsPerDose,
+                    startDate = payload.startDate,
+                    endDate = payload.endDate ?: existing.endDate,
+                    reminderEnabled = true,
+                    timesOfDay = times,
+                    initialStock = existing.initialStock,
+                    frequencyType = payload.frequencyType,
+                    intervalHours = payload.intervalHours ?: existing.intervalHours,
+                    daysOfWeek = payload.daysOfWeek ?: existing.daysOfWeek
+                )
+                if (validation is MedicineValidator.ValidationResult.Invalid) {
+                    return Result.failure(IllegalArgumentException("Invalid proposal payload: ${validation.errorMessage}"))
+                }
+
+                val updatedMed = existing.copy(
+                    name = payload.medicineName.ifBlank { existing.name },
+                    dosageText = payload.dosageText.ifBlank { existing.dosageText },
+                    pillsPerDose = payload.pillsPerDose,
+                    frequencyType = payload.frequencyType,
+                    timesOfDay = times,
+                    intervalHours = payload.intervalHours ?: existing.intervalHours,
+                    daysOfWeek = payload.daysOfWeek ?: existing.daysOfWeek,
+                    startDate = payload.startDate,
+                    endDate = payload.endDate ?: existing.endDate,
+                    foodRelation = payload.foodRelation,
+                    instructions = payload.instructions,
+                    prescribedByDoctorUid = proposal.doctorUid,
+                    prescribedByDoctorName = payload.doctorName.ifBlank { existing.prescribedByDoctorName }
+                )
+                saveMedicineUseCase.updateMedicine(updatedMed)
             }
             ProposalType.STOP -> {
                 val medId = proposal.medicineId
-                val existing = if (medId != null) medicineRepository.getById(medId) else null
-                if (existing != null) {
+                    ?: return Result.failure(IllegalArgumentException("Medicine id missing for STOP proposal"))
+                val existing = medicineRepository.getById(medId)
+                    ?: return Result.failure(IllegalArgumentException("Medicine not found for STOP proposal: $medId"))
+
+                if (!existing.stoppedByDoctor) {
                     val stoppedMed = existing.copy(stoppedByDoctor = true)
                     saveMedicineUseCase.updateMedicine(stoppedMed)
                 }

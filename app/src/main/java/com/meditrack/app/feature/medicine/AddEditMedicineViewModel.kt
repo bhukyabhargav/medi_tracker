@@ -69,24 +69,36 @@ class AddEditMedicineViewModel @Inject constructor(
     val uiState: StateFlow<AddEditMedicineUiState> = _uiState.asStateFlow()
 
     init {
-        val prefillName = savedStateHandle.get<String>("name")
-        val prefillDosage = savedStateHandle.get<String>("dosage")
-        val prefillFrequency = savedStateHandle.get<String>("frequency")
-        val prefillTimes = savedStateHandle.get<String>("times")
-        val prefillPills = savedStateHandle.get<String>("pillsPerDose")
-        val prefillInstructions = savedStateHandle.get<String>("instructions")
+        fun String?.cleanPrefill(): String? {
+            if (this == null) return null
+            val trimmed = this.trim()
+            if (trimmed.isEmpty() || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+                return null
+            }
+            return trimmed
+        }
 
-        if (!prefillName.isNullOrBlank() || !prefillDosage.isNullOrBlank() ||
-            !prefillFrequency.isNullOrBlank() || !prefillTimes.isNullOrBlank() ||
-            !prefillPills.isNullOrBlank() || !prefillInstructions.isNullOrBlank()
+        val prefillName = savedStateHandle.get<String>("name").cleanPrefill()
+        val prefillDosage = savedStateHandle.get<String>("dosage").cleanPrefill()
+        val prefillFrequency = savedStateHandle.get<String>("frequency").cleanPrefill()
+        val prefillTimes = savedStateHandle.get<String>("times").cleanPrefill()
+        val prefillPills = savedStateHandle.get<String>("pillsPerDose").cleanPrefill()
+        val prefillIntervalHours = savedStateHandle.get<String>("intervalHours").cleanPrefill()
+        val prefillFoodRelation = savedStateHandle.get<String>("foodRelation").cleanPrefill()
+        val prefillInstructions = savedStateHandle.get<String>("instructions").cleanPrefill()
+
+        if (prefillName != null || prefillDosage != null ||
+            prefillFrequency != null || prefillTimes != null ||
+            prefillPills != null || prefillIntervalHours != null ||
+            prefillFoodRelation != null || prefillInstructions != null
         ) {
             val parsedFreq = try {
-                if (!prefillFrequency.isNullOrBlank()) FrequencyType.valueOf(prefillFrequency) else FrequencyType.DAILY
+                if (prefillFrequency != null) FrequencyType.valueOf(prefillFrequency) else null
             } catch (e: Exception) {
-                FrequencyType.DAILY
+                null
             }
 
-            val parsedTimes = if (!prefillTimes.isNullOrBlank()) {
+            val parsedTimes = if (prefillTimes != null) {
                 prefillTimes.split(",")
                     .mapNotNull {
                         try {
@@ -95,20 +107,26 @@ class AddEditMedicineViewModel @Inject constructor(
                             null
                         }
                     }
-                    .ifEmpty { listOf(LocalTime.of(8, 0)) }
-            } else {
-                listOf(LocalTime.of(8, 0))
-            }
+                    .ifEmpty { null }
+            } else null
 
-            val parsedPills = prefillPills?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val parsedPills = prefillPills?.toIntOrNull()?.coerceAtLeast(1)
+            val parsedInterval = prefillIntervalHours?.toIntOrNull()?.coerceAtLeast(1)
+            val parsedFood = try {
+                if (prefillFoodRelation != null) FoodRelation.valueOf(prefillFoodRelation) else null
+            } catch (e: Exception) {
+                null
+            }
 
             _uiState.update { current ->
                 current.copy(
                     name = prefillName ?: current.name,
                     dosageText = prefillDosage ?: current.dosageText,
-                    frequencyType = parsedFreq,
-                    timesOfDay = parsedTimes,
-                    pillsPerDoseText = parsedPills.toString(),
+                    frequencyType = parsedFreq ?: current.frequencyType,
+                    timesOfDay = parsedTimes ?: current.timesOfDay,
+                    pillsPerDoseText = parsedPills?.toString() ?: current.pillsPerDoseText,
+                    intervalHoursText = parsedInterval?.toString() ?: current.intervalHoursText,
+                    foodRelation = parsedFood ?: current.foodRelation,
                     instructions = prefillInstructions ?: current.instructions
                 )
             }

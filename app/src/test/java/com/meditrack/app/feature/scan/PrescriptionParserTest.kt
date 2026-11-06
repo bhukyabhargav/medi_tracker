@@ -176,4 +176,37 @@ class PrescriptionParserTest {
         assertEquals(FrequencyType.DAILY, parsed.frequencyType)
         assertEquals(1, parsed.pillsPerDose)
     }
+
+    @Test
+    fun parse_vitamin_b6_tablet_does_not_parse_6_as_pill_count() {
+        val input = "Vitamin B6 50mg daily 1 tablet"
+        val parsed = PrescriptionParser.parse(input)
+
+        assertEquals("Vitamin B6", parsed.medicineName)
+        assertEquals("50mg", parsed.dosageText)
+        assertEquals(1, parsed.pillsPerDose)
+        assertEquals(FrequencyType.DAILY, parsed.frequencyType)
+    }
+
+    @Test
+    fun parse_b6_tablet_alone_defaults_to_1_pill_not_6() {
+        val input = "B6 tablet 100mg OD"
+        val parsed = PrescriptionParser.parse(input)
+
+        assertEquals("B6", parsed.medicineName)
+        assertEquals("100mg", parsed.dosageText)
+        assertEquals(1, parsed.pillsPerDose)
+        assertEquals(FrequencyType.DAILY, parsed.frequencyType)
+    }
+
+    @Test
+    fun parse_take_2_tablets_vitamin_b6() {
+        val input = "Take 2 tablets Vitamin B6 50mg daily"
+        val parsed = PrescriptionParser.parse(input)
+
+        assertEquals("Vitamin B6", parsed.medicineName)
+        assertEquals("50mg", parsed.dosageText)
+        assertEquals(2, parsed.pillsPerDose)
+        assertEquals(FrequencyType.DAILY, parsed.frequencyType)
+    }
 }

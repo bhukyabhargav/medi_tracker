@@ -51,6 +51,7 @@ class DoctorProposalUseCasesTest {
         declineProposalUseCase = DeclineProposalUseCase(doctorRepository, outboxRepository)
         requestClarificationUseCase = RequestClarificationUseCase(doctorRepository, outboxRepository)
         reviseProposalUseCase = ReviseProposalUseCase(doctorRepository, outboxRepository)
+        coEvery { medicineRepository.getById(any()) } returns null
     }
 
     private fun samplePayload(): PrescriptionProposalPayload {
@@ -141,6 +142,83 @@ class DoctorProposalUseCasesTest {
         coVerify(exactly = 1) { doctorRepository.updateProposal(capture(updatedPropSlot)) }
         assertEquals(ProposalStatus.ACCEPTED, updatedPropSlot.captured.status)
         coVerify(exactly = 1) { outboxRepository.enqueue(match { it.type == NotifType.PRESCRIPTION_ACCEPTED }) }
+    }
+
+    @Test
+    fun acceptProposal_validatesPayload_andRejectsInvalid() = runTest {
+        val invalidPayload = samplePayload().copy(medicineName = "", pillsPerDose = 0)
+        val proposal = MedicineProposal(
+            id = "prop_invalid",
+            patientId = patientId,
+            doctorUid = doctorUid,
+            type = ProposalType.ADD,
+            payloadJson = invalidPayload.toJson(),
+            status = ProposalStatus.PENDING,
+            revision = 1
+        )
+        coEvery { doctorRepository.getProposalById("prop_invalid") } returns proposal
+
+        val result = acceptProposalUseCase(proposalId = "prop_invalid", patientId = patientId)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("Invalid proposal payload"))
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+    }
+
+    @Test
+    fun acceptProposal_isIdempotent_doesNotDuplicateMedicineOnRetry() = runTest {
+        val proposal = MedicineProposal(
+            id = "prop_retry",
+            patientId = patientId,
+            doctorUid = doctorUid,
+            type = ProposalType.ADD,
+            payloadJson = samplePayload().toJson(),
+            status = ProposalStatus.PENDING,
+            revision = 1
+        )
+        coEvery { doctorRepository.getProposalById("prop_retry") } returns proposal
+        // Simulate medicine was already saved on previous attempt
+        val existingMed = Medicine(
+            id = "med_prop_prop_retry",
+            patientId = patientId,
+            name = "Amoxicillin",
+            dosageText = "500mg",
+            pillsPerDose = 1,
+            frequencyType = FrequencyType.DAILY,
+            timesOfDay = listOf(LocalTime.of(8, 0)),
+            startDate = 1000L,
+            initialStock = 30,
+            currentStock = 30
+        )
+        coEvery { medicineRepository.getById("med_prop_prop_retry") } returns existingMed
+
+        val result = acceptProposalUseCase(proposalId = "prop_retry", patientId = patientId)
+
+        assertTrue(result.isSuccess)
+        // Should NOT call saveNewMedicine again because it already exists with deterministic ID
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+        coVerify(exactly = 1) { doctorRepository.updateProposal(match { it.status == ProposalStatus.ACCEPTED }) }
+    }
+
+    @Test
+    fun acceptProposal_alreadyAccepted_returnsImmediatelyWithoutAction() = runTest {
+        val proposal = MedicineProposal(
+            id = "prop_already_accepted",
+            patientId = patientId,
+            doctorUid = doctorUid,
+            type = ProposalType.ADD,
+            payloadJson = samplePayload().toJson(),
+            status = ProposalStatus.ACCEPTED,
+            revision = 1
+        )
+        coEvery { doctorRepository.getProposalById("prop_already_accepted") } returns proposal
+
+        val result = acceptProposalUseCase(proposalId = "prop_already_accepted", patientId = patientId)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+        coVerify(exactly = 0) { doctorRepository.updateProposal(any()) }
     }
 
     @Test

@@ -96,6 +96,9 @@ Command to run all Stage 10B tests:
 | `DoctorProposalUseCasesTest` | `createProposal_failsIfDoctorNotConnected` | Proposing without an `ACCEPTED` doctor link throws `IllegalStateException` | **PASSED** |
 | `DoctorProposalUseCasesTest` | `createProposal_succeedsWhenConnected` | Creates proposal with status `PENDING`, revision 1, and outbox event `PRESCRIPTION_PROPOSAL_RECEIVED` | **PASSED** |
 | `DoctorProposalUseCasesTest` | `acceptProposal_add_createsMedicineAndDosesAndAlarms` | Accepting `ADD` proposal creates medicine badged with doctor name, generates future doses, and schedules alarms | **PASSED** |
+| `DoctorProposalUseCasesTest` | `acceptProposal_validatesPayload_andRejectsInvalid` | Validates proposal fields against `MedicineValidator` before activation | **PASSED** |
+| `DoctorProposalUseCasesTest` | `acceptProposal_isIdempotent_doesNotDuplicateMedicineOnRetry` | Deterministic medicine ID (`med_prop_${proposal.id}`) prevents duplicate medicine creation on retry | **PASSED** |
+| `DoctorProposalUseCasesTest` | `acceptProposal_alreadyAccepted_returnsImmediatelyWithoutAction` | Replay safety: already-accepted proposal returns immediately without duplicate side-effects | **PASSED** |
 | `DoctorProposalUseCasesTest` | `acceptProposal_edit_updatesFutureDosesOnly` | Accepting `EDIT` modifies future pending doses only (`scheduledAt > now`), past history immutable | **PASSED** |
 | `DoctorProposalUseCasesTest` | `acceptProposal_stop_cancelsFutureDosesAndPreservesHistory` | Accepting `STOP` sets `stoppedByDoctor = true`, deletes future pending doses, but preserves all past taken/missed records | **PASSED** |
 | `DoctorProposalUseCasesTest` | `declineProposal_doesNotCreateMedicineOrDoses` | Declining marks proposal `DECLINED` and creates zero medicines, doses, or alarms | **PASSED** |
