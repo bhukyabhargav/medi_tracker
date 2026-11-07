@@ -26,7 +26,8 @@ object NotificationText {
         doctorName: String? = null
     ): Pair<String, String> {
         val medicine = medicineName ?: "Medicine"
-        val name = patientName ?: doctorName ?: "User"
+        val name = patientName ?: doctorName ?: "A patient"
+        val dr = doctorName ?: patientName ?: "Doctor"
 
         return when (type) {
             NotifType.MISSED_DOSE -> Pair(
@@ -49,7 +50,7 @@ object NotificationText {
                 "Caregiver Invitation",
                 "$name invited you to be their caregiver."
             )
-            NotifType.DOCTOR_INVITE_RECEIVED, NotifType.DOCTOR_INVITE -> Pair(
+            NotifType.DOCTOR_INVITE_RECEIVED -> Pair(
                 "Doctor Connection Request",
                 "$name wants to connect as your doctor on MediTrack. Review the request."
             )
@@ -65,9 +66,9 @@ object NotificationText {
                 "Doctor Connection Revoked",
                 "Doctor access has been revoked."
             )
-            NotifType.PRESCRIPTION_PROPOSAL_RECEIVED, NotifType.MEDICINE_PRESCRIBED -> Pair(
+            NotifType.PRESCRIPTION_PROPOSAL_RECEIVED -> Pair(
                 "Prescription Proposed",
-                "Dr $name proposed a prescription for $medicine. Review and accept."
+                "Dr $dr proposed a prescription for $medicine. Review and accept."
             )
             NotifType.PRESCRIPTION_ACCEPTED -> Pair(
                 "Prescription Accepted",
@@ -81,13 +82,9 @@ object NotificationText {
                 "Prescription Clarification Requested",
                 "$name requested clarification on $medicine."
             )
-            NotifType.PRESCRIPTION_REVISED, NotifType.MEDICINE_CHANGED_BY_DOCTOR -> Pair(
+            NotifType.PRESCRIPTION_REVISED -> Pair(
                 "Prescription Revised",
-                "Dr $name updated the prescription proposal for $medicine. Review the new revision."
-            )
-            NotifType.MEDICINE_STOPPED_BY_DOCTOR -> Pair(
-                "Prescription Stopped",
-                "Dr $name proposed stopping $medicine."
+                "Dr $dr updated the prescription proposal for $medicine. Review the new revision."
             )
         }
     }

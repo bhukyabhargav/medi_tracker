@@ -47,6 +47,14 @@ class BootReceiverTest {
     }
 
     @Test
+    fun processAction_timezoneChanged_triggersReschedule() = runTest {
+        receiver.processAction(Intent.ACTION_TIMEZONE_CHANGED, scheduler = alarmScheduler, scope = this)
+        testScheduler.advanceUntilIdle()
+
+        coVerify { alarmScheduler.rescheduleAllPendingAlarms() }
+    }
+
+    @Test
     fun processAction_unrelatedAction_ignores() = runTest {
         receiver.processAction("android.intent.action.AIRPLANE_MODE", scheduler = alarmScheduler, scope = this)
         testScheduler.advanceUntilIdle()

@@ -36,6 +36,9 @@ class MediTrackApp : Application(), Configuration.Provider {
         try {
             DailyDoseExtensionWorker.schedule(this)
             OverdueDoseSafetyWorker.schedule(this)
+            com.meditrack.app.feature.reminder.worker.AlarmMaintenanceWorker.schedule(this)
+            com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker.schedule(this)
+            com.meditrack.app.feature.sync.SyncWorker.schedule(this)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to schedule background workers: ${e.message}")
         }

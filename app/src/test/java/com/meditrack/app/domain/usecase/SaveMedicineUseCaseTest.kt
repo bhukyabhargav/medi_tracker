@@ -1,7 +1,7 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.DoseEvent
-import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
@@ -12,29 +12,31 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZonedDateTime
 
 class SaveMedicineUseCaseTest {
 
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val doseRepository: DoseRepository = mockk(relaxed = true)
     private val alarmScheduler: AlarmScheduler = mockk(relaxed = true)
+    private val userPreferences: UserPreferences = mockk(relaxed = true)
     private lateinit var useCase: SaveMedicineUseCase
 
     private val zoneId = ZoneId.of("UTC")
 
     @Before
     fun setup() {
-        useCase = SaveMedicineUseCase(medicineRepository, doseRepository, alarmScheduler)
+        coEvery { userPreferences.isPrivacyConsentGiven } returns flowOf(true)
+        useCase = SaveMedicineUseCase(medicineRepository, doseRepository, alarmScheduler, userPreferences)
     }
 
     private fun createSampleMedicine(
@@ -103,7 +105,7 @@ class SaveMedicineUseCaseTest {
             zoneId = zoneId
         )
 
-        coVerify { medicineRepository.update(med) }
+        coVerify { medicineRepository.update(match { it.id == med.id }) }
         coVerify { doseRepository.deleteFuturePendingDoses(eq("med_1"), any()) }
         coVerify { doseRepository.insertAll(any()) }
         assertTrue(doses.isNotEmpty())
@@ -118,5 +120,35 @@ class SaveMedicineUseCaseTest {
 
         coVerify { doseRepository.deleteFuturePendingDoses(eq("med_delete_me"), any()) }
         coVerify { medicineRepository.update(match { it.id == "med_delete_me" && it.isDeleted }) }
+    }
+
+    @Test
+    fun saveNewMedicine_throwsIllegalStateException_whenPrivacyConsentNotGiven() = runTest {
+        val userPrefs = mockk<UserPreferences>(relaxed = true)
+        coEvery { userPrefs.isPrivacyConsentGiven } returns flowOf(false)
+
+        val gatedUseCase = SaveMedicineUseCase(medicineRepository, doseRepository, alarmScheduler, userPrefs)
+        val med = createSampleMedicine()
+
+        assertThrows(IllegalStateException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                gatedUseCase.saveNewMedicine(med)
+            }
+        }
+    }
+
+    @Test
+    fun saveNewMedicine_succeeds_whenPrivacyConsentGiven() = runTest {
+        val userPrefs = mockk<UserPreferences>(relaxed = true)
+        coEvery { userPrefs.isPrivacyConsentGiven } returns flowOf(true)
+
+        val gatedUseCase = SaveMedicineUseCase(medicineRepository, doseRepository, alarmScheduler, userPrefs)
+        val med = createSampleMedicine(
+            startDate = LocalDate.of(2026, 1, 1).atStartOfDay(zoneId).toInstant().toEpochMilli(),
+            endDate = LocalDate.of(2026, 1, 2).atTime(LocalTime.MAX).atZone(zoneId).toInstant().toEpochMilli()
+        )
+
+        val doses = gatedUseCase.saveNewMedicine(med, rollingDaysAhead = 2L, zoneId = zoneId)
+        assertTrue(doses.isNotEmpty())
     }
 }

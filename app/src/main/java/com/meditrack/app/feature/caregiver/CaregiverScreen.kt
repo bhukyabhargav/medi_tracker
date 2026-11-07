@@ -98,12 +98,14 @@ fun CaregiverScreen(
                     }
                 },
                 actions = {
-                    // Quick toggle to preview Patient vs Caregiver view on single device
-                    IconButton(onClick = viewModel::toggleRole) {
-                        Icon(
-                            imageVector = Icons.Default.SwapHoriz,
-                            contentDescription = "Switch View (Patient / Caregiver)"
-                        )
+                    // Debug-only quick toggle to preview Patient vs Caregiver view on a single device
+                    if (com.meditrack.app.BuildConfig.DEBUG) {
+                        IconButton(onClick = viewModel::toggleRole) {
+                            Icon(
+                                imageVector = Icons.Default.SwapHoriz,
+                                contentDescription = "Switch View (Patient / Caregiver)"
+                            )
+                        }
                     }
                 }
             )
@@ -136,7 +138,8 @@ fun CaregiverScreen(
                     selectedPatientId = uiState.selectedPatientId,
                     selectedDoses = uiState.selectedPatientDoses,
                     adherenceReport = uiState.adherenceReport,
-                    onSelectPatient = viewModel::selectPatient
+                    onSelectPatient = viewModel::selectPatient,
+                    onRedeemCode = viewModel::redeemInviteCode
                 )
             }
 
@@ -326,8 +329,8 @@ private fun CaregiverItemCard(
                 }
             }
 
-            // In debug simulation mode: Allow accepting/rejecting directly
-            if (!isConnected) {
+            // Debug-only simulation: accept/reject directly (real caregivers redeem an invitation code)
+            if (!isConnected && com.meditrack.app.BuildConfig.DEBUG) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -356,8 +359,10 @@ private fun CaregiverPortalView(
     selectedPatientId: String?,
     selectedDoses: List<DoseEvent>,
     adherenceReport: com.meditrack.app.domain.usecase.AdherenceReport?,
-    onSelectPatient: (String) -> Unit
+    onSelectPatient: (String) -> Unit,
+    onRedeemCode: (String) -> Unit = {}
 ) {
+    var codeInput by remember { mutableStateOf("") }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -391,6 +396,37 @@ private fun CaregiverPortalView(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                         )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Have an invitation code?",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = codeInput,
+                        onValueChange = { codeInput = it.filter { c -> c.isLetterOrDigit() }.uppercase().take(12) },
+                        label = { Text("Invitation code") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            onRedeemCode(codeInput)
+                            codeInput = ""
+                        },
+                        enabled = codeInput.length >= 8
+                    ) {
+                        Text("Connect to patient")
                     }
                 }
             }
@@ -575,7 +611,7 @@ private fun AddCaregiverDialog(
         confirmButton = {
             Button(
                 onClick = { onSend(name, contact, selectedRelationship) },
-                enabled = name.isNotBlank() && contact.isNotBlank()
+                enabled = name.isNotBlank()
             ) {
                 Text("Send Invitation")
             }

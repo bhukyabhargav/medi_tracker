@@ -87,4 +87,22 @@ class AdherenceCalculatorTest {
         assertEquals(1, report.manualUnverifiedCount)
         assertEquals(1, report.missedCount)
     }
+
+    @Test
+    fun unverifiedDoseWithOpenWindow_isNotCountedAsClosed() {
+        val now = 10_000L
+        val openUnverified = DoseEvent(
+            id = "u_open", medicineId = "med_1", scheduledAt = 9_000L, windowEndsAt = 12_000L,
+            status = DoseStatus.UNVERIFIED
+        )
+        val taken = createDose(DoseStatus.TAKEN)
+        val report = AdherenceCalculator.calculate(listOf(openUnverified, taken), now = now)
+        assertEquals(1, report.closedDosesCount)
+        assertEquals(0, report.unverifiedClosedCount)
+        assertEquals("100%", report.percentageFormatted)
+
+        val closedLater = AdherenceCalculator.calculate(listOf(openUnverified, taken), now = 12_000L)
+        assertEquals(2, closedLater.closedDosesCount)
+        assertEquals("50%", closedLater.percentageFormatted)
+    }
 }

@@ -1,6 +1,8 @@
 package com.meditrack.app.feature.caregiver
 
+import com.meditrack.app.core.util.JsonPayload
 import android.content.Context
+import com.meditrack.app.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.data.prefs.UserPreferences
@@ -55,7 +57,8 @@ class CaregiverViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val doseRepository: DoseRepository,
     private val medicineRepository: MedicineRepository,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val caregiverCloud: CaregiverCloud
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CaregiverUiState())
@@ -72,6 +75,7 @@ class CaregiverViewModel @Inject constructor(
             val role = user?.role ?: UserRole.PATIENT
 
             _uiState.update { it.copy(currentUserId = userId, currentUserRole = role) }
+            refreshCloud()
 
             caregiverRepository.observeByPatientId(userId).collect { links ->
                 val connected = links.filter { it.status == LinkStatus.ACCEPTED }
@@ -86,24 +90,115 @@ class CaregiverViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // In caregiver role: observe all links where this user is caregiver
-            caregiverRepository.observeAll().collect { links ->
-                val currentId = _uiState.value.currentUserId
-                val patients = links.filter { it.caregiverUid == currentId || it.status == LinkStatus.ACCEPTED }
-                _uiState.update { it.copy(linkedPatients = patients) }
+            // Local mirror is only used when the cloud is not available (debug / fake mode).
+            if (!caregiverCloud.isAvailable) {
+                caregiverRepository.observeAll().collect { links ->
+                    val currentId = _uiState.value.currentUserId
+                    val patients = links.filter { it.caregiverUid == currentId && it.status == LinkStatus.ACCEPTED }
+                    _uiState.update { it.copy(linkedPatients = patients) }
+                }
             }
         }
     }
 
+    /** Reloads pending invitation codes (patient) and linked patients (caregiver) from the cloud. */
+    fun refreshCloud() {
+        if (!caregiverCloud.isAvailable) return
+        viewModelScope.launch {
+            val userId = _uiState.value.currentUserId
+            if (userId.isBlank()) return@launch
+            val invites = caregiverCloud.listPendingInvites(userId).map {
+                CaregiverLink(
+                    id = it.code,
+                    patientId = userId,
+                    caregiverName = it.label,
+                    caregiverContact = "Invitation code: ${it.code}",
+                    relationship = it.relationship,
+                    status = LinkStatus.PENDING
+                )
+            }
+            val patients = caregiverCloud.listLinkedPatients(userId).map {
+                CaregiverLink(
+                    id = it.linkId,
+                    patientId = it.patientUid,
+                    caregiverName = it.patientName,
+                    caregiverContact = "",
+                    relationship = "",
+                    status = LinkStatus.ACCEPTED,
+                    caregiverUid = userId
+                )
+            }
+            _uiState.update { it.copy(pendingInvitations = invites, linkedPatients = patients) }
+        }
+    }
+
+    /** Caregiver redeems an invitation code created by a patient (validated server-side). */
+    fun redeemInviteCode(code: String) {
+        val clean = code.trim().uppercase()
+        if (clean.length < 8) {
+            _uiState.update { it.copy(userMessage = "Enter the full invitation code.") }
+            return
+        }
+        if (!caregiverCloud.isAvailable) {
+            _uiState.update { it.copy(userMessage = "Sign in with an online account to use invitation codes.") }
+            return
+        }
+        viewModelScope.launch {
+            val name = authRepository.getCurrentUser()?.name ?: "Caregiver"
+            caregiverCloud.redeemInvite(clean, name)
+                .onSuccess { patient ->
+                    _uiState.update { it.copy(userMessage = "You are now connected to ${patient.patientName}.") }
+                    refreshCloud()
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(userMessage = e.message ?: "Could not redeem the invitation code.") }
+                }
+        }
+    }
+
     fun sendInvitation(name: String, contact: String, relationship: String) {
-        if (name.isBlank() || contact.isBlank()) {
+        if (name.isBlank()) {
+            _uiState.update { it.copy(userMessage = "Name cannot be empty.") }
+            return
+        }
+
+        if (caregiverCloud.isAvailable) {
+            // Invitation-code flow: the patient never needs the caregiver's uid. The caregiver redeems the
+            // code, and the acceptCaregiverInvite Cloud Function creates the link.
+            viewModelScope.launch {
+                val patientId = _uiState.value.currentUserId
+                val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
+                caregiverCloud.createInvite(patientId, patientName, name.trim(), relationship.ifBlank { "Caregiver" })
+                    .onSuccess { code ->
+                        _uiState.update {
+                            it.copy(userMessage = "Invitation code for ${name.trim()}: $code (valid 72 hours). Share it with them.")
+                        }
+                        refreshCloud()
+                    }
+                    .onFailure { e ->
+                        _uiState.update { it.copy(userMessage = "Could not create the invitation: ${e.message}") }
+                    }
+            }
+            return
+        }
+
+        if (!BuildConfig.DEBUG) {
+            _uiState.update { it.copy(userMessage = "Invitations need an online account (Firebase).") }
+            return
+        }
+
+        if (contact.isBlank()) {
             _uiState.update { it.copy(userMessage = "Name and contact cannot be empty.") }
             return
         }
 
         viewModelScope.launch {
             val patientId = _uiState.value.currentUserId
-            val linkId = "link_${UUID.randomUUID()}"
+            val targetCaregiver = authRepository.getUserByContact(contact.trim())
+            val caregiverUid = targetCaregiver?.id ?: "cg_${contact.trim().replace(Regex("[^a-zA-Z0-9]"), "_")}"
+            // Ensure link ID format strictly conforms to {patientId}_{caregiverUid} per firestore.rules
+            val linkId = "${patientId}_${caregiverUid}"
+
             val link = CaregiverLink(
                 id = linkId,
                 patientId = patientId,
@@ -111,16 +206,23 @@ class CaregiverViewModel @Inject constructor(
                 caregiverContact = contact.trim(),
                 relationship = relationship.ifBlank { "Caregiver" },
                 status = LinkStatus.PENDING,
+                caregiverUid = caregiverUid,
                 createdAt = System.currentTimeMillis()
             )
             caregiverRepository.insert(link)
 
-            // Enqueue CAREGIVER_INVITE outbox notification
+            // Enqueue CAREGIVER_INVITE outbox notification with structured JSON and caregiverUid
             val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
+            val payload = JsonPayload.build(
+                "patientName" to patientName,
+                "caregiverName" to link.caregiverName,
+                "caregiverUid" to caregiverUid,
+                "linkId" to linkId
+            )
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.CAREGIVER_INVITE,
-                payloadJson = """{"patientName":"$patientName","caregiverName":"${link.caregiverName}","linkId":"$linkId"}""",
+                payloadJson = payload,
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -137,6 +239,7 @@ class CaregiverViewModel @Inject constructor(
     }
 
     fun simulateCaregiverResponse(linkId: String, accept: Boolean) {
+        if (!BuildConfig.DEBUG || caregiverCloud.isAvailable) return // debug-only fake mode helper; forbidden in real mode
         viewModelScope.launch {
             val link = caregiverRepository.getById(linkId) ?: return@launch
             val updated = if (accept) {
@@ -159,16 +262,69 @@ class CaregiverViewModel @Inject constructor(
         }
     }
 
+    fun revokeCaregiver(linkId: String) {
+        viewModelScope.launch {
+            val link = caregiverRepository.getById(linkId) ?: return@launch
+            val updated = link.copy(status = LinkStatus.REVOKED)
+            caregiverRepository.update(updated)
+
+            if (caregiverCloud.isAvailable) {
+                try {
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("caregiverLinks").document(linkId)
+                        .update(mapOf("status" to "REVOKED", "updatedAt" to System.currentTimeMillis()))
+                } catch (_: Exception) {}
+            }
+
+            _uiState.update { it.copy(userMessage = "Caregiver access revoked.") }
+            refreshCloud()
+        }
+    }
+
     fun selectPatient(patientId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
+
+            if (caregiverCloud.isAvailable) {
+                // Real caregiver mode: read-only data of the LINKED patient from Firestore, last 7 days.
+                val from = LocalDate.now().minusDays(6).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                caregiverCloud.fetchPatientData(patientId, from)
+                    .onSuccess { (medicines, doses) ->
+                        _uiState.update {
+                            it.copy(
+                                selectedPatientDoses = doses,
+                                selectedPatientMedicines = medicines,
+                                adherenceReport = AdherenceCalculator.calculate(doses),
+                                isLoading = false
+                            )
+                        }
+                    }
+                    .onFailure {
+                        // Revoked link or rules denial: show nothing rather than stale/other data.
+                        _uiState.update {
+                            it.copy(
+                                selectedPatientDoses = emptyList(),
+                                selectedPatientMedicines = emptyList(),
+                                adherenceReport = null,
+                                isLoading = false,
+                                userMessage = "Cannot load this patient's data. The link may have been revoked."
+                            )
+                        }
+                    }
+                return@launch
+            }
 
             val today = LocalDate.now()
             val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
-            val dosesToday = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-            val medicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
+            // Filter doses and medicines specifically for this patient to prevent cross-patient data display
+            val allDoses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
+            val dosesToday = allDoses.filter { it.patientId == patientId }
+
+            val allMedicines = medicineRepository.observeActive().firstOrNull() ?: emptyList()
+            val medicines = allMedicines.filter { it.patientId == patientId }
+
             val adherence = AdherenceCalculator.calculate(dosesToday)
 
             _uiState.update {
@@ -183,6 +339,7 @@ class CaregiverViewModel @Inject constructor(
     }
 
     fun toggleRole() {
+        if (!BuildConfig.DEBUG) return // debug-only preview switch
         val newRole = if (_uiState.value.currentUserRole == UserRole.PATIENT) UserRole.CAREGIVER else UserRole.PATIENT
         _uiState.update { it.copy(currentUserRole = newRole) }
     }

@@ -5,13 +5,16 @@ import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.SaveMedicineUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -33,13 +36,15 @@ class AddEditMedicineViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
     private val saveMedicineUseCase: SaveMedicineUseCase = mockk(relaxed = true)
+    private val userPreferences: UserPreferences = mockk(relaxed = true)
 
     private lateinit var viewModel: AddEditMedicineViewModel
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        viewModel = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase)
+        every { userPreferences.currentUserId } returns flowOf("user_1")
+        viewModel = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences)
     }
 
     @After
@@ -59,8 +64,8 @@ class AddEditMedicineViewModelTest {
     fun onContinueToPhoto_advances_to_photo_step_when_valid() {
         viewModel.onNameChange("Ibuprofen")
         viewModel.onDosageChange("400mg")
-        viewModel.onPillsPerDoseChange(1)
-        viewModel.onInitialStockChange(20)
+        viewModel.onPillsPerDoseChange("1")
+        viewModel.onInitialStockChange("20")
 
         viewModel.onContinueToPhoto()
 
@@ -78,6 +83,7 @@ class AddEditMedicineViewModelTest {
     fun onSkipPhoto_clears_photo_path_and_saves() = runTest {
         viewModel.onNameChange("Metformin")
         viewModel.onDosageChange("500mg")
+        viewModel.onInitialStockChange("20")
         viewModel.onPhotoCaptured("/some/old/path.jpg")
 
         coEvery { saveMedicineUseCase.saveNewMedicine(any(), any(), any()) } returns listOf(
@@ -150,5 +156,83 @@ class AddEditMedicineViewModelTest {
 
         coVerify { saveMedicineUseCase.updateMedicine(match { it.dosageText == "40mg" }, any(), any()) }
         assertEquals(AddEditStep.SUCCESS, viewModel.uiState.value.currentStep)
+    }
+
+    @Test
+    fun prefillFromScan_populatesDaysOfWeekAndDurationCorrectly() {
+        viewModel.prefillFromScan(
+            name = "Amoxicillin",
+            dosage = "500mg",
+            pillsPerDose = "1",
+            initialStock = "21",
+            frequency = FrequencyType.SPECIFIC_DAYS.name,
+            times = listOf("08:00", "20:00"),
+            intervalHours = null,
+            daysOfWeek = "1,3,5",
+            durationDays = "7",
+            foodRelation = FoodRelation.AFTER.name,
+            instructions = "Take after food"
+        )
+
+        val state = viewModel.uiState.value
+        assertEquals("Amoxicillin", state.name)
+        assertEquals("500mg", state.dosageText)
+        assertEquals("21", state.initialStockText)
+        assertEquals(FrequencyType.SPECIFIC_DAYS, state.frequencyType)
+        assertEquals(listOf(1, 3, 5), state.daysOfWeek)
+        assertNotNull(state.endDate)
+        assertTrue(state.endDate!! > state.startDate)
+    }
+
+    @Test
+    fun prefillFromScan_prefillConsumed_preventsConfigurationChangeOverwritingUserEdits() {
+        viewModel.prefillFromScan(
+            name = "Amoxicillin",
+            dosage = "500mg",
+            pillsPerDose = "1",
+            initialStock = "21",
+            frequency = FrequencyType.DAILY.name,
+            times = listOf("08:00"),
+            intervalHours = null,
+            daysOfWeek = null,
+            durationDays = null,
+            foodRelation = null,
+            instructions = null
+        )
+
+        assertEquals("Amoxicillin", viewModel.uiState.value.name)
+
+        // User edits the name
+        viewModel.onNameChange("Amoxicillin Clavulanate")
+        assertEquals("Amoxicillin Clavulanate", viewModel.uiState.value.name)
+
+        // Configuration change triggers LaunchedEffect / prefill again
+        viewModel.prefillFromScan(
+            name = "Amoxicillin",
+            dosage = "500mg",
+            pillsPerDose = "1",
+            initialStock = "21",
+            frequency = FrequencyType.DAILY.name,
+            times = listOf("08:00"),
+            intervalHours = null,
+            daysOfWeek = null,
+            durationDays = null,
+            foodRelation = null,
+            instructions = null
+        )
+
+        // User edit must be preserved!
+        assertEquals("Amoxicillin Clavulanate", viewModel.uiState.value.name)
+    }
+
+    @Test
+    fun defaultInitialStock_isEmptyString_andFailsValidationUntilEntered() {
+        val newVm = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences)
+        assertEquals("", newVm.uiState.value.initialStockText)
+
+        newVm.onNameChange("Paracetamol")
+        newVm.onDosageChange("500mg")
+        assertFalse(newVm.validateForm())
+        assertTrue(newVm.uiState.value.errorMessage?.contains("strip/pack", ignoreCase = true) == true)
     }
 }

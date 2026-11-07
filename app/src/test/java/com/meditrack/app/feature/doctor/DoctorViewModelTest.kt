@@ -39,6 +39,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -60,6 +61,7 @@ class DoctorViewModelTest {
     private val declineProposalUseCase: DeclineProposalUseCase = mockk(relaxed = true)
     private val requestClarificationUseCase: RequestClarificationUseCase = mockk(relaxed = true)
     private val reviseProposalUseCase: ReviseProposalUseCase = mockk(relaxed = true)
+    private val doctorCloud: DoctorCloud = mockk(relaxed = true)
 
     private lateinit var viewModel: DoctorViewModel
 
@@ -77,6 +79,7 @@ class DoctorViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
 
+        coEvery { doctorCloud.isAvailable } returns false
         coEvery { authRepository.getCurrentUser() } returns sampleDoctor
         coEvery { userPreferences.currentUserId } returns flowOf("doc_1")
         coEvery { doctorRepository.observeAcceptedForDoctor("doc_1") } returns flowOf(emptyList())
@@ -96,7 +99,8 @@ class DoctorViewModelTest {
             acceptProposalUseCase = acceptProposalUseCase,
             declineProposalUseCase = declineProposalUseCase,
             requestClarificationUseCase = requestClarificationUseCase,
-            reviseProposalUseCase = reviseProposalUseCase
+            reviseProposalUseCase = reviseProposalUseCase,
+            doctorCloud = doctorCloud
         )
     }
 
@@ -106,12 +110,19 @@ class DoctorViewModelTest {
     }
 
     @Test
-    fun generateDoctorInvite_createsFormattedCode() {
+    fun generateDoctorInvite_createsFormattedCode_8CharsNoAmbiguousChars() = runTest {
         viewModel.generateDoctorInvite()
+        advanceUntilIdle()
 
         val code = viewModel.uiState.value.generatedInviteCode
         assertNotNull(code)
-        assertTrue(code!!.startsWith("DOC-"))
+        assertEquals(8, code!!.length)
+        assertTrue(DoctorInviteCodeGenerator.isValidFormat(code))
+        // Verify no ambiguous characters (0, O, 1, I)
+        assertFalse(code.contains("0"))
+        assertFalse(code.contains("O"))
+        assertFalse(code.contains("1"))
+        assertFalse(code.contains("I"))
     }
 
     @Test

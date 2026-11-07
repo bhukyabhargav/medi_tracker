@@ -12,6 +12,7 @@ import com.meditrack.app.MediTrackApp
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.DoseScheduler
+import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -22,7 +23,8 @@ class DailyDoseExtensionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val medicineRepository: MedicineRepository,
-    private val doseRepository: DoseRepository
+    private val doseRepository: DoseRepository,
+    private val alarmScheduler: AlarmScheduler
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -34,10 +36,12 @@ class DailyDoseExtensionWorker @AssistedInject constructor(
             for (medicine in activeMedicines) {
                 if (medicine.stoppedByDoctor) continue
 
-                val existingDoses = doseRepository.observeByMedicineId(medicine.id).first()
-                val latestScheduled = existingDoses.maxByOrNull { it.scheduledAt }?.scheduledAt
+                // Fast query for the latest scheduled timestamp instead of loading all doses
+                val latestScheduled = doseRepository.getLatestScheduledAt(medicine.id)
                 val fromMillis = if (latestScheduled != null) {
-                    latestScheduled + 1000L
+                    // Never generate doses in the past (app idle for > 7 days would otherwise create
+                    // instantly-MISSED doses and a burst of caregiver alerts).
+                    maxOf(now, latestScheduled + 1000L)
                 } else {
                     maxOf(now, medicine.startDate)
                 }
@@ -54,10 +58,18 @@ class DailyDoseExtensionWorker @AssistedInject constructor(
                             medicine = medicine,
                             fromEpochMillis = fromMillis,
                             toEpochMillis = boundedHorizon
-                        )
+                        ).map { it.copy(patientId = medicine.patientId) }
                         if (newDoses.isNotEmpty()) {
                             doseRepository.insertAll(newDoses)
-                            Log.d(MediTrackApp.TAG, "Extended ${newDoses.size} doses for medicine ${medicine.name}")
+                            // Schedule alarms if reminders are enabled
+                            for (dose in newDoses) {
+                                if (medicine.reminderEnabled) {
+                                    alarmScheduler.scheduleDoseAlarm(dose)
+                                } else {
+                                    alarmScheduler.scheduleMissedCheck(dose)
+                                }
+                            }
+                            Log.d(MediTrackApp.TAG, "Extended and scheduled ${newDoses.size} doses for medicine ${medicine.name}")
                         }
                     }
                 }

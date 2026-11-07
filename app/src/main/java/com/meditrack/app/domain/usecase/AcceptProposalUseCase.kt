@@ -34,6 +34,21 @@ class AcceptProposalUseCase @Inject constructor(
 
     suspend operator fun invoke(proposalId: String): Boolean {
         val proposal = proposalRepository.getById(proposalId) ?: return false
+
+        // D2: Proposal idempotency: if already accepted, return true immediately (no duplicate created)
+        if (proposal.status == ProposalStatus.ACCEPTED) {
+            return true
+        }
+
+        // D4: Patient boundary: patient cannot accept a proposal intended for someone else
+        val currentUser = authRepository.getCurrentUser()
+        if (currentUser != null && proposal.patientId != currentUser.id) {
+            return false
+        }
+
+        if (!ProposalStateMachine.canTransition(proposal.status, ProposalStatus.ACCEPTED)) {
+            return false
+        }
         val newStatus = ProposalStateMachine.transition(proposal.status, ProposalStatus.ACCEPTED)
 
         val payload = try {
@@ -42,17 +57,72 @@ class AcceptProposalUseCase @Inject constructor(
             return false
         }
 
-        val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
+        val times = payload.times.mapNotNull { parseTime(it) }.ifEmpty { listOf(LocalTime.of(9, 0)) }
+        val startEpoch = parseDateToEpoch(payload.startDate)
+        val endEpoch = payload.endDate?.let { parseDateToEpoch(it) }
+
+        // D1: Validate the proposal's prescriptionPayload before inserting/updating medicine
+        val validationResult = when (proposal.type) {
+            ProposalType.ADD -> {
+                MedicineValidator.validate(
+                    name = payload.medicineName,
+                    pillsPerDose = payload.pillsPerDose,
+                    startDate = startEpoch,
+                    endDate = endEpoch,
+                    reminderEnabled = true,
+                    timesOfDay = times,
+                    initialStock = payload.initialStock,
+                    frequencyType = payload.frequencyType
+                )
+            }
+            ProposalType.EDIT -> {
+                val targetId = proposal.medicineId ?: return false
+                val existing = medicineRepository.getById(targetId) ?: return false
+
+                // D5: Patient and Doctor boundaries on EDIT
+                if (existing.patientId != proposal.patientId) return false
+                if (existing.prescribedByDoctorUid != null && existing.prescribedByDoctorUid != proposal.doctorUid) {
+                    return false
+                }
+
+                MedicineValidator.validate(
+                    name = payload.medicineName.ifBlank { existing.name },
+                    pillsPerDose = payload.pillsPerDose,
+                    startDate = existing.startDate,
+                    endDate = endEpoch ?: existing.endDate,
+                    reminderEnabled = true,
+                    timesOfDay = times.ifEmpty { existing.timesOfDay },
+                    initialStock = existing.initialStock,
+                    frequencyType = payload.frequencyType
+                )
+            }
+            ProposalType.STOP -> {
+                val targetId = proposal.medicineId ?: return false
+                val existing = medicineRepository.getById(targetId) ?: return false
+
+                // D5: Patient and Doctor boundaries on STOP
+                if (existing.patientId != proposal.patientId) return false
+                if (existing.prescribedByDoctorUid != null && existing.prescribedByDoctorUid != proposal.doctorUid) {
+                    return false
+                }
+
+                MedicineValidator.ValidationResult.Valid
+            }
+        }
+
+        if (validationResult is MedicineValidator.ValidationResult.Invalid) {
+            return false
+        }
+
+        val patientName = currentUser?.name ?: "Patient"
 
         when (proposal.type) {
             ProposalType.ADD -> {
-                val times = payload.times.mapNotNull { parseTime(it) }.ifEmpty { listOf(LocalTime.of(9, 0)) }
-                val startEpoch = parseDateToEpoch(payload.startDate)
-                val endEpoch = payload.endDate?.let { parseDateToEpoch(it) }
-
-                val medicineId = proposal.medicineId ?: "med_${UUID.randomUUID()}"
+                // D3: Deterministic medicine ID: when proposal creates a NEW medicine, set id to proposal.medicineId ?: "med_${proposal.id}"
+                val medicineId = proposal.medicineId ?: "med_${proposal.id}"
                 val newMedicine = Medicine(
                     id = medicineId,
+                    patientId = proposal.patientId,
                     name = payload.medicineName,
                     dosageText = payload.dosageText,
                     pillsPerDose = payload.pillsPerDose,
@@ -75,16 +145,16 @@ class AcceptProposalUseCase @Inject constructor(
             ProposalType.EDIT -> {
                 val targetId = proposal.medicineId ?: return false
                 val existing = medicineRepository.getById(targetId) ?: return false
-                val times = payload.times.mapNotNull { parseTime(it) }.ifEmpty { existing.timesOfDay }
-                val endEpoch = payload.endDate?.let { parseDateToEpoch(it) } ?: existing.endDate
+                val updatedTimes = payload.times.mapNotNull { parseTime(it) }.ifEmpty { existing.timesOfDay }
+                val updatedEndEpoch = payload.endDate?.let { parseDateToEpoch(it) } ?: existing.endDate
 
                 val updated = existing.copy(
                     name = payload.medicineName.ifBlank { existing.name },
                     dosageText = payload.dosageText.ifBlank { existing.dosageText },
                     pillsPerDose = payload.pillsPerDose,
                     frequencyType = payload.frequencyType,
-                    timesOfDay = times,
-                    endDate = endEpoch,
+                    timesOfDay = updatedTimes,
+                    endDate = updatedEndEpoch,
                     foodRelation = payload.foodRelation,
                     instructions = payload.additionalInstructions ?: existing.instructions
                 )

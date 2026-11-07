@@ -6,7 +6,11 @@ import androidx.test.core.app.ApplicationProvider
 import com.meditrack.app.data.db.AppDatabase
 import com.meditrack.app.data.db.dao.UserDao
 import com.meditrack.app.data.prefs.UserPreferences
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.FrequencyType
+import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.model.UserRole
+import java.time.LocalTime
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -38,7 +42,7 @@ class FakeAuthRepositoryTest {
             .build()
         userDao = db.userDao()
         userPreferences = UserPreferences(context)
-        repository = FakeAuthRepository(userDao, userPreferences)
+        repository = FakeAuthRepository(userDao, db.medicineDao(), db.doseEventDao(), db.caregiverLinkDao(), userPreferences)
     }
 
     @After
@@ -157,8 +161,7 @@ class FakeAuthRepositoryTest {
             name = "Dr. Alice",
             emailOrPhone = "doctor@hospital.org",
             password = "doctorSecurePass",
-            role = UserRole.DOCTOR,
-            doctorRegistrationNo = null
+            role = UserRole.DOCTOR
         )
         assertTrue(result.isSuccess)
         repository.verifyOtp("doctor@hospital.org", FakeAuthRepository.DEBUG_OTP)
@@ -166,7 +169,6 @@ class FakeAuthRepositoryTest {
         val user = userDao.getUserByContact("doctor@hospital.org")
         assertNotNull(user)
         assertEquals(UserRole.DOCTOR, user?.role)
-        assertNull(user?.doctorRegistrationNo)
     }
 
     @Test
@@ -186,7 +188,7 @@ class FakeAuthRepositoryTest {
         assertNull(observedUser)
 
         // Create user 2
-        repository.createAccount("Doctor Bob", "bob@test.com", "password456", UserRole.DOCTOR, "REG-1234")
+        repository.createAccount("Doctor Bob", "bob@test.com", "password456", UserRole.DOCTOR)
         val bob = repository.verifyOtp("bob@test.com", FakeAuthRepository.DEBUG_OTP).getOrThrow()
 
         // Two users now exist in Room
@@ -225,5 +227,27 @@ class FakeAuthRepositoryTest {
         // Device-level setup flags remain preserved
         assertTrue(repository.observeIsOnboardingCompleted().first())
         assertTrue(repository.observeIsBatteryGuidanceSeen().first())
+    }
+
+    @Test
+    fun `logout keeps clinical history and does not violate the dose foreign key`() = runTest {
+        repository.createAccount("Keep Data", "keep@test.com", "correctPass123", UserRole.PATIENT)
+        val user = repository.verifyOtp("keep@test.com", FakeAuthRepository.DEBUG_OTP).getOrNull()!!
+        db.medicineDao().insert(
+            Medicine(
+                id = "m1", patientId = user.id, name = "Aspirin", dosageText = "75mg", pillsPerDose = 1,
+                frequencyType = FrequencyType.DAILY, timesOfDay = listOf(LocalTime.of(8, 0)),
+                startDate = 0L, initialStock = 10, currentStock = 10
+            )
+        )
+        db.doseEventDao().insert(
+            DoseEvent(id = "m1_1", medicineId = "m1", patientId = user.id, scheduledAt = 1L, windowEndsAt = 2L)
+        )
+
+        repository.logout()
+
+        assertFalse(repository.observeIsLoggedIn().first())
+        assertNotNull(db.medicineDao().getById("m1"))
+        assertNotNull(db.doseEventDao().getById("m1_1"))
     }
 }

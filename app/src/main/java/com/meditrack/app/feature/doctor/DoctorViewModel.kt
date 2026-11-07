@@ -27,8 +27,6 @@ import com.meditrack.app.domain.usecase.AdherenceReport
 import com.meditrack.app.domain.usecase.DeclineProposalUseCase
 import com.meditrack.app.domain.usecase.RequestClarificationUseCase
 import com.meditrack.app.domain.usecase.ReviseProposalUseCase
-import com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker
-import com.meditrack.app.feature.sync.SyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,7 +68,8 @@ class DoctorViewModel @Inject constructor(
     private val acceptProposalUseCase: AcceptProposalUseCase,
     private val declineProposalUseCase: DeclineProposalUseCase,
     private val requestClarificationUseCase: RequestClarificationUseCase,
-    private val reviseProposalUseCase: ReviseProposalUseCase
+    private val reviseProposalUseCase: ReviseProposalUseCase,
+    private val doctorCloud: DoctorCloud
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DoctorUiState())
@@ -103,48 +102,98 @@ class DoctorViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            if (doctorCloud.isAvailable) {
+                val userId = _uiState.value.currentUserId
+                val cloudProposals = doctorCloud.fetchProposalsForPatient(userId)
+                if (cloudProposals.isNotEmpty()) {
+                    _uiState.update { it.copy(patientProposals = cloudProposals) }
+                }
+            }
             proposalRepository.observeAll().collect { proposals ->
                 _uiState.update { it.copy(patientProposals = proposals) }
             }
         }
     }
 
+    /**
+     * C1: Doctor generates unguessable 8-char invite code (SecureRandom, no 0/O/1/I)
+     * Writes to Firestore doctorInvitations when cloud is available; keeps Room mirror for offline UI.
+     */
     fun generateDoctorInvite(patientContact: String? = null) {
-        val code = "DOC-${(1000..9999).random()}"
-        _uiState.update {
-            it.copy(
-                generatedInviteCode = code,
-                userMessage = "Invitation Code Generated: $code"
-            )
+        val code = DoctorInviteCodeGenerator.generate()
+        viewModelScope.launch {
+            if (doctorCloud.isAvailable) {
+                val user = authRepository.getCurrentUser()
+                val doctorUid = user?.id ?: _uiState.value.currentUserId
+                val doctorName = user?.name ?: "Doctor"
+                doctorCloud.createDoctorInvite(
+                    doctorUid = doctorUid,
+                    doctorName = doctorName,
+                    doctorContact = "doctor@meditrack.org",
+                    patientContact = patientContact
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    generatedInviteCode = code,
+                    userMessage = "Invitation Code Generated: $code"
+                )
+            }
         }
     }
 
+    /**
+     * C2: Patient enters code -> redeems via acceptDoctorInvite Cloud Function when online,
+     * or records pending link locally for offline testing.
+     */
     fun patientConnectWithCode(code: String, doctorName: String = "Dr. Smith") {
-        if (code.isBlank()) return
+        val cleanCode = code.trim().uppercase()
+        if (cleanCode.isBlank()) return
         viewModelScope.launch {
-            val patientId = _uiState.value.currentUserId
-            val linkId = "dlink_${UUID.randomUUID()}"
-            val link = DoctorLink(
-                id = linkId,
-                patientId = patientId,
-                doctorUid = "doc_${code.takeLast(4)}",
-                doctorName = doctorName,
-                doctorContact = "doctor@meditrack.org",
-                status = DoctorLinkStatus.PENDING,
-                createdAt = System.currentTimeMillis()
-            )
-            doctorRepository.insert(link)
+            if (doctorCloud.isAvailable) {
+                _uiState.update { it.copy(isLoading = true) }
+                val result = doctorCloud.redeemDoctorInvite(cleanCode)
+                result.onSuccess { link ->
+                    doctorRepository.insert(link)
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            userMessage = "Connected to doctor ${link.doctorName} successfully!"
+                        )
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            userMessage = "Failed to connect: ${err.message ?: "Invalid code"}"
+                        )
+                    }
+                }
+            } else {
+                val patientId = _uiState.value.currentUserId
+                val linkId = "dlink_${UUID.randomUUID()}"
+                val link = DoctorLink(
+                    id = linkId,
+                    patientId = patientId,
+                    doctorUid = "doc_${cleanCode.takeLast(4)}",
+                    doctorName = doctorName,
+                    doctorContact = "doctor@meditrack.org",
+                    status = DoctorLinkStatus.PENDING,
+                    createdAt = System.currentTimeMillis()
+                )
+                doctorRepository.insert(link)
 
-            val outbox = NotificationOutbox(
-                id = "outbox_${UUID.randomUUID()}",
-                type = NotifType.DOCTOR_INVITE_RECEIVED,
-                payloadJson = """{"doctorName":"$doctorName","patientId":"$patientId"}""",
-                createdAt = System.currentTimeMillis(),
-                delivered = false
-            )
-            outboxRepository.enqueue(outbox)
+                val outbox = NotificationOutbox(
+                    id = "outbox_${UUID.randomUUID()}",
+                    type = NotifType.DOCTOR_INVITE_RECEIVED,
+                    payloadJson = """{"doctorName":"$doctorName","patientId":"$patientId"}""",
+                    createdAt = System.currentTimeMillis(),
+                    delivered = false
+                )
+                outboxRepository.enqueue(outbox)
 
-            _uiState.update { it.copy(userMessage = "Invitation request received from $doctorName. Consent required.") }
+                _uiState.update { it.copy(userMessage = "Invitation request received from $doctorName. Consent required.") }
+            }
         }
     }
 
@@ -171,6 +220,9 @@ class DoctorViewModel @Inject constructor(
     fun declineDoctorConnection(linkId: String) {
         viewModelScope.launch {
             val link = doctorRepository.getById(linkId) ?: return@launch
+            if (doctorCloud.isAvailable && !link.invitationCode.isNullOrBlank()) {
+                doctorCloud.declineDoctorInvite(link.invitationCode)
+            }
             val updated = link.copy(status = DoctorLinkStatus.DECLINED)
             doctorRepository.update(updated)
 
@@ -188,8 +240,14 @@ class DoctorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * C6: Revoke link -> updates Firestore doctorLinks/{id}.status = 'REVOKED' and syncs to local Room.
+     */
     fun revokeDoctorAccess(linkId: String) {
         viewModelScope.launch {
+            if (doctorCloud.isAvailable) {
+                doctorCloud.revokeDoctorLink(linkId)
+            }
             val link = doctorRepository.getById(linkId) ?: return@launch
             val updated = link.copy(status = DoctorLinkStatus.REVOKED)
             doctorRepository.update(updated)
@@ -207,31 +265,63 @@ class DoctorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * C5: Doctor views patient adherence: queries Firestore users/{patientId}/medicines and
+     * users/{patientId}/doseEvents (last 7 days). Does NOT touch doctor's local Room.
+     * Calculates adherence via existing AdherenceCalculator.
+     */
     fun selectPatient(patientId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
-            // Strict read-only query of medicines and doses
-            val medicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
+            if (doctorCloud.isAvailable) {
+                val sevenDaysAgo = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
+                val result = doctorCloud.fetchPatientData(patientId, sevenDaysAgo)
+                result.onSuccess { (meds, doses) ->
+                    val adherence = AdherenceCalculator.calculate(doses)
+                    _uiState.update {
+                        it.copy(
+                            selectedPatientMedicines = meds,
+                            selectedPatientDoses = doses,
+                            selectedPatientAdherence = adherence,
+                            isLoading = false
+                        )
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            userMessage = "Failed to load patient data: ${err.message}"
+                        )
+                    }
+                }
+            } else {
+                // Strict read-only query of local medicines and doses (offline / tests)
+                val medicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
 
-            val today = LocalDate.now()
-            val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
+                val today = LocalDate.now()
+                val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
-            val doses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-            val adherence = AdherenceCalculator.calculate(doses)
+                val doses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
+                val adherence = AdherenceCalculator.calculate(doses)
 
-            _uiState.update {
-                it.copy(
-                    selectedPatientMedicines = medicines,
-                    selectedPatientDoses = doses,
-                    selectedPatientAdherence = adherence,
-                    isLoading = false
-                )
+                _uiState.update {
+                    it.copy(
+                        selectedPatientMedicines = medicines,
+                        selectedPatientDoses = doses,
+                        selectedPatientAdherence = adherence,
+                        isLoading = false
+                    )
+                }
             }
         }
     }
 
+    /**
+     * C3: Doctor creates proposal -> writes to Firestore collection medicineProposals/{id}.
+     * Also keeps Room mirroring for offline support.
+     */
     fun createPrescriptionProposal(
         patientId: String,
         type: ProposalType,
@@ -255,6 +345,10 @@ class DoctorViewModel @Inject constructor(
                 status = ProposalStatus.PENDING,
                 createdAt = System.currentTimeMillis()
             )
+
+            if (doctorCloud.isAvailable) {
+                doctorCloud.createProposal(proposal)
+            }
             proposalRepository.insert(proposal)
 
             val outbox = NotificationOutbox(
@@ -270,19 +364,38 @@ class DoctorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * C4: Patient accepts proposal -> updates Firestore doc and runs AcceptProposalUseCase locally
+     * to add to patient's Room medicines.
+     */
     fun acceptProposal(proposalId: String) {
         viewModelScope.launch {
             val success = acceptProposalUseCase(proposalId)
             if (success) {
+                if (doctorCloud.isAvailable) {
+                    doctorCloud.updateProposal(
+                        proposalId,
+                        mapOf("status" to ProposalStatus.ACCEPTED.name, "resolvedAt" to System.currentTimeMillis())
+                    )
+                }
                 _uiState.update { it.copy(userMessage = "Prescription accepted and activated!") }
             }
         }
     }
 
+    /**
+     * C4: Patient declines proposal -> updates Firestore doc and marks proposal declined locally.
+     */
     fun declineProposal(proposalId: String) {
         viewModelScope.launch {
             val success = declineProposalUseCase(proposalId)
             if (success) {
+                if (doctorCloud.isAvailable) {
+                    doctorCloud.updateProposal(
+                        proposalId,
+                        mapOf("status" to ProposalStatus.DECLINED.name, "resolvedAt" to System.currentTimeMillis())
+                    )
+                }
                 _uiState.update { it.copy(userMessage = "Prescription proposal declined.") }
             }
         }
@@ -292,6 +405,15 @@ class DoctorViewModel @Inject constructor(
         viewModelScope.launch {
             val success = requestClarificationUseCase(proposalId, note)
             if (success) {
+                if (doctorCloud.isAvailable) {
+                    doctorCloud.updateProposal(
+                        proposalId,
+                        mapOf(
+                            "status" to ProposalStatus.CLARIFICATION_REQUESTED.name,
+                            "clarificationNote" to note
+                        )
+                    )
+                }
                 _uiState.update { it.copy(userMessage = "Clarification requested from doctor.") }
             }
         }
@@ -301,6 +423,13 @@ class DoctorViewModel @Inject constructor(
         viewModelScope.launch {
             val newProposal = reviseProposalUseCase(oldProposalId, updatedPayload)
             if (newProposal != null) {
+                if (doctorCloud.isAvailable) {
+                    doctorCloud.createProposal(newProposal)
+                    doctorCloud.updateProposal(
+                        oldProposalId,
+                        mapOf("status" to ProposalStatus.SUPERSEDED.name)
+                    )
+                }
                 _uiState.update { it.copy(userMessage = "Prescription proposal updated (Revision ${updatedPayload.revision + 1}). Awaiting patient acceptance.") }
             }
         }

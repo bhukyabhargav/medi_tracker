@@ -47,77 +47,156 @@ service cloud.firestore {
       }
     }
 
-    // Caregiver links collection
+    // Caregiver links. Links are created ONLY by the acceptCaregiverInvite Cloud Function (Admin SDK),
+    // so a client can never forge an ACCEPTED link (and therefore never read another patient's data).
     match /caregiverLinks/{linkId} {
       allow read: if isAuthenticated() && (
         resource.data.patientId == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid ||
-        resource.data.caregiverContact == request.auth.token.email ||
-        resource.data.caregiverContact == request.auth.token.phone_number
+        resource.data.caregiverUid == request.auth.uid
       );
-      allow create: if isAuthenticated() && request.resource.data.patientId == request.auth.uid;
-      allow update: if isAuthenticated() && (
-        resource.data.patientId == request.auth.uid ||
-        resource.data.caregiverUid == request.auth.uid ||
-        (resource.data.status == 'PENDING' && request.resource.data.caregiverUid == request.auth.uid)
-      );
+      allow create: if false;
+      // Patient (or the caregiver themself) may only END the link: status -> REVOKED, nothing else changes.
+      // A REVOKED link can NEVER be reactivated.
+      allow update: if isAuthenticated() &&
+        (resource.data.patientId == request.auth.uid || resource.data.caregiverUid == request.auth.uid) &&
+        resource.data.status == 'ACCEPTED' &&
+        request.resource.data.status == 'REVOKED' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
       allow delete: if isAuthenticated() && resource.data.patientId == request.auth.uid;
     }
 
-    // Doctor links collection
-    match /doctorLinks/{linkId} {
-      allow read: if isAuthenticated() && (
-        resource.data.patientUid == request.auth.uid ||
-        resource.data.doctorUid == request.auth.uid
-      );
-      allow create: if isAuthenticated() && (
-        request.resource.data.doctorUid == request.auth.uid ||
-        request.resource.data.patientUid == request.auth.uid
-      );
-      allow update: if isAuthenticated() && (
-        resource.data.patientUid == request.auth.uid ||
-        resource.data.doctorUid == request.auth.uid
-      );
-      allow delete: if isAuthenticated() && resource.data.patientUid == request.auth.uid;
+    // Invitation codes created by the patient and redeemed through the callable function.
+    match /caregiverInvites/{code} {
+      allow create: if isAuthenticated() &&
+        request.resource.data.patientUid == request.auth.uid &&
+        request.resource.data.status == 'PENDING' &&
+        request.resource.data.expiresAt is number &&
+        request.resource.data.expiresAt > request.time.toMillis() &&
+        request.resource.data.expiresAt < request.time.toMillis() + 7 * 24 * 60 * 60 * 1000;
+      allow read, delete: if isAuthenticated() && resource.data.patientUid == request.auth.uid;
+      allow update: if false;
     }
 
-    // Doctor invitations collection (code or contact based)
+    // Doctor invitations collection (expiring single-use invitation codes)
+    // Created by authenticated doctor. Patients never read doctorInvitations directly;
+    // they redeem codes via the acceptDoctorInvite Cloud Function with Admin SDK.
     match /doctorInvitations/{inviteId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.doctorUid == request.auth.uid;
-      allow update: if isAuthenticated();
+      // Only the issuing doctor can read or delete their invitation
+      allow read: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
+      
+      // Doctor creates invitation: must be authenticated doctor, PENDING, valid expiry (<= 30 days)
+      allow create: if isAuthenticated() &&
+        request.resource.data.doctorUid == request.auth.uid &&
+        request.resource.data.status == 'PENDING' &&
+        request.resource.data.code == inviteId &&
+        request.resource.data.expiresAt is number &&
+        request.resource.data.expiresAt > request.time.toMillis() &&
+        request.resource.data.expiresAt <= request.time.toMillis() + 30 * 24 * 60 * 60 * 1000;
+
+      // Only Cloud Functions with Admin SDK can mutate/consume doctorInvitations
+      allow update: if false;
+      
       allow delete: if isAuthenticated() && resource.data.doctorUid == request.auth.uid;
     }
 
-    // Medicine proposals collection
-    match /medicineProposals/{proposalId} {
-      // Read: Patient and the proposing Doctor can read
+    // Doctor links collection: {patientId}_{doctorUid}
+    // Clients can NEVER create a doctor link directly (create: false).
+    // Links are established strictly by the acceptDoctorInvite Cloud Function.
+    match /doctorLinks/{linkId} {
       allow read: if isAuthenticated() && (
-        resource.data.patientUid == request.auth.uid ||
+        resource.data.patientId == request.auth.uid ||
         resource.data.doctorUid == request.auth.uid
       );
 
-      // Create: Doctor can create ONLY if actively connected (DoctorLink status == ACCEPTED)
-      allow create: if isAuthenticated()
-        && request.resource.data.doctorUid == request.auth.uid
-        && isAcceptedDoctor(request.resource.data.patientUid);
+      // Clients cannot create doctor links directly
+      allow create: if false;
 
-      // Update:
-      // - Patient can update status (ACCEPTED, DECLINED, CLARIFICATION_REQUESTED)
-      // - Doctor can update/revise if actively connected
-      allow update: if isAuthenticated() && (
-        resource.data.patientUid == request.auth.uid ||
-        (resource.data.doctorUid == request.auth.uid && isAcceptedDoctor(resource.data.patientUid))
-      );
+      // Update: only for status transition from ACCEPTED to REVOKED by either participant.
+      // Cannot touch patientId or doctorUid; cannot change REVOKED back to ACCEPTED.
+      allow update: if isAuthenticated() &&
+        (resource.data.patientId == request.auth.uid || resource.data.doctorUid == request.auth.uid) &&
+        resource.data.status == 'ACCEPTED' &&
+        request.resource.data.status == 'REVOKED' &&
+        request.resource.data.patientId == resource.data.patientId &&
+        request.resource.data.doctorUid == resource.data.doctorUid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
 
-      // Delete: Not allowed (audit trail preserved)
       allow delete: if false;
     }
 
-    // Notification outbox / delivery events
-    match /notificationEvents/{eventId} {
-      allow create: if isAuthenticated();
+    // Prescription proposals collection
+    // Doctor can CREATE only if actively connected (DoctorLink status == ACCEPTED)
+    match /medicineProposals/{proposalId} {
       allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
+        resource.data.doctorUid == request.auth.uid
+      );
+
+      // Doctor creates proposal: must have accepted link, status must be PENDING, revision must be 1
+      allow create: if isAuthenticated() &&
+        request.resource.data.doctorUid == request.auth.uid &&
+        request.resource.data.status == 'PENDING' &&
+        request.resource.data.revision == 1 &&
+        isAcceptedDoctor(request.resource.data.patientId);
+
+      // Update:
+      // Patient permissions:
+      // - Can update ONLY if proposal is PENDING
+      // - Can change status to ACCEPTED, DECLINED, REJECTED, or CLARIFICATION_REQUESTED
+      // - Cannot change prescription payload, doctorUid, patientId, medicineId, type, or revision
+      //
+      // Doctor permissions:
+      // - Can update ONLY if proposal is in CLARIFICATION_REQUESTED
+      // - Can revise prescription payload, increment revision count (revision + 1), reset status to PENDING
+      // - Cannot change doctorUid, patientId, medicineId, or type
+      //
+      // Once status is ACCEPTED, DECLINED, or REJECTED, no further updates permitted.
+      allow update: if isAuthenticated() &&
+        request.resource.data.patientId == resource.data.patientId &&
+        request.resource.data.doctorUid == resource.data.doctorUid &&
+        request.resource.data.type == resource.data.type &&
+        (
+          // Patient decision / clarification request:
+          (
+            request.auth.uid == resource.data.patientId &&
+            resource.data.status == 'PENDING' &&
+            (request.resource.data.status == 'ACCEPTED' ||
+             request.resource.data.status == 'DECLINED' ||
+             request.resource.data.status == 'REJECTED' ||
+             request.resource.data.status == 'CLARIFICATION_REQUESTED') &&
+            request.resource.data.revision == resource.data.revision &&
+            (!('medicineId' in resource.data) || request.resource.data.medicineId == resource.data.medicineId) &&
+            (!('payloadJson' in resource.data) || request.resource.data.payloadJson == resource.data.payloadJson) &&
+            (!('prescriptionPayload' in resource.data) || request.resource.data.prescriptionPayload == resource.data.prescriptionPayload) &&
+            (!('medicineName' in resource.data) || request.resource.data.medicineName == resource.data.medicineName)
+          )
+          ||
+          // Doctor revision after clarification request:
+          (
+            request.auth.uid == resource.data.doctorUid &&
+            resource.data.status == 'CLARIFICATION_REQUESTED' &&
+            request.resource.data.status == 'PENDING' &&
+            request.resource.data.revision == resource.data.revision + 1 &&
+            (!('medicineId' in resource.data) || request.resource.data.medicineId == resource.data.medicineId) &&
+            isAcceptedDoctor(resource.data.patientId)
+          )
+        );
+
+      allow delete: if false; // Immutable audit log
+    }
+
+    // Notification outbox / delivery events
+    // Internal event outbox: validated relationships are required before server pushes.
+    // Events cannot be updated or deleted once created.
+    match /notificationEvents/{eventId} {
+      allow create: if isAuthenticated() && (
+        request.resource.data.patientId == request.auth.uid ||
+        request.resource.data.patientUid == request.auth.uid ||
+        request.resource.data.doctorUid == request.auth.uid ||
+        request.resource.data.caregiverUid == request.auth.uid
+      );
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid ||
         resource.data.patientUid == request.auth.uid ||
         resource.data.caregiverUid == request.auth.uid ||
         resource.data.doctorUid == request.auth.uid

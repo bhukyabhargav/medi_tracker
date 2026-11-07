@@ -1,5 +1,6 @@
 package com.meditrack.app.feature.verification.pipeline
 
+import com.meditrack.app.core.util.JsonPayload
 import android.graphics.Bitmap
 import com.meditrack.app.core.config.AppConfig
 import com.meditrack.app.data.prefs.UserPreferences
@@ -18,6 +19,7 @@ import com.meditrack.app.domain.repository.VerificationRepository
 import com.meditrack.app.domain.statemachine.DoseStateMachine
 import com.meditrack.app.domain.statemachine.DoseTransitionEvent
 import com.meditrack.app.domain.usecase.LateEntryPolicy
+import com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase
 import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
 import com.meditrack.app.feature.verification.quality.PerceptualHasher
@@ -63,6 +65,7 @@ class VerificationCoordinator @Inject constructor(
     private val userPreferences: UserPreferences,
     private val verificationPipeline: VerificationPipeline,
     private val recordVerifiedDoseUseCase: RecordVerifiedDoseUseCase,
+    private val processMissedDoseUseCase: ProcessMissedDoseUseCase,
     private val alarmScheduler: AlarmScheduler
 ) {
 
@@ -81,6 +84,19 @@ class VerificationCoordinator @Inject constructor(
         if (dose.status == DoseStatus.SKIPPED) {
             return CoordinatorResult.Error("This dose was marked as SKIPPED.")
         }
+        if (dose.status == DoseStatus.UNVERIFIED) {
+            return CoordinatorResult.Error("Verification failed after maximum attempts for this dose. Please contact your caregiver or healthcare provider.")
+        }
+
+        // Early verification guard: allow only a small tolerance before scheduledAt
+        val earlyToleranceMillis = AppConfig.EARLY_VERIFY_TOLERANCE_MINUTES * 60_000L
+        if (now < dose.scheduledAt - earlyToleranceMillis) {
+            return CoordinatorResult.Failed(
+                reason = RejectReason.TOO_EARLY,
+                attemptsRemaining = AppConfig.MAX_VERIFICATION_ATTEMPTS - dose.verificationAttempts,
+                friendlyMessage = "It is too early to take this dose. Please wait until your scheduled time."
+            )
+        }
 
         val medicine = medicineRepository.getById(dose.medicineId)
             ?: return CoordinatorResult.Error("Medicine not found for dose: ${dose.medicineId}")
@@ -89,8 +105,13 @@ class VerificationCoordinator @Inject constructor(
         val recentAttempts = verificationRepository.getRecentAttemptsForMedicine(medicine.id, limit = 20)
         val existingHashes = recentAttempts.map { it.perceptualHash }.filter { it != 0L }
 
-        // 2. Query last verified empty cell count
-        val latestVerified = doseRepository.getLatestVerifiedDose(medicine.id)
+        // 2. Query last verified empty cell count (respecting strip refill ledger)
+        val lastRefillAt = medicine.lastRefillAt ?: 0L
+        val latestVerified = if (lastRefillAt > 0L) {
+            doseRepository.getLatestVerifiedDoseAfter(medicine.id, lastRefillAt)
+        } else {
+            doseRepository.getLatestVerifiedDose(medicine.id)
+        }
         val lastVerifiedEmptyCells = latestVerified?.emptyCellsAfter
 
         // 3. Compute pHash for this attempt
@@ -132,13 +153,13 @@ class VerificationCoordinator @Inject constructor(
 
             // Check if intake window already expired mid-verification
             if (now > dose.windowEndsAt && dose.status != DoseStatus.MISSED) {
-                // Window expired: transition to MISSED and route to late dose check
+                // Window expired: check late entry policy
                 val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
                 val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, now)
                 return if (canLate) {
                     recordLateDose(dose, photoPath, emptyCells, captureTime, now)
                 } else {
-                    doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = now))
+                    processMissedDoseUseCase(doseId, now)
                     CoordinatorResult.WindowExpired("The intake window expired before verification completed.")
                 }
             }
@@ -172,9 +193,16 @@ class VerificationCoordinator @Inject constructor(
                 CoordinatorResult.Error(recordResult.exceptionOrNull()?.message ?: "Failed to record verified dose")
             }
         } else {
-            // Pipeline REJECTED: Count attempt strikes
+            // Pipeline REJECTED: Count attempt strikes (quality gate rejections do not consume strikes)
             val reason = pipelineResult.rejectReason ?: RejectReason.WRONG_PILL_COUNT
-            val newAttempts = dose.verificationAttempts + 1
+            val isQualityGate = reason in setOf(
+                RejectReason.BLURRY,
+                RejectReason.TOO_DARK,
+                RejectReason.TOO_BRIGHT,
+                RejectReason.GLARE,
+                RejectReason.TOO_EARLY
+            )
+            val newAttempts = if (isQualityGate) dose.verificationAttempts else dose.verificationAttempts + 1
 
             if (newAttempts < AppConfig.MAX_VERIFICATION_ATTEMPTS) {
                 // Retake allowed
@@ -204,16 +232,22 @@ class VerificationCoordinator @Inject constructor(
                         updatedAt = now
                     )
                     doseRepository.update(updatedDose)
-                    alarmScheduler.cancelDoseAlarm(doseId)
+                    // Cancel reminder alarm but keep missed worker alive until window ends
+                    alarmScheduler.cancelDoseAlarm(doseId, cancelMissedWorker = false)
 
                     // Enqueue DOSE_UNVERIFIED outbox event if caregiver connected
                     val currentUserId = userPreferences.currentUserId.first()
                     val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
                     if (hasCaregiver) {
+                        val payload = JsonPayload.build(
+                            "doseId" to doseId,
+                            "medicineId" to dose.medicineId,
+                            "reason" to reason.name
+                        )
                         val outboxEvent = NotificationOutbox(
                             id = "outbox_${UUID.randomUUID()}",
                             type = NotifType.DOSE_UNVERIFIED,
-                            payloadJson = """{"doseId":"$doseId","medicineId":"${dose.medicineId}","reason":"${reason.name}"}""",
+                            payloadJson = payload,
                             createdAt = now,
                             delivered = false
                         )
@@ -263,10 +297,15 @@ class VerificationCoordinator @Inject constructor(
         // Enqueue DOSE_TAKEN_LATE outbox notification if caregiver connected
         val currentUserId = userPreferences.currentUserId.first()
         if (currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)) {
+            val payload = JsonPayload.build(
+                "doseId" to dose.id,
+                "medicineId" to dose.medicineId,
+                "takenAt" to captureTime
+            )
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOSE_TAKEN_LATE,
-                payloadJson = """{"doseId":"${dose.id}","medicineId":"${dose.medicineId}","takenAt":$captureTime}""",
+                payloadJson = payload,
                 createdAt = now,
                 delivered = false
             )

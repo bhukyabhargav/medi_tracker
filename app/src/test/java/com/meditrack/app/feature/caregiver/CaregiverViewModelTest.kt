@@ -44,6 +44,7 @@ class CaregiverViewModelTest {
     private val authRepository: AuthRepository = mockk(relaxed = true)
     private val doseRepository: DoseRepository = mockk(relaxed = true)
     private val medicineRepository: MedicineRepository = mockk(relaxed = true)
+    private val caregiverCloud: CaregiverCloud = mockk(relaxed = true)
     private val userPreferences: UserPreferences = mockk(relaxed = true)
 
     private lateinit var viewModel: CaregiverViewModel
@@ -69,6 +70,7 @@ class CaregiverViewModelTest {
         Dispatchers.setMain(testDispatcher)
 
         coEvery { authRepository.getCurrentUser() } returns sampleUser
+        coEvery { authRepository.getUserByContact(any()) } returns null
         coEvery { userPreferences.currentUserId } returns flowOf("patient_1")
         coEvery { caregiverRepository.observeByPatientId("patient_1") } returns flowOf(listOf(sampleLink))
         coEvery { caregiverRepository.observeAll() } returns flowOf(listOf(sampleLink))
@@ -81,7 +83,8 @@ class CaregiverViewModelTest {
             authRepository = authRepository,
             doseRepository = doseRepository,
             medicineRepository = medicineRepository,
-            userPreferences = userPreferences
+            userPreferences = userPreferences,
+            caregiverCloud = caregiverCloud
         )
     }
 
@@ -140,8 +143,8 @@ class CaregiverViewModelTest {
     @Test
     fun selectPatient_computesAdherenceAndLoadsDoses() = runTest {
         val doses = listOf(
-            DoseEvent(id = "1", medicineId = "m1", scheduledAt = 1000L, windowEndsAt = 2000L, status = DoseStatus.TAKEN),
-            DoseEvent(id = "2", medicineId = "m1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
+            DoseEvent(id = "1", patientId = "patient_1", medicineId = "m1", scheduledAt = 1000L, windowEndsAt = 2000L, status = DoseStatus.TAKEN),
+            DoseEvent(id = "2", patientId = "patient_1", medicineId = "m1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
         )
         coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(doses)
         coEvery { medicineRepository.observeAll() } returns flowOf(emptyList())

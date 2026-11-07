@@ -11,12 +11,12 @@ interface AuthRepository {
     fun observeIsBatteryGuidanceSeen(): Flow<Boolean>
 
     suspend fun getCurrentUser(): User?
+    suspend fun getUserByContact(contact: String): User?
     suspend fun createAccount(
         name: String,
         emailOrPhone: String,
         password: String,
-        role: UserRole = UserRole.PATIENT,
-        doctorRegistrationNo: String? = null
+        role: UserRole = UserRole.PATIENT
     ): Result<String> // Returns userId for OTP verification
 
     suspend fun verifyOtp(emailOrPhone: String, otp: String): Result<User>

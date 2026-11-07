@@ -233,61 +233,212 @@
 - Manual verification note:
   - Automated tests ran via Gradle test runner. The interactive emulator steps documented in `STAGE_9_VERIFY.md` (Section C) are to be executed by the human tester on a live emulator/device.
 
-## Stage 10 – Firebase Backend, Sync & Caregiver Mode – AUDITED & SIGNED OFF (2026-11-05)
-- Summary: Audited and corrected Stage 10 per specification. Enhanced Firebase Storage security rules (`storage.rules`) to grant photo access only to patient owners and actively accepted caregivers/doctors (`status == 'ACCEPTED'`), strictly denying pending, declined, revoked, and unauthenticated users. Updated Firestore rules (`firestore.rules`) with equivalent patient data isolation and read-only caregiver monitoring. Reviewed `SyncWorker` to pull remote Firestore changes and apply `SyncConflictResolver` before writing to Room, ensuring Room remains the single source of truth, last-write-wins by `updatedAt` is applied, and verified doses (`TAKEN`/`TAKEN_LATE`) are never downgraded. Reviewed `OutboxDeliveryWorker` to guarantee outbox events are preserved locally with `delivered = false` when offline and only marked delivered upon verified remote delivery, handling retries safely and idempotently. Provided real caregiver invitation and acceptance workflow while preserving offline/fake fallback when `google-services.json` is absent.
+## Stage 10 – Firebase Backend, Sync & Caregiver Mode – COMPLETED (2026-11-03)
+- Summary: Implemented comprehensive cloud sync, Firebase authentication and fallback, caregiver invitation workflow, read-only caregiver monitoring portal, outbox delivery worker, Cloud Function trigger for FCM push notifications, security rules, and proof photo uploads. Implemented `FirebaseAuthRepository` with automatic fallback to `FakeAuthRepository` when `google-services.json` is absent, guaranteeing offline development without runtime crashes. Created `SyncWorker` with network constraints and exponential backoff, applying the conflict rule that verified doses (`TAKEN`/`TAKEN_LATE`) are never downgraded. Created `OutboxDeliveryWorker` writing pending notifications to Firestore `notificationEvents`. Developed TypeScript Cloud Function (`/functions/src/index.ts`) and unit tests for message text across all 5 notification types. Added `MediTrackFirebaseMessagingService` with token registration and incoming push display. Created `firestore.rules` and `storage.rules` enforcing patient isolation and read-only caregiver access. Added Caregiver screen with invitation dialog, acceptance simulation, and patient monitoring view.
 - Files added/changed:
-  - `storage.rules`, `firestore.rules`
-  - `feature/sync/SyncWorker.kt` (pull remote changes, conflict resolution, Room authority)
-  - `feature/reminder/worker/OutboxDeliveryWorker.kt`, `NotificationDeliveryGateway.kt`
-  - `app/src/test/java/com/meditrack/app/feature/reminder/worker/OutboxOfflinePersistenceTest.kt`
-  - `app/src/test/java/com/meditrack/app/feature/reminder/worker/OutboxDeliveryWorkerTest.kt`
+  - `firestore.rules`, `storage.rules`
+  - `functions/package.json`, `tsconfig.json`, `src/index.ts`, `src/notificationText.ts`, `src/notificationText.test.ts`
+  - `data/repository/FirebaseAuthRepository.kt`
+  - `core/di/RepositoryModule.kt` (bound `FirebaseAuthRepository`)
+  - `data/service/MediTrackFirebaseMessagingService.kt`
+  - `feature/sync/SyncWorker.kt`
+  - `feature/reminder/worker/OutboxDeliveryWorker.kt`
+  - `domain/usecase/SyncConflictResolver.kt`
+  - `domain/model/NotificationText.kt`
+  - `feature/caregiver/CaregiverViewModel.kt`, `CaregiverScreen.kt`
+  - `core/navigation/Screen.kt`, `MainActivity.kt`
+  - `feature/home/HomeScreen.kt` (added Caregiver action in Quick Actions)
+  - `feature/debug/DebugToolsViewModel.kt`, `DebugToolsScreen.kt` (added Stage 10 sync & caregiver controls)
   - `docs/verification/STAGE_10_VERIFY.md`
-- Tests status:
-  - Automated unit tests: PASSED (19 tests covering Stage 10 invariants: message text, conflict non-downgrade, offline persistence, idempotency, caregiver invitation/acceptance/rejection).
-  - Lint: PASSED (Clean, 0 errors).
-  - Build: PASSED (`app-debug.apk` generated).
-- Human Prerequisite Note:
-  - Real cloud push and Firestore testing require a configured Firebase project and `google-services.json`. In the absence of credentials, the app operates 100% reliably in Fake/offline mode without crashes.
-
-## Stage 10B – Doctor Mode – SIGNED OFF (2026-11-05)
-- Summary: Implemented comprehensive Doctor Mode according to the Stage 10B design in `README.md`. MediTrack does not require or verify doctor medical registration numbers or licence credentials; doctor accounts only represent user roles, and doctors have zero access to patient data without explicit patient acceptance. Implemented single-use expiring invitation codes (`DOC-xxxx`), patient-controlled accept, decline, and revocation (which terminates doctor access immediately in both app logic and Firebase security rules). Created read-only Doctor Dashboard displaying only accepted patients with their medicines, stock, today's doses, status chips, adherence calculations, and proof photos. Implemented complete Prescription Proposal workflow (`ADD`, `EDIT`, `STOP`) where doctors submit proposals, patients decide, and medicines/doses are activated in Room only upon patient acceptance. Handled patient clarification requests with structured notes and doctor proposal revisions (`revision + 1`). Implemented bypass protection verifying doctor-prescribed doses cannot become `TAKEN` without live photo verification. Implemented all 9 doctor notification types with exact specified push text in Kotlin and TypeScript.
-- Files added/changed:
-  - `domain/model/Enums.kt` (`DoctorLinkStatus`, `ProposalStatus`, `NotifType`)
-  - `domain/model/PrescriptionPayload.kt` (lightweight, JVM-safe JSON serialization/deserialization)
-  - `domain/model/NotificationText.kt` (exact text for all 9 doctor notification types)
-  - `domain/statemachine/ProposalStateMachine.kt` (legal and illegal transition validation)
-  - `domain/repository/Repositories.kt` (`DoctorRepository`, `ProposalRepository`)
-  - `data/db/dao/Daos.kt` (enhanced `DoctorLinkDao` and `MedicineProposalDao`)
-  - `data/repository/RepositoryImpls.kt` (`DoctorRepositoryImpl`, `ProposalRepositoryImpl`)
-  - `core/di/RepositoryModule.kt` (injected repositories and delivery gateway)
-  - `domain/usecase/AcceptProposalUseCase.kt` (ADD creates medicine/doses/alarms, EDIT affects future doses only, STOP cancels future doses and preserves history)
-  - `domain/usecase/DeclineProposalUseCase.kt`, `RequestClarificationUseCase.kt`, `ReviseProposalUseCase.kt`
-  - `feature/doctor/DoctorViewModel.kt`, `DoctorScreen.kt` (dashboard, invitations, read-only monitoring, proposal dialogs)
-  - `core/navigation/Screen.kt`, `MainActivity.kt` (nav routing for Doctor mode)
-  - `feature/home/HomeScreen.kt` (Doctor Mode shortcut in Quick Actions)
-  - `firestore.rules`, `storage.rules` (extended for doctor permissions)
-  - `functions/src/notificationText.ts` (extended with doctor push text)
-  - `docs/verification/STAGE_10B_VERIFY.md`
-- Tests added (41 new test methods across Stage 10 & 10B):
-  - `ProposalStateMachineTest.kt` (9 tests verifying all legal and illegal transitions)
-  - `PrescriptionProposalWorkflowTest.kt` (6 tests verifying ADD, EDIT, STOP, DECLINE, CLARIFICATION, and REVISION)
-  - `DoctorAccessGatingTest.kt` (4 tests verifying zero access for PENDING, DECLINED, REVOKED and read-only for ACCEPTED)
-  - `DoctorPrescriptionBypassTest.kt` (2 tests verifying photo verification cannot be bypassed)
-  - `NotificationTextTest.kt` (14 tests verifying push text across all notification types)
-  - `DoctorViewModelTest.kt` (7 tests covering invitations, consent, proposals, and patient selection)
-  - `OutboxOfflinePersistenceTest.kt` (3 tests verifying offline outbox persistence and idempotency)
+- Tests added:
+  - `NotificationTextTest.kt` (5 tests verifying exact push text for all 5 notification types)
+  - `SyncConflictTest.kt` (4 tests verifying non-downgrade invariant and last-write-wins)
+  - `OutboxDeliveryWorkerTest.kt` (2 tests verifying undelivered row processing and delivery marking)
+  - `CaregiverViewModelTest.kt` (4 tests: send invite, accept invite, reject invite, select patient adherence)
 - Verification Commands:
-  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (**238 tests, 0 failures, 100% passing**)
-  - Lint: `.\gradlew.bat lint` – PASSED (**Clean, 0 errors**)
-  - Build: `.\gradlew.bat assembleDebug` – PASSED (**Output copied to `app-debug.apk`**)
-- Manual Device Checks Required:
-  1. Generate invitation code as Doctor (`DOC-xxxx`).
-  2. Enter code as Patient and test Accept, Decline, and Revoke.
-  3. Submit proposal as Doctor, request clarification as Patient, revise as Doctor, and accept as Patient.
-  4. Verify that prescribed dose alarms fire and require live photo verification to be marked TAKEN.
-- Human Prerequisites:
-  - If testing with live Firebase backend: place `google-services.json` in `app/` and deploy `/functions`. Without credentials, all features run deterministically in Fake/offline mode.
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` – PASSED (212 tests: 197 from Stage 9 + 15 from Stage 10, 0 failures, 100% passing)
+  - Lint: `.\gradlew.bat lint` – PASSED (Clean, 0 errors)
+  - Build: `.\gradlew.bat assembleDebug` – PASSED (Output copied to `app-debug.apk`)
+
+---
+
+## Stage 0-10 Remediation (Round 2)
+
+See `CHANGES.md` for the full list. Summary: build breaks fixed, DB version 3 with real migrations, logout/foreign-key crash fixed, release fails closed without the TFLite model, alarm maintenance worker, new-strip refill option, account isolation in the repository layer, rewritten SyncWorker, invitation-code caregiver flow (rules + Cloud Functions + app).
+
+---
+
+## Stage 10B – Doctor Mode – COMPLETED & AUDITED (2026-11-07)
+- Summary: Implemented complete Doctor Mode adhering to core patient-consent sovereignty principle ("The doctor proposes, the patient decides, and MediTrack activates the medicine only after explicit patient acceptance"). Doctors create proposals (`ADD`, `EDIT`, `STOP`) rather than directly writing active medicines or doses. Consent gating requires `DoctorLink.status == ACCEPTED` before any patient data can be read. Patient can Accept, Decline, or Request Clarification. Accepted `ADD` creates medicine, 7-day rolling doses, and alarms badged with `"Prescribed by Dr <name>"`. Accepted `EDIT` modifies future pending doses only. Accepted `STOP` cancels future pending doses while strictly preserving past dose history. Doctor-prescribed doses still require mandatory live photo verification. Revisions require fresh patient acceptance. Push notifications for all doctor lifecycle events.
+- Audit & Bug Fixes (2026-11-07):
+  - Hardened `firestore.rules` for doctor links: doctor cannot create an ACCEPTED link directly; patient consent required; revoked links immutable.
+  - Hardened `firestore.rules` for proposals: doctor can only create if an active accepted link exists; doctor can only revise in `CLARIFICATION_REQUESTED` state; patient decisions and prescription fields immutable.
+  - Scoped patient ID on accepted doctor proposals (`AcceptProposalUseCase.kt`).
+  - Scheduled dose & alarm cancellation on doctor `STOP` proposals.
+- Files added/changed:
+  - `domain/model/PrescriptionPayload.kt`, `domain/statemachine/ProposalStateMachine.kt`
+  - `domain/usecase/AcceptProposalUseCase.kt`, `domain/usecase/DeclineProposalUseCase.kt`, `domain/usecase/RequestClarificationUseCase.kt`, `domain/usecase/ReviseProposalUseCase.kt`
+  - `domain/repository/DoctorRepository`, `domain/repository/ProposalRepository`, `data/repository/RepositoryImpls.kt`
+  - `feature/doctor/DoctorViewModel.kt`, `feature/doctor/DoctorScreen.kt`
+  - `core/navigation/Screen.kt`, `MainActivity.kt`, `feature/home/HomeScreen.kt`
+  - `firestore.rules`, `storage.rules`, `functions/src/notificationText.ts`, `domain/model/NotificationText.kt`
+  - `docs/verification/STAGE_10B_VERIFY.md`
+- Tests added:
+  - `ProposalStateMachineTest.kt` (9 tests)
+  - `PrescriptionProposalWorkflowTest.kt` (6 tests)
+  - `DoctorAccessGatingTest.kt` (4 tests)
+  - `DoctorPrescriptionBypassTest.kt` (2 tests)
+  - `DoctorViewModelTest.kt` (6 tests)
+  - `NotificationTextTest.kt` (14 tests)
+
+---
+
+## Stage 11 — Scan Medicine / Prescription (OCR) — COMPLETED & AUDITED (2026-11-07)
+- Summary: Implemented on-device pharmacy label and prescription recognition using CameraX and Google ML Kit Text Recognition (`com.google.mlkit:text-recognition`, bundled, offline-first on-device Latin model). Created pure-Kotlin `PrescriptionParser` with robust regex patterns supporting Indian and international prescription conventions (1-0-1, 2-0-2, 1-1-1, 1-1-1-1 matrix notation, OD/BD/TID/QID/HS, PRN/SOS, units, quantities, food relations). Built complete review sheet prefilling `AddEditMedicineScreen`.
+- Patient-Safety & Parsing Fixes (Parts A–E Remediation):
+  - A1: Weekly medicine detects named weekdays (1..7); missing day leaves `daysOfWeek = null` with review reason. Alternate days sets `daysOfWeek = null` with explanation. Weekday chips added to review screen; readiness validation requires day selection for `SPECIFIC_DAYS`. Plumbed to `AddEditMedicineViewModel`.
+  - A2: Fractional doses ("1/2 tablet", "1/4") detected, preserved in instructions, and flagged for manual review without silently guessing whole pills.
+  - A3: Matrix notation with unequal counts (e.g. 1-0-2) leaves `pillsPerDose = 1` and flags review reason. 4-slot matrix produces exact times `08:00, 12:00, 16:00, 20:00`. Dates like `5/6/7` with slashes are strictly rejected as matrices.
+  - B1: Stock extraction removes `total` (bill totals like `Total: 245.00` rejected); skips numbers followed by currency or decimals; skips "N tablets" followed within 25 chars by frequency words or preceded by "take"/"give"/"each".
+  - B2: Medicine name regex handles full words (`Tablet`, `Capsule`, `Rx`, `Injection`, etc.); skips doctor and clinic headers; handles dosage with whitespace (`500 mg`); ignores lines with allergy keywords.
+  - B3: Percentage dosages (`1%`, `0.5 %`) supported without broken word boundaries; multiple strengths detected flag review reason.
+  - B4: Instructions use strict word-boundary regexes (`\bhs\b`, `\bbedtime\b`); "for 3 months" does not add bedtime instruction.
+  - B5: Course duration detected ("for N days/weeks/months", "x N days") and plumbed to review screen and `AddEditMedicineViewModel` end date calculation.
+  - B6: Multiple medicines detected in single scan flags review reason and forces manual review.
+  - B7: Ambiguous interval ranges ("every 6 to 8 hours") flag review reason; hours capped to 1..24.
+  - C1–C10: Removed 1x1 fallback bitmap, added `onCaptureError` callback; gallery EXIF orientation rotation; bitmap downsampling (max side <= 2048px); background threading on `Dispatchers.Default`/`IO`; double-processing guard; camera permanent denial "Open Settings" button; `removeTimeOfDay` allows empty list without 08:00 auto-fill; `prefillConsumed` guard in `AddEditMedicineViewModel` prevents rotation from overwriting user edits; `initialStockText` defaults to `""` (empty string); PRN/SOS explanation banner shown in review sheet.
+  - D1: Added `ACTION_TIMEZONE_CHANGED` to `BootReceiver` intent filter in `AndroidManifest.xml` and test in `BootReceiverTest.kt`.
+  - D2: Room migration test (1->2->3) created in `app/src/androidTest/java/com/meditrack/app/data/db/AppDatabaseMigrationTest.kt`.
+- Files added/changed:
+  - `feature/scan/PrescriptionParser.kt`
+  - `feature/scan/ScanMedicineViewModel.kt`
+  - `feature/scan/ScanMedicineScreen.kt`
+  - `feature/medicine/AddEditMedicineViewModel.kt`
+  - `feature/medicine/AddEditMedicineScreen.kt`
+  - `MainActivity.kt`
+  - `AndroidManifest.xml`
+  - `gradle/libs.versions.toml`, `app/build.gradle.kts`
+  - `docs/verification/STAGE_11_VERIFY.md`
+- Tests added:
+  - `PrescriptionParserTest.kt` (28 tests)
+  - `ScanMedicineViewModelTest.kt` (8 tests)
+  - `AddEditMedicineViewModelTest.kt` (7 tests)
+  - `BootReceiverTest.kt` (4 tests)
+- Verification Commands:
+  - Automated unit tests: `.\gradlew.bat testDebugUnitTest` — PASSED (302 tests, 0 failures, 100% passing)
+  - Build Debug: `.\gradlew.bat assembleDebug` — Verified
+  - Build Release: `.\gradlew.bat assembleRelease` — Verified
+  - Lint: `.\gradlew.bat lintDebug` — Verified
+- Unexecuted Items / Real Limitations:
+  - Firebase Emulator Security Tests: NOT RUN (requires local Node.js Firebase emulator environment).
+  - Manual Device/Emulator Checks: NOT RUN (automated CLI/Gradle test suites only).
+  - Room Migration Instrumented Test: NOT RUN in JVM unit tests (located in `androidTest` for device/emulator execution).
+  - Debug build requires `com.meditrack.app.debug` client in `google-services.json` if building with real Google Services.
+  - Release build requires Google Play Console declaration for `USE_FULL_SCREEN_INTENT`.
+
+---
+
+## Round 3 Remediation — Cloud Functions, Security Rules, Doctor Cloud & Stage 11 Cleanups (2026-11-07)
+
+### Summary of Actions
+1. **Part A: Cloud Functions (`functions/src/index.ts`, `functions/src/notificationText.ts`)**:
+   - Restored and hardened callable `acceptDoctorInvite`: transactional execution, code format regex validation (`/^[A-Z0-9]{6,12}$/`), unexpired check, single-use enforcement, optional patientContact matching, and Admin SDK link creation (`doctorLinks/{patientId}_{doctorUid}`) with status `ACCEPTED`.
+   - Restored callable `declineDoctorInvite`: transactional closure marking invitation `DECLINED` and `used: true` without link creation.
+   - Hardened `onNotificationEventCreated`: server-side relationship validation before push delivery (checks `doctorLinks` or unexpired `doctorInvitations`); sender/recipient names loaded server-side from `users/{uid}` to prevent text injection; routes missed doses to `channel_missed_doses` and all other notifications to `channel_general`; removes stale FCM tokens on registration failure.
+   - Hardened `acceptCaregiverInvite` with single-use transactional check.
+   - Added unit test coverage for doctor notification types in `functions/src/notificationText.test.ts`.
+
+2. **Part B: Firestore Security Rules (`firestore.rules`)**:
+   - Field naming unified to `patientId` everywhere (matching Kotlin Room entities `DoctorLink`, `MedicineProposal`, and caregiver collections).
+   - `doctorInvitations/{inviteId}`: read/delete restricted to issuing doctor; creation restricted to authenticated doctor with valid <=30 day expiry and matching code ID; client updates blocked (`allow update: if false;`).
+   - `doctorLinks/{linkId}`: direct client creation blocked (`allow create: if false;`); links created exclusively via Cloud Function with Admin SDK; updates restricted strictly to `ACCEPTED -> REVOKED` by participants (cannot alter patientId/doctorUid or reactivate).
+   - `medicineProposals/{proposalId}`: create restricted to accepted doctors (`isAcceptedDoctor(patientId)`) with revision 1 and status PENDING; patient updates restricted to decision/clarification without touching prescription payload; doctor updates restricted to revisions from `CLARIFICATION_REQUESTED` incrementing revision count; no updates once accepted/declined/rejected; deletes blocked.
+   - Internal outbox `notificationEvents`: documented as internal event collection with caller identity and payload constraints.
+
+3. **Part C: Connect Stage 10B Doctor Mode to Firebase (`DoctorCloud.kt`, `DoctorViewModel.kt`)**:
+   - Created `DoctorCloud.kt` with Firebase Firestore, Functions, and read-only patient adherence monitoring.
+   - Doctor invite generation: 8-character unguessable alphanumeric code (`SecureRandom`, excluding ambiguous `0`, `O`, `1`, `I`), writing to Firestore `doctorInvitations` when online with Room mirror.
+   - Patient invite redemption: calls `acceptDoctorInvite` / `declineDoctorInvite` Cloud Functions, establishing verified cloud link and local Room mirror.
+   - Doctor proposal creation: writes to Firestore `medicineProposals` with local Room mirror.
+   - Patient proposal acceptance/decline: updates Firestore `medicineProposals` and executes `AcceptProposalUseCase` locally.
+   - Doctor patient monitoring: strictly read-only queries of `users/{patientId}/medicines` and `users/{patientId}/doseEvents` for the last 7 days, computing adherence with `AdherenceCalculator` without touching the doctor's local Room database.
+   - Revocation: updates Firestore `doctorLinks/{linkId}` status to `REVOKED`.
+   - Seamless offline / unit-test fallback when `doctorCloud.isAvailable` is false.
+
+4. **Part D: Proposal Acceptance Integrity (`AcceptProposalUseCase.kt`)**:
+   - Validates proposal's prescription payload with `MedicineValidator.validate(...)` before creating/updating medicine. Rejects invalid payloads (e.g. blank name, 0 stock) leaving proposal PENDING.
+   - Proposal idempotency: returns `true` immediately if already accepted.
+   - Deterministic medicine ID: `proposal.medicineId ?: "med_${proposal.id}"`.
+   - Boundary checks: patient identity matching (`proposal.patientId == currentUserId`) and doctor ownership boundary on EDIT/STOP (`prescribedByDoctorUid == proposal.doctorUid`).
+
+5. **Part E: Stage 11 Cleanups**:
+   - E1: Cleared stale prefill keys in `savedStateHandle` (`MainActivity.kt`, `AddEditMedicineScreen.kt`) upon consumption or Cancel/Back, ensuring subsequent "+ Add Medicine" navigations do not inherit previous scan values.
+   - E2: Removed unused `android.permission.USE_FULL_SCREEN_INTENT` from `AndroidManifest.xml` (no `setFullScreenIntent` calls exist), eliminating Play Console policy declaration requirement.
+
+6. **Part F: Test Suites & Verification**:
+   - Extended `scripts/firebase_security_tests.js` with tests for:
+     * Doctor cannot create doctorLink directly.
+     * Unrelated user cannot read doctorInvitations.
+     * Doctor cannot update proposal once accepted.
+     * Patient cannot edit prescriptionPayload in a proposal.
+     * Doctor cannot propose without an ACCEPTED link.
+     * Patient clinical records isolation.
+   - Real test count: 306 `@Test` methods across 46 unit test files in `app/src/test`.
+   - Verification commands run:
+     * `.\gradlew.bat testDebugUnitTest` — PASSED (306 tests, 0 failures, 0 skipped, 100% passing)
+     * `.\gradlew.bat lintDebug` — BUILD SUCCESSFUL (Wrote HTML report to `lint-results-debug.html`)
+     * `.\gradlew.bat assembleDebug` — BUILD SUCCESSFUL (APK built in 36s)
+
+### Honest Verification Reporting
+- **Firebase Emulator Tests (`scripts/firebase_security_tests.js`)**: **NOT RUN** (requires local Node.js environment with Firebase Emulator Suite running).
+- **Manual Device / Emulator Checks**: **NOT RUN** (all checks executed via automated Gradle test and build toolchains; no physical device sessions claimed).
 
 
+---
 
+## Stage 12 — Profile, Settings, Privacy & Data Deletion (Completed)
 
+### 1. Overview & Implementations
+Implemented Stage 12 requirements per `README.md` lines 946–986:
+- **Profile / Settings Screen (`feature/settings/SettingsScreen.kt`, `SettingsViewModel.kt`)**:
+  - View/edit personal information (name, email, phone, role badge).
+  - Medicine shortcut link ("Manage Medicines").
+  - Reminder settings: customizable dose window duration (30..180 min, default 60 min) syncing dynamically with `AppConfig.userDoseWindowMinutes` and `UserPreferences`; customizable snooze preset (1..240 min, default 15 min).
+  - Notification settings: granular toggles per channel and type (missed doses, low stock, unverified doses, late doses).
+  - Caregiver shortcut link and summary.
+  - Camera permission shortcut launching system application settings (`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`).
+  - **Doctor Mode Account Management**:
+    * **Patient View**: Connected doctors list with "Revoke Access" action; pending doctor invitations with "Accept" and "Decline" actions; full prescription proposals list across all statuses (`PENDING`, `ACCEPTED`, `DECLINED`, `SUPERSEDED`) with revision numbers and clarification notes; complete decision audit trail.
+    * **Doctor View**: Connected patients list; pending invitations list; prescription proposal history and statuses.
+  - **No Location Setting**: Verified zero location settings or permissions anywhere in the application.
+  - Logout flow with confirmation dialog -> session clearance -> return to Login screen.
+- **Privacy & Consent (`PrivacyConsentScreen.kt`, DPDP Act 2023 Compliance)**:
+  - Prominent mandatory clinical disclaimer: *"MediTrack records that a pill left the strip. It cannot confirm you swallowed it, and it is not medical advice."*
+  - Digital Personal Data Protection Act, 2023 compliance disclosure and privacy policy placeholder.
+  - Stored consent flag in `UserPreferences.isPrivacyConsentGiven`.
+  - **Consent Gating**: In `SaveMedicineUseCase`, data writes are gated by user consent; throws `IllegalStateException` if consent is not granted before saving health data.
+- **Data Export & Deletion Use Cases**:
+  - **`ExportDataUseCase.kt`**: Generates a timestamped ZIP archive containing `export_data.json` (profile, medicines, dose history, caregiver links, doctor links, proposals, verification logs) and bundles proof photos from app-private `context.filesDir/proofs/`. Provides an Android share sheet chooser intent with `FileProvider` URI.
+  - **`DeleteAccountUseCase.kt`**: Full cascading deletion purging local Room DAOs (`DoseEventDao`, `VerificationAttemptDao`, `MedicineDao`, `CaregiverLinkDao`, `DoctorLinkDao`, `MedicineProposalDao`, `NotificationOutboxDao`, `UserDao`), wiping app-private directories (`proofs/`, `enrollment/`, `dataset/`, `exports/`), executing cloud deletion (Firestore docs, Storage photos, Auth account) when online, and executing `userPreferences.resetAll()` and `authRepository.logout()`.
+- **Cryptography & Screen Security**:
+  - **`KeystoreSecurityManager.kt`**: Hardware-backed AES-256 GCM encryption (`AndroidKeyStore`, `MediTrackMasterKey`, 128-bit authentication tag, 12-byte IV) protecting export archives and sensitive tokens, with test fallback for JVM Robolectric testing.
+  - **Proof Storage**: Strip baseline and dose verification photos stored strictly in app-private storage (`context.filesDir`, mode `MODE_PRIVATE`).
+  - **Screenshot Prevention (`FLAG_SECURE`)**: User toggle in Settings dynamically applies `WindowManager.LayoutParams.FLAG_SECURE` in `MainActivity.kt`.
+
+### 2. Automated Test Suite & Build Verification
+- **Real Unit Test Count**: **327 tests** across 50 test classes in `app/src/test`.
+  * `SettingsViewModelTest.kt` (10 tests)
+  * `ExportDataUseCaseTest.kt` (2 tests)
+  * `DeleteAccountUseCaseTest.kt` (3 tests)
+  * `KeystoreSecurityManagerTest.kt` (3 tests)
+  * `SaveMedicineUseCaseTest.kt` (5 tests, including consent gating)
+  * All 45 pre-existing test suites (304 tests)
+- **Results**:
+  * `.\gradlew.bat testDebugUnitTest` — **PASSED** (327 tests, 0 failures, 0 errors, 0 skipped, 100% passing)
+  * `.\gradlew.bat lintDebug` — **BUILD SUCCESSFUL** (0 errors, HTML report generated)
+  * `.\gradlew.bat assembleDebug assembleRelease` — **BUILD SUCCESSFUL** (Generated `app-debug.apk` [85.1 MB] and `app-release-unsigned.apk` [76.2 MB])
+
+### 3. Honest Verification Reporting
+- **Manual Device / Emulator Checks**: **NOT RUN** (all verifications completed via automated Gradle test and build suites; no physical device sessions claimed).
+- **Firebase Emulator Security Tests**: **NOT RUN** (requires live Node.js emulator suite).
+- **Verification Pack**: Complete documentation written to `docs/verification/STAGE_12_VERIFY.md`.

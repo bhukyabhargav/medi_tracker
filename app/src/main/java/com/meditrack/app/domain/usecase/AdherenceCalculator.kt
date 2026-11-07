@@ -26,8 +26,12 @@ object AdherenceCalculator {
      * verifiedTaken = count(TAKEN) + count(TAKEN_LATE)
      * closedDoses   = verifiedTaken + count(MISSED) + count(SKIPPED) + count(UNVERIFIED)
      * adherence %   = verifiedTaken / closedDoses * 100 (0 closed doses -> null / "—")
+     * UNVERIFIED doses are closed only when windowEndsAt <= now.
      */
-    fun calculate(doses: List<DoseEvent>): AdherenceReport {
+    fun calculate(
+        doses: List<DoseEvent>,
+        now: Long = System.currentTimeMillis()
+    ): AdherenceReport {
         var takenOnTime = 0
         var takenLate = 0
         var missed = 0
@@ -46,7 +50,10 @@ object AdherenceCalculator {
                     }
                 }
                 DoseStatus.SKIPPED -> skipped++
-                DoseStatus.UNVERIFIED -> unverified++
+                DoseStatus.UNVERIFIED -> {
+                    // UNVERIFIED only counts as closed once its intake window has ended
+                    if (dose.windowEndsAt <= now) unverified++
+                }
                 DoseStatus.PENDING -> {
                     // Future / pending doses are not closed
                 }
@@ -73,7 +80,12 @@ object AdherenceCalculator {
         }
 
         val adherencePercentage = (verifiedTaken.toDouble() / closedDoses) * 100.0
-        val roundedPercentage = adherencePercentage.roundToInt()
+        // Never round 99.x% to 100% if not strictly 100% to maintain clinical accuracy
+        val roundedPercentage = if (adherencePercentage < 100.0 && adherencePercentage.roundToInt() == 100) {
+            99
+        } else {
+            adherencePercentage.roundToInt()
+        }
         val percentageFormatted = "$roundedPercentage%"
 
         val displayText = if (takenLate > 0) {

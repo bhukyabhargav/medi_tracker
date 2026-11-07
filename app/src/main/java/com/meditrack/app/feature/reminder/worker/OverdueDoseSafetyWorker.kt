@@ -11,7 +11,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.domain.repository.DoseRepository
+import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.usecase.ProcessMissedDoseUseCase
+import com.meditrack.app.feature.reminder.MissedDoseNotifier
 import com.meditrack.app.feature.reminder.NotificationChannels
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -22,7 +24,8 @@ class OverdueDoseSafetyWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val doseRepository: DoseRepository,
-    private val processMissedDoseUseCase: ProcessMissedDoseUseCase
+    private val processMissedDoseUseCase: ProcessMissedDoseUseCase,
+    private val medicineRepository: MedicineRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -41,6 +44,8 @@ class OverdueDoseSafetyWorker @AssistedInject constructor(
                 result.onSuccess { transitioned ->
                     if (transitioned) {
                         Log.d(MediTrackApp.TAG, "OverdueDoseSafetyWorker marked dose ${dose.id} as MISSED")
+                        val name = medicineRepository.getById(dose.medicineId)?.name ?: "Medication"
+                        MissedDoseNotifier.post(applicationContext, dose.id, name)
                     }
                 }.onFailure { error ->
                     Log.w(MediTrackApp.TAG, "OverdueDoseSafetyWorker failed for dose ${dose.id}: ${error.message}")

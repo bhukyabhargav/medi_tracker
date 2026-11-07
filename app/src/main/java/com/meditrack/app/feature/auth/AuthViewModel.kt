@@ -100,8 +100,7 @@ class AuthViewModel @Inject constructor(
                 name = state.name,
                 emailOrPhone = state.contact,
                 password = state.password,
-                role = state.role,
-                doctorRegistrationNo = null
+                role = state.role
             )
             result.onSuccess {
                 _uiState.update { it.copy(isLoading = false) }

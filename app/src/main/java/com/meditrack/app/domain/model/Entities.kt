@@ -13,13 +13,16 @@ data class User(
     val email: String? = null,
     val phone: String? = null,
     val role: UserRole = UserRole.PATIENT,
-    val doctorRegistrationNo: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "medicines")
+@Entity(
+    tableName = "medicines",
+    indices = [Index("patientId")]
+)
 data class Medicine(
     @PrimaryKey val id: String,
+    val patientId: String = "",
     val name: String,
     val dosageText: String,
     val pillsPerDose: Int,
@@ -36,12 +39,14 @@ data class Medicine(
     val currentStock: Int,
     val baselineEmptyCells: Int = 0,
     val baselinePhotoPath: String? = null,
+    val lastRefillAt: Long? = null,
     val prescribedByDoctorUid: String? = null,
     val prescribedByDoctorName: String? = null,
     val stoppedByDoctor: Boolean = false,
     val isDeleted: Boolean = false,
     val lowStockNotified: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
 )
 
 @Entity(
@@ -55,6 +60,7 @@ data class Medicine(
         )
     ],
     indices = [
+        Index("patientId"),
         Index("medicineId"),
         Index("scheduledAt"),
         Index("status")
@@ -62,6 +68,7 @@ data class Medicine(
 )
 data class DoseEvent(
     @PrimaryKey val id: String,
+    val patientId: String = "",
     val medicineId: String,
     val scheduledAt: Long,
     val windowEndsAt: Long,
@@ -73,6 +80,7 @@ data class DoseEvent(
     val snoozeCount: Int = 0,
     val lateEntry: Boolean = false,
     val manualUnverified: Boolean = false,
+    val nextReminderAt: Long? = null,
     val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -100,7 +108,10 @@ data class VerificationAttempt(
 
 @Entity(
     tableName = "caregiver_links",
-    indices = [Index("patientId")]
+    indices = [
+        Index("patientId"),
+        Index("caregiverUid")
+    ]
 )
 data class CaregiverLink(
     @PrimaryKey val id: String,
@@ -115,7 +126,10 @@ data class CaregiverLink(
 
 @Entity(
     tableName = "doctor_links",
-    indices = [Index("patientId")]
+    indices = [
+        Index("patientId"),
+        Index("doctorUid")
+    ]
 )
 data class DoctorLink(
     @PrimaryKey val id: String,
@@ -124,7 +138,10 @@ data class DoctorLink(
     val doctorName: String,
     val doctorContact: String,
     val status: DoctorLinkStatus = DoctorLinkStatus.PENDING,
-    val createdAt: Long = System.currentTimeMillis()
+    val invitationCode: String? = null,
+    val expiresAt: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
 )
 
 @Entity(
@@ -139,6 +156,8 @@ data class MedicineProposal(
     val medicineId: String? = null,
     val payloadJson: String,
     val status: ProposalStatus = ProposalStatus.PENDING,
+    val revision: Int = 1,
+    val clarificationNote: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val resolvedAt: Long? = null
 )

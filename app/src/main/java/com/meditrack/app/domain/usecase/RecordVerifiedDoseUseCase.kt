@@ -6,6 +6,8 @@ import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.statemachine.DoseStateMachine
 import com.meditrack.app.domain.statemachine.DoseTransitionEvent
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,13 +35,37 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         emptyCellsAfter: Int? = null,
         takenAt: Long = System.currentTimeMillis(),
         isLate: Boolean = false
+    ): Result<Unit> = mutex.withLock {
+        record(doseId, photoPath, emptyCellsAfter, takenAt, isLate)
+    }
+
+    // Serialises recording: a double tap or "Taken" notification action + in-app confirm must not
+    // both pass the state-machine check and decrement stock twice.
+    private val mutex = Mutex()
+
+    private suspend fun record(
+        doseId: String,
+        photoPath: String?,
+        emptyCellsAfter: Int?,
+        takenAt: Long,
+        isLate: Boolean
     ): Result<Unit> {
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
 
-        val isLateVerification = isLate || dose.status == DoseStatus.MISSED
+        var isLateVerification = isLate || dose.status == DoseStatus.MISSED
 
-        // If late verification on a PENDING dose whose window expired mid-verification:
+        // Check if window has expired for a PENDING dose
+        if (!isLateVerification && takenAt > dose.windowEndsAt) {
+            val nextDose = doseRepository.getNextScheduledDose(dose.medicineId, dose.scheduledAt)
+            val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, takenAt)
+            if (!canLate) {
+                return Result.failure(IllegalStateException("Intake window expired and late entry cutoff has passed."))
+            }
+            isLateVerification = true
+        }
+
+        // If late verification on a PENDING dose whose window expired:
         val effectiveCurrentStatus = if (isLateVerification && dose.status == DoseStatus.PENDING) {
             val missedResult = DoseStateMachine.transition(dose.status, DoseTransitionEvent.WindowExpired)
             if (missedResult.isFailure) return Result.failure(missedResult.exceptionOrNull()!!)
@@ -83,7 +109,7 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         doseRepository.update(updatedDose)
         alarmScheduler.cancelDoseAlarm(doseId)
 
-        // Decrement stock & evaluate low stock transition (Single Authority)
+        // Decrement stock & evaluate low stock transition atomically
         val medicine = medicineRepository.getById(dose.medicineId)
         if (medicine != null) {
             processStockDecrementUseCase(medicine.id, medicine.pillsPerDose, takenAt)

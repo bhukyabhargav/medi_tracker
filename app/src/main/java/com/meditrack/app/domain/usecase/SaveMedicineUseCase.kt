@@ -1,11 +1,12 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
-import java.time.LocalDate
+import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,18 +15,24 @@ import javax.inject.Singleton
 class SaveMedicineUseCase @Inject constructor(
     private val medicineRepository: MedicineRepository,
     private val doseRepository: DoseRepository,
-    private val alarmScheduler: AlarmScheduler
+    private val alarmScheduler: AlarmScheduler,
+    private val userPreferences: UserPreferences
 ) {
 
     /**
      * Inserts a new medicine, sets currentStock = initialStock, generates
      * upcoming DoseEvents for a rolling 7-day window, and schedules alarms.
+     * Gated by user privacy consent (Stage 12).
      */
     suspend fun saveNewMedicine(
         medicine: Medicine,
         rollingDaysAhead: Long = 7L,
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<DoseEvent> {
+        if (!userPreferences.isPrivacyConsentGiven.first()) {
+            throw IllegalStateException("Privacy consent must be granted before saving health data.")
+        }
+
         val medicineToSave = medicine.copy(
             currentStock = medicine.initialStock
         )
@@ -49,7 +56,11 @@ class SaveMedicineUseCase @Inject constructor(
         if (doses.isNotEmpty()) {
             doseRepository.insertAll(doses)
             for (dose in doses) {
-                alarmScheduler.scheduleDoseAlarm(dose)
+                if (medicineToSave.reminderEnabled) {
+                    alarmScheduler.scheduleDoseAlarm(dose)
+                } else {
+                    alarmScheduler.scheduleMissedCheck(dose)
+                }
             }
         }
 
@@ -65,6 +76,10 @@ class SaveMedicineUseCase @Inject constructor(
         rollingDaysAhead: Long = 7L,
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<DoseEvent> {
+        if (!userPreferences.isPrivacyConsentGiven.first()) {
+            throw IllegalStateException("Privacy consent must be granted before saving health data.")
+        }
+
         medicineRepository.update(updatedMedicine)
 
         val now = System.currentTimeMillis()
@@ -99,7 +114,11 @@ class SaveMedicineUseCase @Inject constructor(
         if (newFutureDoses.isNotEmpty()) {
             doseRepository.insertAll(newFutureDoses)
             for (dose in newFutureDoses) {
-                alarmScheduler.scheduleDoseAlarm(dose)
+                if (updatedMedicine.reminderEnabled) {
+                    alarmScheduler.scheduleDoseAlarm(dose)
+                } else {
+                    alarmScheduler.scheduleMissedCheck(dose)
+                }
             }
         }
 

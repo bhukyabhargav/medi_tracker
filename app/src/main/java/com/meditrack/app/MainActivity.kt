@@ -2,6 +2,7 @@ package com.meditrack.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.navigation.navArgument
 import com.meditrack.app.BuildConfig
 import com.meditrack.app.core.navigation.Screen
 import com.meditrack.app.core.ui.theme.MediTrackTheme
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.repository.AuthRepository
 import com.meditrack.app.feature.auth.CreateAccountScreen
 import com.meditrack.app.feature.auth.LoginScreen
@@ -30,6 +32,8 @@ import com.meditrack.app.feature.onboarding.BatteryOptimizationScreen
 import com.meditrack.app.feature.onboarding.PermissionSetupScreen
 import com.meditrack.app.feature.onboarding.SplashScreen
 import com.meditrack.app.feature.reminder.receiver.ReminderReceiver
+import com.meditrack.app.feature.settings.PrivacyConsentScreen
+import com.meditrack.app.feature.settings.SettingsScreen
 import com.meditrack.app.feature.verification.VerificationStubScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -39,6 +43,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var authRepository: AuthRepository
+
+    @Inject
+    lateinit var userPreferences: UserPreferences
 
     private val pendingDoseId = mutableStateOf<String?>(null)
 
@@ -55,6 +62,18 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val targetDoseId by pendingDoseId
+                    val flagSecureEnabled by userPreferences.isFlagSecureEnabled.collectAsState(initial = true)
+
+                    LaunchedEffect(flagSecureEnabled) {
+                        if (flagSecureEnabled) {
+                            window.setFlags(
+                                WindowManager.LayoutParams.FLAG_SECURE,
+                                WindowManager.LayoutParams.FLAG_SECURE
+                            )
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                    }
 
                     LaunchedEffect(targetDoseId) {
                         targetDoseId?.let { doseId ->
@@ -137,9 +156,22 @@ class MainActivity : ComponentActivity() {
                             BatteryOptimizationScreen(
                                 authRepository = authRepository,
                                 onContinueToHome = {
-                                    navController.navigate(Screen.Home.route) {
+                                    navController.navigate(Screen.PrivacyConsent.route) {
                                         popUpTo(Screen.BatteryGuidance.route) { inclusive = true }
                                     }
+                                }
+                            )
+                        }
+
+                        composable(Screen.PrivacyConsent.route) {
+                            PrivacyConsentScreen(
+                                onConsentGiven = {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.PrivacyConsent.route) { inclusive = true }
+                                    }
+                                },
+                                onNavigateBack = {
+                                    navController.popBackStack()
                                 }
                             )
                         }
@@ -171,6 +203,31 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToDoctor = {
                                     navController.navigate(Screen.Doctor.route)
+                                },
+                                onNavigateToScan = {
+                                    navController.navigate(Screen.Scan.route)
+                                },
+                                onNavigateToSettings = {
+                                    navController.navigate(Screen.Settings.route)
+                                }
+                            )
+                        }
+
+                        composable(Screen.Settings.route) {
+                            SettingsScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToMedicines = { navController.navigate(Screen.MedicinesList.route) },
+                                onNavigateToCaregiver = { navController.navigate(Screen.Caregiver.route) },
+                                onNavigateToPrivacyConsent = { navController.navigate(Screen.PrivacyConsent.route) },
+                                onLogoutSuccess = {
+                                    navController.navigate(Screen.Login.route) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                },
+                                onDeletionSuccess = {
+                                    navController.navigate(Screen.Login.route) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
                                 }
                             )
                         }
@@ -186,6 +243,28 @@ class MainActivity : ComponentActivity() {
                             com.meditrack.app.feature.doctor.DoctorScreen(
                                 viewModel = doctorViewModel,
                                 onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(Screen.Scan.route) {
+                            com.meditrack.app.feature.scan.ScanMedicineScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                                onProceedToAddMedicine = { name, dosage, freq, times, interval, days, duration, food, instr, stock, pills ->
+                                    navController.currentBackStackEntry?.savedStateHandle?.apply {
+                                        set("prefillName", name)
+                                        set("prefillDosage", dosage)
+                                        set("prefillFrequency", freq)
+                                        set("prefillTimes", times)
+                                        set("prefillInterval", interval)
+                                        set("prefillDaysOfWeek", days.joinToString(","))
+                                        set("prefillDurationDays", duration)
+                                        set("prefillFood", food)
+                                        set("prefillInstructions", instr)
+                                        set("prefillStock", stock)
+                                        set("prefillPills", pills)
+                                    }
+                                    navController.navigate(Screen.AddMedicine.route)
+                                }
                             )
                         }
 
@@ -218,14 +297,53 @@ class MainActivity : ComponentActivity() {
                         }
 
                         composable(Screen.AddMedicine.route) {
+                            val prevEntry = navController.previousBackStackEntry
+                            val prefillName = prevEntry?.savedStateHandle?.get<String>("prefillName")
+                            val prefillDosage = prevEntry?.savedStateHandle?.get<String>("prefillDosage")
+                            val prefillFrequency = prevEntry?.savedStateHandle?.get<String>("prefillFrequency")
+                            val prefillTimes = prevEntry?.savedStateHandle?.get<List<String>>("prefillTimes")
+                            val prefillInterval = prevEntry?.savedStateHandle?.get<String>("prefillInterval")
+                            val prefillFood = prevEntry?.savedStateHandle?.get<String>("prefillFood")
+                            val prefillInstructions = prevEntry?.savedStateHandle?.get<String>("prefillInstructions")
+                            val prefillStock = prevEntry?.savedStateHandle?.get<String>("prefillStock")
+                            val prefillPills = prevEntry?.savedStateHandle?.get<String>("prefillPills")
+                            val prefillDaysOfWeek = prevEntry?.savedStateHandle?.get<String>("prefillDaysOfWeek")
+                            val prefillDurationDays = prevEntry?.savedStateHandle?.get<String>("prefillDurationDays")
+
+                            val clearPrefill = {
+                                val keys = listOf(
+                                    "prefillName", "prefillDosage", "prefillFrequency", "prefillTimes",
+                                    "prefillInterval", "prefillDaysOfWeek", "prefillDurationDays",
+                                    "prefillFood", "prefillInstructions", "prefillStock", "prefillPills"
+                                )
+                                keys.forEach { key -> prevEntry?.savedStateHandle?.remove<Any>(key) }
+                            }
+
                             com.meditrack.app.feature.medicine.AddEditMedicineScreen(
-                                onNavigateBack = { navController.popBackStack() },
+                                prefillName = prefillName,
+                                prefillDosage = prefillDosage,
+                                prefillFrequency = prefillFrequency,
+                                prefillTimes = prefillTimes,
+                                prefillIntervalHours = prefillInterval,
+                                prefillDaysOfWeek = prefillDaysOfWeek,
+                                prefillDurationDays = prefillDurationDays,
+                                prefillFoodRelation = prefillFood,
+                                prefillInstructions = prefillInstructions,
+                                prefillStock = prefillStock,
+                                prefillPillsPerDose = prefillPills,
+                                onConsumePrefill = clearPrefill,
+                                onNavigateBack = {
+                                    clearPrefill()
+                                    navController.popBackStack()
+                                },
                                 onNavigateToHome = {
+                                    clearPrefill()
                                     navController.navigate(Screen.Home.route) {
                                         popUpTo(Screen.Home.route) { inclusive = true }
                                     }
                                 },
                                 onNavigateToMedicinesList = {
+                                    clearPrefill()
                                     navController.navigate(Screen.MedicinesList.route) {
                                         popUpTo(Screen.Home.route)
                                     }

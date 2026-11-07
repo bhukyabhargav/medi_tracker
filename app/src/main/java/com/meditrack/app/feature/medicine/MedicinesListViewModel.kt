@@ -34,9 +34,17 @@ class MedicinesListViewModel @Inject constructor(
         }
     }
 
-    fun refillMedicine(medicineId: String, additionalPills: Int) {
+    fun refillMedicine(
+        medicineId: String,
+        additionalPills: Int,
+        newBaselineEmptyCells: Int = 0,
+        newBaselinePhotoPath: String? = null,
+        startedNewStrip: Boolean = false
+    ) {
         viewModelScope.launch {
-            refillStockUseCase(medicineId, additionalPills)
+            refillStockUseCase(
+                medicineId, additionalPills, newBaselineEmptyCells, newBaselinePhotoPath, startedNewStrip
+            )
         }
     }
 }

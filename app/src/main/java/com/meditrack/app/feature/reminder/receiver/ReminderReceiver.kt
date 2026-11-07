@@ -17,6 +17,7 @@ import com.meditrack.app.feature.reminder.NotificationChannels
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -28,6 +29,9 @@ class ReminderReceiver : BroadcastReceiver() {
 
     @Inject
     lateinit var medicineRepository: MedicineRepository
+
+    @Inject
+    lateinit var userPreferences: com.meditrack.app.data.prefs.UserPreferences
 
     override fun onReceive(context: Context, intent: Intent) {
         val doseId = intent.getStringExtra(EXTRA_DOSE_ID) ?: return
@@ -44,7 +48,21 @@ class ReminderReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
+                // Account isolation: never show another (logged-out) account's reminder.
+                val currentUserId = userPreferences.currentUserId.firstOrNull()
+                if (dose.patientId.isNotBlank() && dose.patientId != currentUserId) {
+                    Log.d(MediTrackApp.TAG, "Dose $doseId belongs to another account, skipping notification")
+                    return@launch
+                }
+
                 val medicine = medicineRepository.getById(dose.medicineId)
+                if (medicine != null && (medicine.isDeleted || medicine.stoppedByDoctor)) {
+                    return@launch
+                }
+                if (medicine?.reminderEnabled == false) {
+                    Log.d(MediTrackApp.TAG, "Reminder disabled for medicine ${medicine.name}, skipping notification")
+                    return@launch
+                }
                 val medicineName = medicine?.name ?: "Medicine"
                 val dosage = medicine?.dosageText ?: ""
                 val pills = medicine?.pillsPerDose ?: 1

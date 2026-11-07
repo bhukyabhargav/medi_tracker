@@ -20,10 +20,9 @@ object VerificationModule {
         fakeStripDetector: FakeStripDetector,
         tfliteStripDetector: TfliteStripDetector
     ): StripDetector {
-        return if (BuildConfig.DEBUG) {
-            fakeStripDetector
-        } else {
-            tfliteStripDetector
-        }
+        // Release builds must FAIL CLOSED: without the TFLite model the real detector throws and
+        // VerificationCoordinator reports "verification temporarily unavailable" instead of
+        // letting any photo pass. The fake detector is for debug builds only.
+        return if (BuildConfig.DEBUG) fakeStripDetector else tfliteStripDetector
     }
 }

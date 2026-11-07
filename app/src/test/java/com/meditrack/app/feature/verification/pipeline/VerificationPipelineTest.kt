@@ -292,6 +292,7 @@ class VerificationPipelineTest {
             RejectReason.PILLS_NOT_REMOVED,
             RejectReason.WRONG_PILL_COUNT,
             RejectReason.DUPLICATE_PHOTO,
+            RejectReason.TOO_EARLY,
             RejectReason.WRONG_MEDICINE
         )
         assertEquals(expectedReasons, RejectReason.values().toSet())

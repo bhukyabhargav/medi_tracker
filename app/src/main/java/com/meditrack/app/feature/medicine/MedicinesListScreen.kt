@@ -180,6 +180,7 @@ fun MedicinesListScreen(
             val med = medicineToRefill!!
             var pillsInput by remember { mutableStateOf("30") }
             var errorText by remember { mutableStateOf<String?>(null) }
+            var startedNewStrip by remember { mutableStateOf(false) }
 
             AlertDialog(
                 onDismissRequest = { medicineToRefill = null },
@@ -212,6 +213,19 @@ fun MedicinesListScreen(
                                 )
                             }
                         }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.Switch(
+                                checked = startedNewStrip,
+                                onCheckedChange = { startedNewStrip = it }
+                            )
+                            Text(
+                                text = "I started a new strip (restarts the pill-count check)",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 },
                 confirmButton = {
@@ -221,7 +235,7 @@ fun MedicinesListScreen(
                             if (count <= 0) {
                                 errorText = "Please enter at least 1 pill"
                             } else {
-                                viewModel.refillMedicine(med.id, count)
+                                viewModel.refillMedicine(med.id, count, startedNewStrip = startedNewStrip)
                                 medicineToRefill = null
                             }
                         }

@@ -13,7 +13,9 @@ import androidx.work.workDataOf
 import com.meditrack.app.MainActivity
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.core.config.AppConfig
 import com.meditrack.app.domain.repository.DoseRepository
+import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.feature.reminder.NotificationChannels
 import com.meditrack.app.feature.reminder.receiver.ReminderReceiver
 import com.meditrack.app.feature.reminder.worker.MissedDoseWorker
@@ -25,19 +27,28 @@ import javax.inject.Singleton
 @Singleton
 class AlarmSchedulerImpl @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val doseRepository: DoseRepository
+    private val doseRepository: DoseRepository,
+    private val medicineRepository: MedicineRepository
 ) : AlarmScheduler {
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     override fun scheduleDoseAlarm(dose: DoseEvent, triggerAtMillis: Long) {
         val now = System.currentTimeMillis()
-        if (triggerAtMillis < now - 60_000L) {
-            Log.d(MediTrackApp.TAG, "Skipping past alarm for dose ${dose.id}")
+        if (now >= dose.windowEndsAt) {
+            Log.d(MediTrackApp.TAG, "Skipping alarm for dose ${dose.id}: intake window already expired")
             return
         }
 
-        val effectiveTrigger = maxOf(now + 500L, triggerAtMillis)
+        // If triggerAtMillis is in the past, but the dose is still inside its window, trigger immediately
+        val effectiveTrigger = maxOf(now + 1000L, triggerAtMillis)
+
+        // Beyond the alarm horizon only the MISSED check is enqueued; AlarmMaintenanceWorker arms
+        // the exact alarm later (keeps us far below Android's per-app alarm limit).
+        if (effectiveTrigger > now + AppConfig.ALARM_HORIZON_HOURS * 60 * 60 * 1000L) {
+            scheduleMissedWorker(dose)
+            return
+        }
 
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DOSE_REMINDER
@@ -87,9 +98,12 @@ class AlarmSchedulerImpl @Inject constructor(
         scheduleMissedWorker(dose)
     }
 
+    override fun scheduleMissedCheck(dose: DoseEvent) = scheduleMissedWorker(dose)
+
     private fun scheduleMissedWorker(dose: DoseEvent) {
         try {
             val now = System.currentTimeMillis()
+            if (now >= dose.windowEndsAt) return
             val delayMillis = maxOf(1000L, dose.windowEndsAt - now)
 
             val missedRequest = OneTimeWorkRequestBuilder<MissedDoseWorker>()
@@ -108,7 +122,7 @@ class AlarmSchedulerImpl @Inject constructor(
         }
     }
 
-    override fun cancelDoseAlarm(doseId: String) {
+    override fun cancelDoseAlarm(doseId: String, cancelMissedWorker: Boolean) {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DOSE_REMINDER
         }
@@ -118,28 +132,43 @@ class AlarmSchedulerImpl @Inject constructor(
             intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
+
         if (pendingIntent != null && alarmManager != null) {
             alarmManager.cancel(pendingIntent)
             pendingIntent.cancel()
         }
 
-        try {
-            WorkManager.getInstance(context).cancelUniqueWork("missed_$doseId")
-        } catch (e: Exception) {
-            Log.w(MediTrackApp.TAG, "Failed to cancel missed worker for dose $doseId: ${e.message}")
+        if (cancelMissedWorker) {
+            try {
+                WorkManager.getInstance(context).cancelUniqueWork("missed_$doseId")
+            } catch (e: Exception) {
+                Log.w(MediTrackApp.TAG, "Failed to cancel missed worker for dose $doseId: ${e.message}")
+            }
         }
 
-        Log.d(MediTrackApp.TAG, "Cancelled alarm and missed worker for dose $doseId")
+        Log.d(MediTrackApp.TAG, "Cancelled alarm (missedWorkerCancelled=$cancelMissedWorker) for dose $doseId")
     }
 
     override suspend fun rescheduleAllPendingAlarms() {
         val now = System.currentTimeMillis()
         val pendingDoses = doseRepository.getPendingDueDoses(now) + doseRepository.getFuturePendingDoses(now)
-        val distinctDoses = pendingDoses.distinctBy { it.id }
+        val distinctDoses = pendingDoses.distinctBy { it.id }.filter { it.windowEndsAt > now }
 
         Log.d(MediTrackApp.TAG, "Rescheduling ${distinctDoses.size} pending dose alarms")
-        for (dose in distinctDoses) {
-            scheduleDoseAlarm(dose)
+
+        val medicines = distinctDoses.map { it.medicineId }.distinct()
+            .associateWith { medicineRepository.getById(it) }
+
+        for (dose in distinctDoses.sortedBy { it.scheduledAt }) {
+            val medicine = medicines[dose.medicineId]
+            if (medicine == null || medicine.isDeleted || medicine.stoppedByDoctor) continue
+            if (medicine.reminderEnabled) {
+                // scheduleDoseAlarm honours nextReminderAt (snooze), fires in-window doses
+                // immediately and applies the alarm horizon.
+                scheduleDoseAlarm(dose, dose.nextReminderAt ?: dose.scheduledAt)
+            } else {
+                scheduleMissedWorker(dose)
+            }
         }
     }
 }

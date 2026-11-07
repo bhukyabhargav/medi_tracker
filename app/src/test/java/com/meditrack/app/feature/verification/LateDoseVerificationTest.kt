@@ -99,6 +99,7 @@ class LateDoseVerificationTest {
             userPreferences = userPreferences,
             verificationPipeline = verificationPipeline,
             recordVerifiedDoseUseCase = recordVerifiedDoseUseCase,
+            processMissedDoseUseCase = io.mockk.mockk(relaxed = true),
             alarmScheduler = alarmScheduler
         )
 

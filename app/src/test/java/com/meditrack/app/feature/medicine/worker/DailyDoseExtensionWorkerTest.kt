@@ -43,7 +43,8 @@ class DailyDoseExtensionWorkerTest {
             appContext = context,
             workerParams = workerParams,
             medicineRepository = medicineRepository,
-            doseRepository = doseRepository
+            doseRepository = doseRepository,
+            alarmScheduler = io.mockk.mockk(relaxed = true)
         )
     }
 

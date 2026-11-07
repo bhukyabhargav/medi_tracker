@@ -32,4 +32,7 @@ sealed class Screen(val route: String) {
         fun createRoute(patientId: String) = "caregiver_patient/$patientId"
     }
     data object Doctor : Screen("doctor")
+    data object Scan : Screen("scan")
+    data object Settings : Screen("settings")
+    data object PrivacyConsent : Screen("privacy_consent")
 }

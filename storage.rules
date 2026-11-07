@@ -25,16 +25,23 @@ service firebase.storage {
     }
 
     // Proof photos: proofs/{patientUid}/{doseId}.jpg
+    // Path validation: patientUid and doseId must be valid
     match /proofs/{patientUid}/{doseId}.jpg {
-      // Patient can upload proof photo (must be image <= 5MB)
-      // Doctors and Caregivers CANNOT upload, edit, or delete proof photos.
-      allow write: if isOwner(patientUid)
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-
       // Patient, actively connected accepted caregiver, or actively connected accepted doctor can read.
       // Pending, declined, revoked, or unrelated users are strictly DENIED.
       allow read: if isOwner(patientUid) || isAcceptedCaregiver(patientUid) || isAcceptedDoctor(patientUid);
+
+      // Patient can upload proof photo (must be image <= 5MB).
+      // Separate create / update rule validating file size and image content type.
+      // Doctors and Caregivers CANNOT upload or edit proof photos.
+      allow create, update: if isOwner(patientUid)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+
+      // Separate delete rule:
+      // Does NOT reference request.resource because request.resource is null on deletion.
+      // Strictly patient owner only. Doctors/caregivers cannot delete proof photos.
+      allow delete: if isOwner(patientUid);
     }
   }
 }

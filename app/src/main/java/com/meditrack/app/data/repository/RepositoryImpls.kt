@@ -16,16 +16,27 @@ import com.meditrack.app.domain.repository.DoseRepository
 import com.meditrack.app.domain.repository.MedicineRepository
 import com.meditrack.app.domain.repository.OutboxRepository
 import com.meditrack.app.domain.repository.VerificationRepository
+import com.meditrack.app.data.prefs.UserPreferences
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class MedicineRepositoryImpl @Inject constructor(
-    private val medicineDao: MedicineDao
+    private val medicineDao: MedicineDao,
+    private val userPreferences: UserPreferences
 ) : MedicineRepository {
-    override fun observeAll(): Flow<List<Medicine>> = medicineDao.observeAll()
-    override fun observeActive(): Flow<List<Medicine>> = medicineDao.observeActive()
+    // Account isolation: every list read is scoped to the signed-in user (patientId).
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun observeAll(): Flow<List<Medicine>> =
+        userPreferences.currentUserId.flatMapLatest { uid -> medicineDao.observeAllByPatient(uid ?: NO_USER) }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun observeActive(): Flow<List<Medicine>> =
+        userPreferences.currentUserId.flatMapLatest { uid -> medicineDao.observeActiveByPatient(uid ?: NO_USER) }
+
     override fun observeById(id: String): Flow<Medicine?> = medicineDao.observeById(id)
     override suspend fun getById(id: String): Medicine? = medicineDao.getById(id)
     override suspend fun insert(medicine: Medicine) = medicineDao.insert(medicine)
@@ -33,14 +44,22 @@ class MedicineRepositoryImpl @Inject constructor(
     override suspend fun delete(medicine: Medicine) = medicineDao.delete(medicine)
     override suspend fun updateStock(medicineId: String, newStock: Int) =
         medicineDao.updateStock(medicineId, newStock)
+    override suspend fun decrementStockAtomic(medicineId: String, count: Int, now: Long): Int =
+        medicineDao.decrementStockAtomic(medicineId, count, now)
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        medicineDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
 class DoseRepositoryImpl @Inject constructor(
-    private val doseEventDao: DoseEventDao
+    private val doseEventDao: DoseEventDao,
+    private val userPreferences: UserPreferences
 ) : DoseRepository {
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeBetween(startTime: Long, endTime: Long): Flow<List<DoseEvent>> =
-        doseEventDao.observeBetween(startTime, endTime)
+        userPreferences.currentUserId.flatMapLatest { uid ->
+            doseEventDao.observeBetweenByPatient(uid ?: NO_USER, startTime, endTime)
+        }
 
     override fun observeByMedicineId(medicineId: String): Flow<List<DoseEvent>> =
         doseEventDao.observeByMedicineId(medicineId)
@@ -62,11 +81,23 @@ class DoseRepositoryImpl @Inject constructor(
     override suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent? =
         doseEventDao.getLatestVerifiedDose(medicineId)
 
+    override suspend fun getLatestVerifiedDoseAfter(medicineId: String, afterMillis: Long): DoseEvent? =
+        doseEventDao.getLatestVerifiedDoseAfter(medicineId, afterMillis)
+
+    override suspend fun getLatestScheduledAt(medicineId: String): Long? =
+        doseEventDao.getLatestScheduledAt(medicineId)
+
     override suspend fun getNextScheduledDose(medicineId: String, scheduledAt: Long): DoseEvent? =
         doseEventDao.getNextScheduledDose(medicineId, scheduledAt)
 
     override suspend fun deleteFuturePendingDoses(medicineId: String, afterTimestamp: Long) =
         doseEventDao.deleteFuturePendingDoses(medicineId, afterTimestamp)
+
+    override suspend fun deleteAllPendingForMedicine(medicineId: String) =
+        doseEventDao.deleteAllPendingForMedicine(medicineId)
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        doseEventDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
@@ -100,13 +131,22 @@ class CaregiverRepositoryImpl @Inject constructor(
     override suspend fun update(link: CaregiverLink) = caregiverLinkDao.update(link)
     override suspend fun hasConnectedCaregiver(patientId: String): Boolean =
         caregiverLinkDao.getByStatus(patientId, LinkStatus.ACCEPTED).isNotEmpty()
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        caregiverLinkDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
 class OutboxRepositoryImpl @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val notificationOutboxDao: NotificationOutboxDao
 ) : OutboxRepository {
-    override suspend fun enqueue(outbox: NotificationOutbox) = notificationOutboxDao.insert(outbox)
+    override suspend fun enqueue(outbox: NotificationOutbox) {
+        notificationOutboxDao.insert(outbox)
+        try {
+            com.meditrack.app.feature.reminder.worker.OutboxDeliveryWorker.enqueue(context)
+        } catch (_: Exception) {}
+    }
     override suspend fun getUndelivered(): List<NotificationOutbox> = notificationOutboxDao.getUndelivered()
     override suspend fun markDelivered(id: String) = notificationOutboxDao.markDelivered(id)
 }
@@ -141,6 +181,9 @@ class DoctorRepositoryImpl @Inject constructor(
 
     override suspend fun hasAcceptedDoctor(patientId: String): Boolean =
         doctorLinkDao.getByStatus(patientId, com.meditrack.app.domain.model.DoctorLinkStatus.ACCEPTED).isNotEmpty()
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        doctorLinkDao.deleteAllByPatientId(patientId)
 }
 
 @Singleton
@@ -167,4 +210,10 @@ class ProposalRepositoryImpl @Inject constructor(
 
     override suspend fun delete(proposal: com.meditrack.app.domain.model.MedicineProposal) =
         medicineProposalDao.delete(proposal)
+
+    override suspend fun deleteAllByPatientId(patientId: String) =
+        medicineProposalDao.deleteAllByPatientId(patientId)
 }
+
+/** patientId that matches nothing: used when nobody is signed in. */
+private const val NO_USER = "__no_user__"

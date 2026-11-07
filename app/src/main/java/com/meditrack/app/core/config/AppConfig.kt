@@ -3,11 +3,19 @@ package com.meditrack.app.core.config
 object AppConfig {
     // Dose window
     const val DOSE_WINDOW_MINUTES = 60            // time after scheduled time before a dose becomes MISSED
+    var userDoseWindowMinutes: Int? = null        // User customizable setting from Settings (Stage 12)
     var debugDoseWindowMinutes: Int? = null       // Fast-testing override for human/emulator verification
     val effectiveDoseWindowMinutes: Int
-        get() = debugDoseWindowMinutes ?: DOSE_WINDOW_MINUTES
+        get() = debugDoseWindowMinutes ?: userDoseWindowMinutes ?: DOSE_WINDOW_MINUTES
     val SNOOZE_PRESETS_MINUTES = listOf(15, 30)   // plus custom (list cannot be const)
     const val MAX_SNOOZES_PER_DOSE = 3
+    const val MAX_SNOOZE_MINUTES = 240            // custom snooze upper bound
+    const val EARLY_VERIFY_TOLERANCE_MINUTES = 30 // a dose may be verified this long before its scheduled time
+
+    // Alarms: Android allows max ~500 alarms per app, so only the near future is armed;
+    // AlarmMaintenanceWorker tops the horizon up regularly.
+    const val ALARM_HORIZON_HOURS = 48
+    const val ALARM_MAINTENANCE_INTERVAL_HOURS = 6L
 
     // Verification
     const val MAX_VERIFICATION_ATTEMPTS = 3

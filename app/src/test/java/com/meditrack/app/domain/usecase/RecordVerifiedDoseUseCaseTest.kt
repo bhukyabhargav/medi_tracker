@@ -12,6 +12,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -118,5 +119,30 @@ class RecordVerifiedDoseUseCaseTest {
         val result = useCase("dose_1")
         assertTrue(result.isFailure)
         coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
+    }
+
+    @Test
+    fun recordVerifiedDose_parallelCalls_recordOnlyOnceAndDecrementOnce() = runTest {
+        var stored = sampleDose
+        coEvery { doseRepository.getById("dose_1") } coAnswers { stored }
+        coEvery { medicineRepository.getById("med_1") } returns sampleMedicine
+        coEvery { doseRepository.update(any()) } coAnswers {
+            stored = firstArg()
+            Unit
+        }
+
+        val d1 = async(kotlinx.coroutines.Dispatchers.Default) {
+            useCase("dose_1", photoPath = "p.jpg", emptyCellsAfter = 1, takenAt = 2500L, isLate = false)
+        }
+        val d2 = async(kotlinx.coroutines.Dispatchers.Default) {
+            useCase("dose_1", photoPath = "p.jpg", emptyCellsAfter = 1, takenAt = 2500L, isLate = false)
+        }
+        val r1 = d1.await()
+        val r2 = d2.await()
+        val successCount = (if (r1.isSuccess) 1 else 0) + (if (r2.isSuccess) 1 else 0)
+
+        assertEquals(1, successCount)
+        assertEquals(DoseStatus.TAKEN, stored.status)
+        io.mockk.coVerify(exactly = 1) { processStockDecrementUseCase(any(), any(), any()) }
     }
 }

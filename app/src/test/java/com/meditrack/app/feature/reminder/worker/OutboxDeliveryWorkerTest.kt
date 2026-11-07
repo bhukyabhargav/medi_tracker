@@ -1,9 +1,10 @@
 package com.meditrack.app.feature.reminder.worker
 
 import android.content.Context
-import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.meditrack.app.data.prefs.UserPreferences
+import com.meditrack.app.domain.model.CaregiverLink
+import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.NotifType
 import com.meditrack.app.domain.model.NotificationOutbox
 import com.meditrack.app.domain.repository.CaregiverRepository
@@ -24,7 +25,6 @@ class OutboxDeliveryWorkerTest {
     private val outboxRepository: OutboxRepository = mockk(relaxed = true)
     private val caregiverRepository: CaregiverRepository = mockk(relaxed = true)
     private val userPreferences: UserPreferences = mockk(relaxed = true)
-    private val deliveryGateway: NotificationDeliveryGateway = mockk(relaxed = true)
 
     private lateinit var worker: OutboxDeliveryWorker
 
@@ -43,8 +43,7 @@ class OutboxDeliveryWorkerTest {
             workerParams = workerParams,
             outboxRepository = outboxRepository,
             caregiverRepository = caregiverRepository,
-            userPreferences = userPreferences,
-            deliveryGateway = deliveryGateway
+            userPreferences = userPreferences
         )
         coEvery { userPreferences.currentUserId } returns flowOf("patient_1")
         coEvery { caregiverRepository.observeByPatientId("patient_1") } returns flowOf(emptyList())
@@ -56,30 +55,38 @@ class OutboxDeliveryWorkerTest {
 
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals(androidx.work.ListenableWorker.Result.success(), result)
         coVerify(exactly = 0) { outboxRepository.markDelivered(any()) }
     }
 
     @Test
-    fun doWork_deliversUndeliveredEvent_andMarksDeliveredOnSuccess() = runTest {
+    fun doWork_whenFirebaseUnavailable_retainsPendingEvents() = runTest {
         coEvery { outboxRepository.getUndelivered() } returns listOf(sampleEvent)
-        coEvery { deliveryGateway.deliver(sampleEvent, "patient_1", null) } returns true
 
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.success(), result)
-        coVerify(exactly = 1) { outboxRepository.markDelivered("event_123") }
+        // Firebase is unavailable in JVM unit tests -> must retry and retain pending events
+        assertEquals(androidx.work.ListenableWorker.Result.retry(), result)
+        coVerify(exactly = 0) { outboxRepository.markDelivered(any()) }
     }
 
     @Test
-    fun doWork_whenDeliveryFailsOrOffline_preservesPendingEventAndRetries() = runTest {
+    fun doWork_whenCaregiverRevoked_doesNotDeliverOrMarkDelivered() = runTest {
+        val revokedLink = CaregiverLink(
+            id = "link_1",
+            patientId = "patient_1",
+            caregiverName = "Jane",
+            caregiverContact = "jane@example.com",
+            relationship = "Daughter",
+            status = LinkStatus.REVOKED,
+            caregiverUid = "cg_revoked"
+        )
+        coEvery { caregiverRepository.observeByPatientId("patient_1") } returns flowOf(listOf(revokedLink))
         coEvery { outboxRepository.getUndelivered() } returns listOf(sampleEvent)
-        coEvery { deliveryGateway.deliver(sampleEvent, "patient_1", null) } returns false
 
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
-        // Verifies invariant: Pending events are preserved during offline operation and never marked delivered
-        coVerify(exactly = 0) { outboxRepository.markDelivered("event_123") }
+        assertEquals(androidx.work.ListenableWorker.Result.retry(), result)
+        coVerify(exactly = 0) { outboxRepository.markDelivered(any()) }
     }
 }

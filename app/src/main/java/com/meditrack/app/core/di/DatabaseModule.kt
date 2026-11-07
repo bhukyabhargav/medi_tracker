@@ -31,7 +31,9 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
-        ).fallbackToDestructiveMigration().build()
+        )
+        .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+        .build()
     }
 
     @Provides

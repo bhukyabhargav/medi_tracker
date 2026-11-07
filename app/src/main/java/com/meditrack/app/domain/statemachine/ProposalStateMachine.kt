@@ -22,9 +22,8 @@ object ProposalStateMachine {
         ProposalStatus.ACCEPTED to setOf(
             ProposalStatus.SUPERSEDED
         ),
-        ProposalStatus.DECLINED to emptySet(),
-        ProposalStatus.SUPERSEDED to emptySet(),
-        ProposalStatus.APPLIED to emptySet()
+        ProposalStatus.DECLINED to emptySet<ProposalStatus>(),
+        ProposalStatus.SUPERSEDED to emptySet<ProposalStatus>()
     )
 
     fun canTransition(from: ProposalStatus, to: ProposalStatus): Boolean {

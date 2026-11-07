@@ -88,6 +88,16 @@ class VerificationPipeline @Inject constructor(
                     friendlyMessage = "No new pills removed. Please push out your dose."
                 )
             }
+            delta < 0 -> {
+                // Fewer empty cells than last time: this looks like a different or fresh strip.
+                VerificationResult(
+                    passed = false,
+                    rejectReason = RejectReason.WRONG_PILL_COUNT,
+                    emptyCellsAfter = newEmpty,
+                    friendlyMessage = "This looks like a different or new strip. If you started a new strip, " +
+                        "open Medicines > Refill and switch on \"I started a new strip\"."
+                )
+            }
             else -> {
                 VerificationResult(
                     passed = false,

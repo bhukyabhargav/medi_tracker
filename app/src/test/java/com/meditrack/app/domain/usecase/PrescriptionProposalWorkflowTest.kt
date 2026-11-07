@@ -23,6 +23,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -127,6 +128,7 @@ class PrescriptionProposalWorkflowTest {
     fun acceptEditProposal_updatesMedicine_affectsFutureDosesOnly() = runTest {
         val existingMedicine = Medicine(
             id = "med_1",
+            patientId = "pat_1",
             name = "Amoxicillin",
             dosageText = "250mg",
             pillsPerDose = 1,
@@ -134,7 +136,8 @@ class PrescriptionProposalWorkflowTest {
             timesOfDay = listOf(LocalTime.of(8, 0)),
             startDate = 1000L,
             initialStock = 20,
-            currentStock = 15
+            currentStock = 15,
+            prescribedByDoctorUid = "doc_1"
         )
         val editProposal = sampleAddProposal.copy(
             id = "prop_edit",
@@ -159,6 +162,7 @@ class PrescriptionProposalWorkflowTest {
     fun acceptStopProposal_stopsMedicine_deletesFuturePendingDoses_preservesHistory() = runTest {
         val existingMedicine = Medicine(
             id = "med_1",
+            patientId = "pat_1",
             name = "Amoxicillin",
             dosageText = "500mg",
             pillsPerDose = 1,
@@ -166,7 +170,8 @@ class PrescriptionProposalWorkflowTest {
             timesOfDay = listOf(LocalTime.of(8, 0)),
             startDate = 1000L,
             initialStock = 20,
-            currentStock = 15
+            currentStock = 15,
+            prescribedByDoctorUid = "doc_1"
         )
         val stopProposal = sampleAddProposal.copy(
             id = "prop_stop",
@@ -181,6 +186,82 @@ class PrescriptionProposalWorkflowTest {
         assertTrue(success)
         coVerify(exactly = 1) { medicineRepository.update(match { it.stoppedByDoctor }) }
         coVerify(exactly = 1) { doseRepository.deleteFuturePendingDoses("med_1", any()) }
+    }
+
+    @Test
+    fun acceptProposal_invalidPayload_rejectsAndDoesNotInsert() = runTest {
+        val invalidPayload = addPayload.copy(medicineName = "   ")
+        val invalidProposal = sampleAddProposal.copy(
+            id = "prop_invalid",
+            payloadJson = invalidPayload.toJson()
+        )
+        coEvery { proposalRepository.getById("prop_invalid") } returns invalidProposal
+
+        val success = acceptUseCase("prop_invalid")
+
+        assertFalse(success)
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+        coVerify(exactly = 0) { proposalRepository.update(any()) }
+    }
+
+    @Test
+    fun acceptProposal_doubleAccept_isIdempotent() = runTest {
+        val alreadyAccepted = sampleAddProposal.copy(
+            id = "prop_accepted",
+            status = ProposalStatus.ACCEPTED
+        )
+        coEvery { proposalRepository.getById("prop_accepted") } returns alreadyAccepted
+
+        val success = acceptUseCase("prop_accepted")
+
+        assertTrue(success)
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+        coVerify(exactly = 0) { proposalRepository.update(any()) }
+    }
+
+    @Test
+    fun acceptProposal_patientMismatch_fails() = runTest {
+        val otherPatientProposal = sampleAddProposal.copy(
+            id = "prop_other",
+            patientId = "other_patient_99"
+        )
+        coEvery { proposalRepository.getById("prop_other") } returns otherPatientProposal
+
+        val success = acceptUseCase("prop_other")
+
+        assertFalse(success)
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any()) }
+    }
+
+    @Test
+    fun acceptEditProposal_doctorMismatch_fails() = runTest {
+        val existingMedicine = Medicine(
+            id = "med_1",
+            patientId = "pat_1",
+            name = "Amoxicillin",
+            dosageText = "250mg",
+            pillsPerDose = 1,
+            frequencyType = FrequencyType.DAILY,
+            timesOfDay = listOf(LocalTime.of(8, 0)),
+            startDate = 1000L,
+            initialStock = 20,
+            currentStock = 15,
+            prescribedByDoctorUid = "different_doctor_42"
+        )
+        val editProposal = sampleAddProposal.copy(
+            id = "prop_edit_diff_doc",
+            type = ProposalType.EDIT,
+            doctorUid = "doc_1",
+            medicineId = "med_1",
+            payloadJson = addPayload.toJson()
+        )
+        coEvery { proposalRepository.getById("prop_edit_diff_doc") } returns editProposal
+        coEvery { medicineRepository.getById("med_1") } returns existingMedicine
+
+        val success = acceptUseCase("prop_edit_diff_doc")
+
+        assertFalse(success)
+        coVerify(exactly = 0) { saveMedicineUseCase.updateMedicine(any()) }
     }
 
     @Test

@@ -75,6 +75,18 @@ import java.util.Calendar
 @Composable
 fun AddEditMedicineScreen(
     medicineId: String? = null,
+    prefillName: String? = null,
+    prefillDosage: String? = null,
+    prefillFrequency: String? = null,
+    prefillTimes: List<String>? = null,
+    prefillIntervalHours: String? = null,
+    prefillFoodRelation: String? = null,
+    prefillInstructions: String? = null,
+    prefillStock: String? = null,
+    prefillPillsPerDose: String? = null,
+    prefillDaysOfWeek: String? = null,
+    prefillDurationDays: String? = null,
+    onConsumePrefill: () -> Unit = {},
     onNavigateBack: () -> Unit,
     onNavigateToHome: () -> Unit,
     onNavigateToMedicinesList: () -> Unit,
@@ -92,9 +104,24 @@ fun AddEditMedicineScreen(
         onNavigateToHome()
     }
 
-    LaunchedEffect(medicineId) {
+    LaunchedEffect(medicineId, prefillName) {
         if (!medicineId.isNullOrBlank()) {
             viewModel.loadMedicine(medicineId)
+        } else if (!prefillName.isNullOrBlank()) {
+            viewModel.prefillFromScan(
+                name = prefillName,
+                dosage = prefillDosage,
+                pillsPerDose = prefillPillsPerDose,
+                initialStock = prefillStock,
+                frequency = prefillFrequency,
+                times = prefillTimes,
+                intervalHours = prefillIntervalHours,
+                daysOfWeek = prefillDaysOfWeek,
+                durationDays = prefillDurationDays,
+                foodRelation = prefillFoodRelation,
+                instructions = prefillInstructions
+            )
+            onConsumePrefill()
         }
     }
 
@@ -120,7 +147,10 @@ fun AddEditMedicineScreen(
                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to form")
                         }
                     } else if (uiState.currentStep == AddEditStep.FORM) {
-                        IconButton(onClick = onNavigateBack) {
+                        IconButton(onClick = {
+                            onConsumePrefill()
+                            onNavigateBack()
+                        }) {
                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
@@ -211,7 +241,7 @@ fun AddEditMedicineScreen(
                     ) {
                         OutlinedTextField(
                             value = uiState.pillsPerDoseText,
-                            onValueChange = viewModel::onPillsPerDoseTextChange,
+                            onValueChange = viewModel::onPillsPerDoseChange,
                             label = { Text(stringResource(R.string.pills_per_dose_label)) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
@@ -220,7 +250,7 @@ fun AddEditMedicineScreen(
 
                         OutlinedTextField(
                             value = uiState.initialStockText,
-                            onValueChange = viewModel::onInitialStockTextChange,
+                            onValueChange = viewModel::onInitialStockChange,
                             label = { Text(stringResource(R.string.initial_stock_label)) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
@@ -345,7 +375,7 @@ fun AddEditMedicineScreen(
                         FrequencyType.HOURLY -> {
                             OutlinedTextField(
                                 value = uiState.intervalHoursText,
-                                onValueChange = viewModel::onIntervalHoursTextChange,
+                                onValueChange = viewModel::onIntervalHoursChange,
                                 label = { Text(stringResource(R.string.interval_hours_label)) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
@@ -475,7 +505,7 @@ fun AddEditMedicineScreen(
                         )
                         Switch(
                             checked = uiState.reminderEnabled,
-                            onCheckedChange = viewModel::onReminderToggle
+                            onCheckedChange = viewModel::onReminderEnabledChange
                         )
                     }
 

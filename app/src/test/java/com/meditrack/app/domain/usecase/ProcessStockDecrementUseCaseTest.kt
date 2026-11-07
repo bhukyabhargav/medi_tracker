@@ -61,7 +61,7 @@ class ProcessStockDecrementUseCaseTest {
             outboxRepository = outboxRepository,
             userPreferences = userPreferences
         ).apply {
-            notifier = { _, _, _, _ -> alertCount++ }
+            notifier = { _, _, _, _, _ -> alertCount++ }
         }
 
         coEvery { userPreferences.currentUserId } returns flowOf("patient_1")

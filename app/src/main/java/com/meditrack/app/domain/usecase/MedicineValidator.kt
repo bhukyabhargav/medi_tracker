@@ -1,5 +1,6 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.domain.model.FrequencyType
 import java.time.LocalTime
 
 object MedicineValidator {
@@ -32,7 +33,10 @@ object MedicineValidator {
         endDate: Long?,
         reminderEnabled: Boolean,
         timesOfDay: List<LocalTime>,
-        initialStock: Int
+        initialStock: Int,
+        frequencyType: FrequencyType = FrequencyType.DAILY,
+        intervalHours: Int? = null,
+        daysOfWeek: List<Int>? = null
     ): ValidationResult {
         if (name.trim().isBlank()) {
             return ValidationResult.Invalid(Field.NAME, "Medicine name cannot be empty")

@@ -102,14 +102,13 @@ class RoomDaoTest {
 
     @Test
     fun userDao_observeCurrentUserAndClear() = runTest {
-        val user = User(id = "user_2", name = "Dr. Smith", role = UserRole.DOCTOR, doctorRegistrationNo = "DOC-9988")
+        val user = User(id = "user_2", name = "Dr. Smith", role = UserRole.DOCTOR)
         userDao.observeCurrentUser().test {
             assertNull(awaitItem())
 
             userDao.insertUser(user)
             val updated = awaitItem()
             assertEquals("Dr. Smith", updated?.name)
-            assertEquals("DOC-9988", updated?.doctorRegistrationNo)
 
             userDao.clearUsers()
             assertNull(awaitItem())

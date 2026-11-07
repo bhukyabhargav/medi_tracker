@@ -60,6 +60,11 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 ksp {
@@ -109,6 +114,7 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(libs.androidx.exifinterface)
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
 
@@ -125,6 +131,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.functions)
 
     // ML Kit & TFLite
     implementation(libs.mlkit.text.recognition)

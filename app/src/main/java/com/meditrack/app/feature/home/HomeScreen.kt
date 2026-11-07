@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -72,6 +73,8 @@ fun HomeScreen(
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToCaregiver: () -> Unit = {},
     onNavigateToDoctor: () -> Unit = {},
+    onNavigateToScan: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -106,6 +109,14 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onNavigateToSettings
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
+                    }
                     if (BuildConfig.DEBUG) {
                         IconButton(
                             onClick = {
@@ -156,7 +167,9 @@ fun HomeScreen(
                         onNavigateToHistory = onNavigateToHistory,
                         onNavigateToCalendar = onNavigateToCalendar,
                         onNavigateToCaregiver = onNavigateToCaregiver,
-                        onNavigateToDoctor = onNavigateToDoctor
+                        onNavigateToDoctor = onNavigateToDoctor,
+                        onNavigateToScan = onNavigateToScan,
+                        onNavigateToSettings = onNavigateToSettings
                     )
                 }
 
@@ -445,22 +458,25 @@ fun QuickActionsRow(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToCaregiver: () -> Unit = {},
-    onNavigateToDoctor: () -> Unit = {}
+    onNavigateToDoctor: () -> Unit = {},
+    onNavigateToScan: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val addMedicineLabel = stringResource(R.string.action_add_medicine)
     val calendarLabel = stringResource(R.string.action_calendar)
     val historyLabel = stringResource(R.string.action_history)
     val caregiverLabel = stringResource(R.string.action_caregiver)
+    val scanLabel = stringResource(R.string.action_scan)
 
     val actions = listOf(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
+        Pair(Icons.Default.QrCodeScanner, scanLabel),
         Pair(Icons.Default.Person, "Doctor Mode"),
-        Pair(Icons.Default.QrCodeScanner, stringResource(R.string.action_scan)),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),
         Pair(Icons.Default.People, caregiverLabel),
-        Pair(Icons.Default.Person, stringResource(R.string.action_profile))
+        Pair(Icons.Default.Settings, "Settings")
     )
 
     LazyRow(
@@ -473,10 +489,12 @@ fun QuickActionsRow(
                     when (label) {
                         addMedicineLabel -> onNavigateToAddMedicine()
                         "My Medicines" -> onNavigateToMedicinesList()
+                        scanLabel -> onNavigateToScan()
                         "Doctor Mode" -> onNavigateToDoctor()
                         calendarLabel -> onNavigateToCalendar()
                         historyLabel -> onNavigateToHistory()
                         caregiverLabel -> onNavigateToCaregiver()
+                        "Settings" -> onNavigateToSettings()
                         else -> {}
                     }
                 },

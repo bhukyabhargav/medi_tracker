@@ -121,6 +121,7 @@ class DebugToolsViewModel @Inject constructor(
                 if (med == null) {
                     med = Medicine(
                         id = "debug_med_${UUID.randomUUID()}",
+                    patientId = userPreferences.currentUserId.first() ?: "",
                         name = "Debug Aspirin 81mg",
                         dosageText = "81mg",
                         pillsPerDose = 1,
@@ -137,6 +138,7 @@ class DebugToolsViewModel @Inject constructor(
                 val windowMinutes = AppConfig.effectiveDoseWindowMinutes
                 val testDose = DoseEvent(
                     id = "debug_dose_${UUID.randomUUID()}",
+                    patientId = userPreferences.currentUserId.first() ?: "",
                     medicineId = med.id,
                     scheduledAt = now,
                     windowEndsAt = now + (windowMinutes * 60 * 1000L),
@@ -202,6 +204,7 @@ class DebugToolsViewModel @Inject constructor(
                 if (med == null) {
                     med = Medicine(
                         id = "seed_med_${UUID.randomUUID()}",
+                    patientId = userPreferences.currentUserId.first() ?: "",
                         name = "Amoxicillin 500mg",
                         dosageText = "500mg",
                         pillsPerDose = 1,
@@ -236,6 +239,7 @@ class DebugToolsViewModel @Inject constructor(
                         sampleDoses.add(
                             DoseEvent(
                                 id = "seed_dose_${UUID.randomUUID()}",
+                    patientId = userPreferences.currentUserId.first() ?: "",
                                 medicineId = med.id,
                                 scheduledAt = scheduledTime,
                                 windowEndsAt = scheduledTime + (60 * 60 * 1000L),
@@ -261,6 +265,7 @@ class DebugToolsViewModel @Inject constructor(
                         sampleDoses.add(
                             DoseEvent(
                                 id = "seed_dose_${UUID.randomUUID()}",
+                    patientId = userPreferences.currentUserId.first() ?: "",
                                 medicineId = med.id,
                                 scheduledAt = scheduledTime,
                                 windowEndsAt = scheduledTime + (60 * 60 * 1000L),
