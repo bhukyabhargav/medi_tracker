@@ -54,4 +54,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindProposalRepository(impl: com.meditrack.app.data.repository.ProposalRepositoryImpl): com.meditrack.app.domain.repository.ProposalRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAccountCloudDeleter(impl: com.meditrack.app.data.service.FirebaseAccountCloudDeleter): com.meditrack.app.data.service.AccountCloudDeleter
 }

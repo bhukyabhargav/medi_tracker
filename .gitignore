@@ -22,6 +22,7 @@ google-services.json
 .env
 
 # Built files
+.kotlin/
 app/build/
 ml/data/
 ml/tflite_export/

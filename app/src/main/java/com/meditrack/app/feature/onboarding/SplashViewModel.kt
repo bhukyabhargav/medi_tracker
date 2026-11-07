@@ -3,6 +3,7 @@ package com.meditrack.app.feature.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.core.navigation.Screen
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +20,8 @@ sealed class SplashNavigationTarget {
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val userPreferences: UserPreferences
 ) : ViewModel() {
 
     private val _navigationTarget = MutableStateFlow<SplashNavigationTarget>(SplashNavigationTarget.Loading)
@@ -31,6 +33,14 @@ class SplashViewModel @Inject constructor(
 
     fun checkSession() {
         viewModelScope.launch {
+            // Stage 12 Task 3: Consent before any data is stored.
+            // First run flow: Welcome -> Privacy consent -> Create account/Login.
+            val isConsentGiven = userPreferences.isPrivacyConsentGiven.first()
+            if (!isConsentGiven) {
+                _navigationTarget.value = SplashNavigationTarget.Navigate(Screen.PrivacyConsent.route)
+                return@launch
+            }
+
             val isLoggedIn = authRepository.observeIsLoggedIn().first()
             if (!isLoggedIn) {
                 _navigationTarget.value = SplashNavigationTarget.Navigate(Screen.Login.route)

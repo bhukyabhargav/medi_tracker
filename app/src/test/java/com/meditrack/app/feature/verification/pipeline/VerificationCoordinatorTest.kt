@@ -380,4 +380,20 @@ class VerificationCoordinatorTest {
         assertEquals(RejectReason.BLURRY, (result as CoordinatorResult.Failed).reason)
         assertEquals(3, (result as CoordinatorResult.Failed).attemptsRemaining) // 0 attempts used, 3 remaining!
     }
+
+    @Test
+    fun verify_modelMissingException_returnsCoordinatorError_neverPasses() = runTest {
+        coEvery { doseRepository.getById("dose_abc") } returns sampleDose
+        coEvery { medicineRepository.getById("med_123") } returns sampleMedicine
+        coEvery {
+            verificationPipeline.verify(any(), any(), any(), any(), any())
+        } throws IllegalStateException("Model assets/strip_detector.tflite not installed.")
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = now)
+
+        assertTrue("Missing model must result in CoordinatorResult.Error", result is CoordinatorResult.Error)
+        assertTrue((result as CoordinatorResult.Error).message.contains("Verification temporarily unavailable"))
+        // Proves dose status was NOT marked taken
+        coVerify(exactly = 0) { doseRepository.update(match { it.status == DoseStatus.TAKEN }) }
+    }
 }

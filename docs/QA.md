@@ -14,7 +14,7 @@ This document provides the clinical reliability audit checklist, edge case resil
 | 4 | **Device reboot** | `BootReceiver` listens for `ACTION_BOOT_COMPLETED` and `ACTION_MY_PACKAGE_REPLACED` | Restores all pending dose alarms within active rolling horizon | **PASS** |
 | 5 | **Timezone change** | `BootReceiver` listens for `ACTION_TIMEZONE_CHANGED`; triggers `AlarmMaintenanceWorker(regenerate=true)` | Re-aligns upcoming doses to local wall-clock time | **PASS** |
 | 6 | **Daylight Saving Time (DST)** | `java.time.ZonedDateTime` conversions in `DoseScheduler` | Doses maintain wall-clock fidelity across transition boundaries | **PASS** |
-| 7 | **Airplane mode (offline)** | Offline-first Room architecture; pure on-device ML & OCR pipelines | Alarms, dose capture, verification, and history run 100% offline | **PASS** |
+| 7 | **Airplane mode (offline)** | Offline-first Room architecture; pure on-device ML & OCR pipelines; SQLCipher encryption | Alarms, dose capture, verification, and history run 100% offline | **PASS** |
 | 8 | **Low battery mode** | `BatteryOptimizationScreen` guidance; exact alarms unaffected by OS battery saver | Reminders fire without suppression | **PASS** |
 | 9 | **OEM Battery Killers** | Dedicated guidance screens for Xiaomi (MIUI/HyperOS), Oppo, Vivo, Samsung | Step-by-step instructions for autostart & battery unrestricted mode | **PASS** |
 
@@ -27,11 +27,15 @@ This document provides the clinical reliability audit checklist, edge case resil
 | **Device clock changed backwards** | Monotonic checks; dose cannot be taken before `scheduledAt`; past doses remain immutable | **SAFE** |
 | **Two medicines at same time** | Unique `doseEvent.id` per medicine; independent alarms and notifications grouped cleanly | **SAFE** |
 | **High scale (50+ medicines)** | LazyColumn rendering, Room indexed queries (`Index("patientId")`, `Index("status")`), paginated queries | **SAFE** |
-| **Very large photos (>12MP)** | Image downsampling in `ImageQualityGate` / `PrescriptionParser` to max dimension <= 2048px | **SAFE** |
+| **Very large photos (>12MP)** | Image downsampling in `ImageQualityGate` / `PrescriptionParser` to max dimension $\le 2048\text{px}$ | **SAFE** |
 | **Camera unavailable** | Graceful camera failure handling with actionable retry guidance | **SAFE** |
 | **Storage full** | App-private storage limits checked; safe error handling during photo write | **SAFE** |
-| **TFLite model missing** | Fails closed in release mode; throws explicit actionable exception without crashing | **SAFE** |
+| **TFLite model missing** | Fails closed in release mode (`IllegalStateException`); never falls back to fake detector in release | **SAFE** |
+| **Low confidence detection** | Rejects if strip confidence $< 0.50$ or cell confidence $< 0.60$; prompts retake | **SAFE** |
+| **Cell count discrepancy** | Rejects if detected cell count deviates from baseline by $> 1$ cell | **SAFE** |
 | **Process death mid-verification** | Atomic database transactions; photo preserved in `filesDir/proofs`; uncommitted state discarded safely | **SAFE** |
+| **Cloud deletion failure** | Callable Cloud Function errors prevent local database purge; prompts retry or explicit user override | **SAFE** |
+| **Consent not granted** | Account creation and medicine storage blocked until DPDP Act 2023 consent granted | **SAFE** |
 
 ---
 
@@ -48,10 +52,26 @@ This document provides the clinical reliability audit checklist, edge case resil
 | 7 | Pending proposal does not create active medicine/doses | Proposals reside in `medicine_proposals` table until explicit patient acceptance | **VERIFIED** |
 | 8 | Declined proposal does not change active medication | Declining sets proposal status to `DECLINED` without touching `medicines` | **VERIFIED** |
 | 9 | Patient acceptance activates proposal via medicine workflow | `AcceptProposalUseCase` routes to `SaveMedicineUseCase` generating rolling 7-day schedule | **VERIFIED** |
-| 10 | Revised proposal requires fresh acceptance | Revision from `CLARIFICATION_REQUESTED` resets state to `PENDING` | **VERIFIED** |
+| 10 | Revised proposal requires fresh acceptance | Revision from `CLARIFICATION_REQUESTED` sets old to `SUPERSEDED` and creates new `PENDING` proposal | **VERIFIED** |
 | 11 | Previous accepted versions remain auditable | Proposal history preserves revision numbers and resolution timestamps | **VERIFIED** |
 | 12 | Doctors cannot mark doses TAKEN | Only patient client verification pipeline can write `TAKEN` status | **VERIFIED** |
 | 13 | Caregivers cannot mark doses TAKEN | Caregivers hold read-only adherence views; zero write endpoints for doses | **VERIFIED** |
 | 14 | Neither role can bypass photo verification | `RecordVerifiedDoseUseCase` requires successful `VerificationPipeline` result | **VERIFIED** |
 | 15 | Cross-patient data access rejected | Room repository patient isolation + Firestore rules enforce UID ownership | **VERIFIED** |
-| 16 | Account deletion & data export handle Doctor Mode data | `ExportDataUseCase` bundles doctor records; `DeleteAccountUseCase` purges them | **VERIFIED** |
+| 16 | Account deletion & data export handle Doctor Mode data | `ExportDataUseCase` bundles doctor records; `deleteAccountData` Cloud Function purges them | **VERIFIED** |
+
+---
+
+## 4. Test & Performance Summary
+
+- **Real Unit Test Count**: **359 tests** across 53 test classes (100% passing, 0 failures, 0 errors, 0 skipped).
+- **ML Detection Performance (Validation Split)**:
+  - EMPTY Precision: $0.982$
+  - Strip Recall: $1.000$
+  - Overall mAP@0.5: $0.979$
+  - Inference Latency: $11.9\text{ ms}$ (Host CPU benchmark; on-device marked NOT RUN)
+  - `cell_partial`: Not trained in public dataset; treated as unknown / retake.
+  - Gold Test Set: Held-out own-photo set is **MISSING** (listed as open human task).
+- **Release Hardening**:
+  - ProGuard / R8 minification and resource shrinking enabled (`isMinifyEnabled = true`, `isShrinkResources = true`).
+  - Room database encrypted at rest with SQLCipher for Android (`net.zetetic:sqlcipher-android`) and hardware-backed Android Keystore key wrapping.

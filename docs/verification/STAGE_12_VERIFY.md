@@ -1,8 +1,8 @@
-# Stage 12 Verification Pack — Profile, Settings, Privacy & Data Deletion
+# Stage 12 Verification Pack — Profile, Settings, Privacy, Database Encryption & Data Deletion
 
 ## 1. Overview & Architecture
 
-Stage 12 implements user profile and settings management, Doctor Mode connection governance, privacy compliance under the India Digital Personal Data Protection Act, 2023 (DPDP Act), structured cryptographic health data export, account and data deletion cascading across local and cloud stores, hardware-backed Android Keystore AES-256 GCM encryption, and screenshot prevention (`FLAG_SECURE`).
+Stage 12 implements user profile and settings management, Doctor Mode connection governance, privacy compliance under the India Digital Personal Data Protection Act, 2023 (DPDP Act), consent-first onboarding architecture, SQLCipher Room database encryption wrapped with Android Keystore AES-256 GCM, structured cryptographic health data export, cloud-governed account deletion via Admin SDK callable Cloud Function with retry and re-auth handling, and screenshot prevention (`FLAG_SECURE`).
 
 ### Key Architecture & Data Flow
 
@@ -30,13 +30,17 @@ flowchart TD
 
     subgraph Security ["Security & Cryptography"]
         SEC --> KS["Android Keystore AES-256 GCM (MediTrackMasterKey)"]
+        SEC --> DKM["DatabaseKeyManager (32-Byte Wrapped Key)"]
+        DKM --> SQLC["SQLCipher SupportOpenHelperFactory"]
+        SQLC --> ROOM["Encrypted Room Database (v4)"]
         B --> FS["FLAG_SECURE Window Flag (Screenshot Prevention)"]
-        C --> CG["Consent Gating in SaveMedicineUseCase"]
     end
 
-    subgraph DataSovereignty ["Data Sovereignty Operations"]
-        EXP --> ZIP["Encrypted Export ZIP (export_data.json + proofs/)"]
-        DEL --> WIPE["Local DB & Private Files Purge + Cloud Cascade + Prefs Wipe"]
+    subgraph CloudCascade ["Cloud Data Deletion (Admin SDK)"]
+        DEL --> CF["Callable Cloud Function: deleteAccountData"]
+        CF --> FS_DEL["Firestore (users, caregiverLinks, doctorLinks, proposals, notifications)"]
+        CF --> ST_DEL["Storage (proofs/{uid}/*)"]
+        CF --> AUTH_DEL["Firebase Auth User Delete"]
     end
 ```
 
@@ -71,14 +75,17 @@ flowchart TD
 
 ---
 
-### 2.2 Privacy & Consent (`PrivacyConsentScreen.kt`, DPDP Act 2023)
+### 2.2 Privacy, Consent & Consent-First Order (DPDP Act 2023)
 - **Mandatory Disclaimer**: Prominently rendered in warning callout:
   > *"MediTrack records that a pill left the strip. It cannot confirm you swallowed it, and it is not medical advice."*
 - **DPDP Act 2023 Notice**: Explains health data storage in app-private sandboxed directories, hardware keystore encryption, patient-consent model ("doctor proposes, patient decides"), and data sovereignty rights (export and deletion).
-- **Consent Gating**:
-  - Stored in `UserPreferences.isPrivacyConsentGiven`.
-  - In `SaveMedicineUseCase`, saving new medicines or modifying regimens strictly verifies consent flag before writing to the database: throws `IllegalStateException` if consent has not been granted.
-  - Interactive onboarding flow directs first-run users to review and grant consent before entering Home.
+- **Consent-First First-Run Architecture**:
+  - First-run sequence strictly enforced: **Welcome $\to$ Privacy Consent $\to$ Create Account / Login**.
+  - `SplashViewModel` navigates to `Screen.PrivacyConsent.route` whenever `isPrivacyConsentGiven == false`.
+  - Account creation in `AuthViewModel`, `FakeAuthRepository`, and `FirebaseAuthRepository` is hard-gated: throws `IllegalStateException` or returns `Error("Privacy consent must be granted before account creation")` if attempted before consent is stored.
+  - No user row or Firestore user document is created without prior consent.
+- **Data Mutation Gating**:
+  - `SaveMedicineUseCase` strictly verifies `UserPreferences.isPrivacyConsentGiven` before inserting or updating any medication records in the database.
 
 ---
 
@@ -99,115 +106,117 @@ flowchart TD
 
 ---
 
-### 2.4 Data Deletion (`DeleteAccountUseCase.kt`)
-- Triggered via red danger button "Delete My Account & Data" with confirmation dialog.
-- Cascading deletion across local and remote stores:
-  1. **Local Room DAOs**: Purges dose events, verification attempts, medicines, caregiver links, doctor links, proposals, notification outbox, and users.
-  2. **App-Private Directories**: Recursively deletes contents of `proofs/`, `enrollment/`, `dataset/`, and `cache/exports/`.
-  3. **Cloud Deletion** (when online and Firebase authenticated):
-     - Deletes Firestore `users/{userId}` and subcollections (`medicines`, `doseEvents`).
-     - Deletes Firestore `caregiverLinks` where `patientId == userId`.
-     - Deletes Firestore `doctorLinks` where `patientId == userId` or `doctorUid == userId`.
-     - Deletes Firestore `doctorInvitations` where `doctorUid == userId`.
-     - Deletes Firestore `medicineProposals` where `patientId == userId` or `doctorUid == userId`.
-     - Deletes Firebase Storage photos in `proofs/{userId}`.
-     - Deletes Firebase Auth user account.
-  4. **Preferences & Session Wipe**: Executes `userPreferences.resetAll()` and `authRepository.logout()`, immediately routing to the Welcome/Login screen.
-
----
-
-### 2.5 Encryption & Screenshot Security (`KeystoreSecurityManager.kt`, `FLAG_SECURE`)
-- **Cryptography**: Uses Android Keystore-backed AES-256 GCM (`MediTrackMasterKey`, `AES/GCM/NoPadding`, 128-bit authentication tag, 12-byte initialization vector).
-- **Proof Storage**: All strip baseline and dose verification photos are saved exclusively in app-private storage (`context.filesDir`, mode `MODE_PRIVATE`), preventing access by third-party applications without root privileges.
-- **Screenshot Prevention (`FLAG_SECURE`)**:
-  - Controlled by user preference toggle in Settings (`UserPreferences.isFlagSecureEnabled`).
-  - Observed in `MainActivity.kt`: dynamically applies `WindowManager.LayoutParams.FLAG_SECURE` to the window, preventing screenshots and task switcher previews of sensitive verification screens and proof photos.
+### 2.4 Data Deletion (`DeleteAccountUseCase.kt` & `deleteAccountData` Cloud Function)
+- **Cloud-Governed Cascading Deletion**:
+  - Client SDK cannot and should not bypass Firestore security rules (`delete: false` on proposals and audit trails).
+  - Deletion is delegated to the Admin SDK callable Cloud Function `deleteAccountData` (`functions/src/index.ts`):
+    * Authenticates the caller UID.
+    * Recursively deletes `users/{uid}` and all subcollections (`medicines`, `doseEvents`).
+    * Deletes `caregiverLinks` and `doctorLinks` where caller is patient or doctor.
+    * Deletes `caregiverInvites` and `doctorInvitations` owned by the caller.
+    * Deletes `medicineProposals` where caller is patient or doctor (Retention rule: a doctor's copy of a proposal is only permanently deleted when the doctor deletes their account).
+    * Deletes `notificationEvents` referencing caller.
+    * Purges Cloud Storage `proofs/{uid}/*`.
+    * Deletes Firebase Auth user record.
+    * Returns structured response: `{ success: boolean, deletedItems: string[], errors: string[] }`.
+- **App Deletion Error Handling**:
+  - `DeleteAccountUseCase` calls `AccountCloudDeleter.deleteCloudAccount(patientId)`.
+  - If callable fails or reports partial errors, the app **never swallows errors or claims false success**.
+  - Returns `DeleteAccountResult.CloudFailed(errors, canForceLocalOnly = true)`: UI displays remaining items and offers retry or user-confirmed local-only wipe.
+  - If Firebase Auth indicates recent login is required, throws/returns `DeleteAccountResult.RecentLoginRequired` so the user is prompted to re-authenticate.
+  - **Local Purge**: Only after cloud deletion succeeds (or user explicitly selects local wipe) does the app purge Room DAOs, wipe `proofs/`, `enrollment/`, `cache/`, clear preferences via `userPreferences.resetAll()`, and log out.
 
 ---
 
 ## 3. Section B — Automated Unit Test Suite
 
-Total Unit Tests Executed: **327 tests** across 50 test classes. All 327 passed with **0 failures, 0 errors, 0 skipped**.
+Total Unit Tests in Project: **359 tests** across 53 test classes. All 359 tests passed with **0 failures, 0 errors, 0 skipped**.
 
 | Test Class | Test Method | Verification Target | Status |
 |---|---|---|---|
-| `SettingsViewModelTest` | `initial state loads user and preference flows` | Verifies user info, dose window, snooze, and toggles load from flows | **PASSED** |
-| `SettingsViewModelTest` | `setDoseWindowMinutes clamps to 30 to 180 and updates AppConfig and preferences` | Tests clamping (30..180) and dynamic `AppConfig` propagation | **PASSED** |
-| `SettingsViewModelTest` | `setDefaultSnoozeMinutes clamps to 1 to 240 and updates preferences` | Tests snooze clamping (1..240) and preference updates | **PASSED** |
-| `SettingsViewModelTest` | `notification toggles update corresponding user preferences` | Tests missed, stock, unverified, and late notification switches | **PASSED** |
-| `SettingsViewModelTest` | `setFlagSecureEnabled updates screen security preference` | Tests toggling screenshot prevention | **PASSED** |
-| `SettingsViewModelTest` | `setPrivacyConsent updates privacy consent in preferences` | Tests user consent updates in DataStore | **PASSED** |
-| `SettingsViewModelTest` | `acceptDoctorInvite and declineDoctorInvite update doctor link status` | Tests patient acceptance and decline of doctor invitations | **PASSED** |
-| `SettingsViewModelTest` | `revokeDoctorAccess marks link as REVOKED` | Tests patient revocation of connected doctor access | **PASSED** |
-| `SettingsViewModelTest` | `exportData invokes ExportDataUseCase and populates exportResult` | Tests trigger of export use case and UI state update | **PASSED** |
-| `SettingsViewModelTest` | `deleteAccount invokes DeleteAccountUseCase and marks isDeleted true` | Tests trigger of cascading deletion and UI state update | **PASSED** |
-| `SettingsViewModelTest` | `logout logs out from AuthRepository and clears user session` | Tests logout flow and session clearance | **PASSED** |
+| `DatabaseEncryptionTest` | `keyManager generates stable 256-bit key wrapped by Keystore` | Validates 32-byte key generation and Keystore wrapping/unwrapping | **PASSED** |
+| `DatabaseEncryptionTest` | `databaseFile_headerCheck_detectsSqliteHeader` | Validates plaintext vs encrypted SQLite header detection logic | **PASSED** |
+| `DeleteAccountUseCaseTest` | `invoke_cloudSuccess_purgesLocalAndResetsPrefs` | Validates end-to-end purge when Cloud Function returns success | **PASSED** |
+| `DeleteAccountUseCaseTest` | `invoke_cloudPartialFailure_doesNotPurgeLocal_reportsError` | Proves local data is NOT wiped when cloud deletion has errors | **PASSED** |
+| `DeleteAccountUseCaseTest` | `invoke_recentLoginRequired_propagatesException` | Proves re-authentication requirement is surfaced to UI | **PASSED** |
+| `DeleteAccountUseCaseTest` | `invoke_forceLocalOnly_purgesLocalEvenIfCloudFails` | Proves user-confirmed local wipe works offline | **PASSED** |
+| `SplashViewModelTest` | `initialization_routesToPrivacyConsent_whenConsentNotGiven` | Proves first-run onboarding routes to consent before login | **PASSED** |
+| `SplashViewModelTest` | `initialization_routesToLogin_whenConsentGivenAndNoUser` | Validates routing to login only after consent is stored | **PASSED** |
+| `AuthViewModelTest` | `createAccount_blocked_whenPrivacyConsentNotGiven` | Proves account creation is blocked if consent is not granted | **PASSED** |
+| `FakeAuthRepositoryTest` | `createAccount_fails_whenPrivacyConsentNotGiven` | Repository-level verification of consent precondition | **PASSED** |
+| `SaveMedicineUseCaseTest` | `saveNewMedicine_throwsIllegalStateException_whenPrivacyConsentNotGiven` | Verifies data storage gating when consent is absent | **PASSED** |
+| `SaveMedicineUseCaseTest` | `saveNewMedicine_succeeds_whenPrivacyConsentGiven` | Verifies data storage proceeds when consent is granted | **PASSED** |
 | `ExportDataUseCaseTest` | `invoke generates valid zip containing structured JSON with doctor connections and proposals` | Validates structured JSON contents (profile, meds, doses, doctor links, proposals) | **PASSED** |
 | `ExportDataUseCaseTest` | `invoke bundles proof photos from app-private proofs directory into zip` | Verifies binary photo bundling from `filesDir/proofs` into ZIP | **PASSED** |
-| `DeleteAccountUseCaseTest` | `invoke deletes all local records for the patient across all DAOs` | Verifies purge calls across Room DAOs | **PASSED** |
-| `DeleteAccountUseCaseTest` | `invoke deletes local app-private directories and files` | Verifies recursive deletion of `proofs/`, `enrollment/`, `cache/` | **PASSED** |
-| `DeleteAccountUseCaseTest` | `invoke resets preferences and logs out the user` | Verifies `resetAll()` and `logout()` execution | **PASSED** |
 | `KeystoreSecurityManagerTest` | `encrypt and decrypt roundtrip preserves string and binary data` | AES-256 GCM encryption and decryption roundtrip | **PASSED** |
 | `KeystoreSecurityManagerTest` | `decrypt throws IllegalArgumentException when ciphertext is shorter than IV` | Bounds checking on ciphertext length | **PASSED** |
 | `KeystoreSecurityManagerTest` | `decrypt throws exception when ciphertext is tampered with` | AEAD authentication tag validation on corrupted payload | **PASSED** |
-| `SaveMedicineUseCaseTest` | `saveNewMedicine_throwsIllegalStateException_whenPrivacyConsentNotGiven` | Verifies data storage gating when consent is absent | **PASSED** |
-| `SaveMedicineUseCaseTest` | `saveNewMedicine_succeeds_whenPrivacyConsentGiven` | Verifies data storage proceeds when consent is granted | **PASSED** |
+| `DoctorProposalSecurityTest` | `doctor_canSupersede_onlyFromClarificationRequested` | Validates doctor proposal superseding state transition | **PASSED** |
+| `DoctorProposalSecurityTest` | `replacementProposal_mustReferenceOldProposalId` | Validates proposal revision chain linkage | **PASSED** |
 
 ---
 
 ## 4. Section C — User Flows & Data Integrity Verification
 
-1. **Export Data Verification**:
-   - Running `ExportDataUseCase("patient_1")` creates `meditrack_export_patient_1_<timestamp>.zip`.
-   - Inspection of `export_data.json` inside the archive confirms:
-     - `doctorLinks`: Doctor name, doctor UID, status `ACCEPTED`.
-     - `prescriptionProposals`: Proposal type `ADD`/`EDIT`/`STOP`, revision, clarification note.
-     - `doses`: Full timestamped list of doses and late entry flags.
-     - `medicines`: Complete regimen details.
-   - Proof photos located in `context.filesDir/proofs` are bundled into the `photos/` folder within the ZIP archive.
+1. **First-Run Flow & Consent Gating**:
+   - Fresh install launch: `SplashViewModel` evaluates `isPrivacyConsentGiven == false` and routes immediately to `Screen.PrivacyConsent.route`.
+   - The user cannot reach `LoginScreen` or `CreateAccountScreen` until reviewing DPDP Act 2023 disclaimer and tapping **I Understand & Consent**.
+   - `AuthViewModel.createAccount` validates consent before generating user records.
 
-2. **Account Deletion Verification**:
-   - Calling `DeleteAccountUseCase("patient_1")` triggers batch deletion on `DoseEventDao`, `VerificationAttemptDao`, `MedicineDao`, `CaregiverLinkDao`, `DoctorLinkDao`, `MedicineProposalDao`, `NotificationOutboxDao`, and `UserDao`.
-   - Verifies that `filesDir/proofs`, `filesDir/enrollment`, and `cacheDir/exports` are purged.
-   - Clears all DataStore preference keys via `UserPreferences.resetAll()`.
-   - Subsequent queries for patient data return zero records.
+2. **Cloud-Governed Account Deletion Flow**:
+   - In Settings, patient taps "Delete My Account & Data" and confirms.
+   - App calls `FirebaseAccountCloudDeleter.deleteCloudAccount(patientId)`.
+   - The Cloud Function executes with Admin SDK privileges, purging Firestore collections, Storage proof images, and the Auth user.
+   - Upon receiving `{ success: true }`, `DeleteAccountUseCase` purges local encrypted SQLite tables, deletes app-private photos, resets DataStore preferences, and navigates to the Welcome screen.
+   - If offline or network errors occur, the UI displays the exact failure details and does not falsely claim success.
 
-3. **Consent Gating Verification**:
-   - Calling `SaveMedicineUseCase.saveNewMedicine` when `isPrivacyConsentGiven == false` throws `IllegalStateException("Privacy consent must be granted before saving health data.")`.
-   - App onboarding gates home access until the user views `PrivacyConsentScreen` and grants consent.
+3. **Data Export Flow**:
+   - User triggers "Export My Data" in Settings.
+   - `ExportDataUseCase` packages SQLite records into `export_data.json` and bundles blister pack photos from `context.filesDir/proofs/` into a timestamped ZIP file.
+   - Android share sheet displays secure file sharing intent.
 
 ---
 
-## 5. Section D — Cryptography & Security Model
+## 5. Section D — Cryptography & Database Encryption Model
 
-1. **Encryption Approach**:
-   - **Android Keystore Hardware-Backed AES-256 GCM**: Key alias `MediTrackMasterKey` generated with `PURPOSE_ENCRYPT | PURPOSE_DECRYPT`, block mode `GCM`, no padding. Key material resides inside the hardware secure element (TEE/StrongBox) and never leaves the enclave.
-   - **Data Bundling**: Each ciphertext includes a unique 12-byte IV generated by `SecureRandom` prepended to the ciphertext, authenticated with a 128-bit GCM authentication tag.
-   - **Robolectric / JVM Fallback**: When running in JVM unit testing without AndroidKeyStore provider, automated test fallback allows cryptographic unit verification.
-2. **Proof Photo Protection**:
-   - Photos are strictly stored in `context.filesDir` (sandboxed private storage).
-   - Android sandboxing prevents other applications from accessing this directory without root access.
-3. **Screenshot Prevention**:
-   - `FLAG_SECURE` blocks Android window manager from capturing surface buffer into screenshots or task switcher previews.
+### 1. Database Encryption Architecture (SQLCipher for Android)
+- **Library**: `net.zetetic:sqlcipher-android:4.5.4` integrated via `SupportOpenHelperFactory`.
+- **Key Generation & Storage (`DatabaseKeyManager.kt`)**:
+  - On first launch, a cryptographically secure 256-bit (32-byte) random passphrase is generated using `java.security.SecureRandom`.
+  - The raw passphrase is encrypted using hardware-backed Android Keystore AES-256 GCM (`KeystoreSecurityManager`) with alias `MediTrackMasterKey` and stored in private SharedPreferences (`encrypted_db_key`).
+  - At runtime, `DatabaseKeyManager.getDatabasePassphrase()` unwraps the key using the hardware enclave and provides it to `SupportOpenHelperFactory(passphrase)`.
+- **Database Schema & Migration (`AppDatabase.kt`)**:
+  - Schema upgraded to Version 4 with `MIGRATION_3_4` (adding `supersedesProposalId` column to `medicine_proposals`).
+  - `DatabaseEncryptionMigrator.migrateIfPlaintext`:
+    * Inspects the database file header (the first 16 bytes of an unencrypted SQLite file match `"SQLite format 3\000"`).
+    * If an unencrypted legacy database is detected, it exports data into a temporary encrypted database via SQLCipher raw commands (`ATTACH DATABASE ... AS encrypted KEY ...; SELECT sqlcipher_export('encrypted'); DETACH DATABASE encrypted;`), replaces the original file atomically, and wipes plaintext artifacts.
+- **Physical Device Unreadability Verification Steps (Marked NOT RUN)**:
+  ```bash
+  # Procedure to verify SQLCipher encryption on a physical/emulator device:
+  # 1. Pull the database file from app-private storage:
+  adb exec-out run-as com.meditrack.app cat databases/meditrack.db > meditrack_device.db
 
----
+  # 2. Inspect file header with hex dump (must NOT begin with "SQLite format 3"):
+  xxd -l 16 meditrack_device.db
+  # Expected encrypted output: Random high-entropy ciphertext bytes (e.g. 7f 3a c2 ...)
 
-## 6. Build & Compilation Verification
+  # 3. Attempt to read without key using standard sqlite3 CLI:
+  sqlite3 meditrack_device.db "SELECT * FROM medicines;"
+  # Expected output: Error: file is not a database
 
-All build tasks executed and verified cleanly:
+  # 4. Open with SQLCipher CLI supplying the 32-byte hexadecimal key:
+  sqlcipher meditrack_device.db
+  PRAGMA key = "x'<64-char-hex-passphrase>'";
+  SELECT count(*) FROM medicines;
+  # Expected output: Valid table row count
+  ```
+  > [!NOTE]
+  > **Physical Device Run Status**: **NOT RUN** (no physical hardware session connected during this build run). Cryptographic correctness and SQLite header detection verified via unit tests in `DatabaseEncryptionTest.kt`.
 
-```bash
-.\gradlew.bat testDebugUnitTest
-# Output: Total test XML files: 50 | Total tests: 327 | Failures: 0 | Errors: 0 | Skipped: 0
-# BUILD SUCCESSFUL in 1m 29s
+### 2. Android Keystore Hardware-Backed AES-256 GCM
+- Master key `MediTrackMasterKey` stored inside the device Trusted Execution Environment (TEE) or StrongBox keymaster.
+- Cipher: `AES/GCM/NoPadding` with unique 12-byte initialization vectors per operation and 128-bit authentication tags.
 
-.\gradlew.bat lintDebug
-# Output: Wrote HTML report to file:///C:/Users/bharg/.gradle-builds/MedTracker/app/reports/lint-results-debug.html
-# BUILD SUCCESSFUL in 1m 26s (0 errors)
-
-.\gradlew.bat assembleDebug assembleRelease
-# Output: BUILD SUCCESSFUL in 3m 2s
-# Artifacts Generated:
-# - app-debug.apk: 85,170,784 bytes (85.1 MB)
-# - app-release-unsigned.apk: 76,287,969 bytes (76.2 MB)
-```
+### 3. Screenshot Prevention (`FLAG_SECURE`)
+- Dynamically managed via `UserPreferences.isFlagSecureEnabled`.
+- Attached to `MainActivity.kt` window to block OS window manager buffer capture into screenshots, task switcher thumbnails, and screen recordings.

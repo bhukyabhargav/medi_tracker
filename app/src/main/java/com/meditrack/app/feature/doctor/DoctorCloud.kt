@@ -138,6 +138,7 @@ class DoctorCloud @Inject constructor(
             "status" to proposal.status.name,
             "revision" to proposal.revision,
             "clarificationNote" to proposal.clarificationNote,
+            "supersedesProposalId" to proposal.supersedesProposalId,
             "createdAt" to proposal.createdAt,
             "resolvedAt" to proposal.resolvedAt
         )
@@ -168,6 +169,7 @@ class DoctorCloud @Inject constructor(
                     status = status,
                     revision = d.getLong("revision")?.toInt() ?: 1,
                     clarificationNote = d.getString("clarificationNote"),
+                    supersedesProposalId = d.getString("supersedesProposalId"),
                     createdAt = d.getLong("createdAt") ?: System.currentTimeMillis(),
                     resolvedAt = d.getLong("resolvedAt")
                 )

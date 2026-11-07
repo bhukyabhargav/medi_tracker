@@ -132,12 +132,17 @@ service cloud.firestore {
         resource.data.doctorUid == request.auth.uid
       );
 
-      // Doctor creates proposal: must have accepted link, status must be PENDING, revision must be 1
+      // Doctor creates proposal: must have accepted link, status must be PENDING.
+      // - Revision 1: initial proposal (supersedesProposalId must be null or absent)
+      // - Revision > 1: replacement proposal referencing previous proposal via supersedesProposalId
       allow create: if isAuthenticated() &&
         request.resource.data.doctorUid == request.auth.uid &&
         request.resource.data.status == 'PENDING' &&
-        request.resource.data.revision == 1 &&
-        isAcceptedDoctor(request.resource.data.patientId);
+        isAcceptedDoctor(request.resource.data.patientId) &&
+        (
+          (request.resource.data.revision == 1 && (!('supersedesProposalId' in request.resource.data) || request.resource.data.supersedesProposalId == null)) ||
+          (request.resource.data.revision > 1 && ('supersedesProposalId' in request.resource.data) && request.resource.data.supersedesProposalId is string && request.resource.data.supersedesProposalId.size() > 0)
+        );
 
       // Update:
       // Patient permissions:
@@ -147,10 +152,9 @@ service cloud.firestore {
       //
       // Doctor permissions:
       // - Can update ONLY if proposal is in CLARIFICATION_REQUESTED
-      // - Can revise prescription payload, increment revision count (revision + 1), reset status to PENDING
-      // - Cannot change doctorUid, patientId, medicineId, or type
+      // - Allowed to mark proposal SUPERSEDED changing ONLY status and resolvedAt (diff().affectedKeys().hasOnly)
       //
-      // Once status is ACCEPTED, DECLINED, or REJECTED, no further updates permitted.
+      // Once status is ACCEPTED, DECLINED, REJECTED, or SUPERSEDED, no further updates permitted.
       allow update: if isAuthenticated() &&
         request.resource.data.patientId == resource.data.patientId &&
         request.resource.data.doctorUid == resource.data.doctorUid &&
@@ -171,13 +175,12 @@ service cloud.firestore {
             (!('medicineName' in resource.data) || request.resource.data.medicineName == resource.data.medicineName)
           )
           ||
-          // Doctor revision after clarification request:
+          // Doctor superseding after clarification request:
           (
             request.auth.uid == resource.data.doctorUid &&
             resource.data.status == 'CLARIFICATION_REQUESTED' &&
-            request.resource.data.status == 'PENDING' &&
-            request.resource.data.revision == resource.data.revision + 1 &&
-            (!('medicineId' in resource.data) || request.resource.data.medicineId == resource.data.medicineId) &&
+            request.resource.data.status == 'SUPERSEDED' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt']) &&
             isAcceptedDoctor(resource.data.patientId)
           )
         );

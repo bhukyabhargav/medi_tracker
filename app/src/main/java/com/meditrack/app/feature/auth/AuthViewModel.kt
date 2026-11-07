@@ -2,12 +2,14 @@ package com.meditrack.app.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.UserRole
 import com.meditrack.app.domain.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,7 +27,8 @@ data class AuthUiState(
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val userPreferences: UserPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -96,6 +99,18 @@ class AuthViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
         viewModelScope.launch {
+            // Stage 12 Task 3 & Acceptance: Consent before any data is stored
+            val consentGiven = userPreferences.isPrivacyConsentGiven.first()
+            if (!consentGiven) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "Privacy consent must be granted before creating an account or storing data."
+                    )
+                }
+                return@launch
+            }
+
             val result = authRepository.createAccount(
                 name = state.name,
                 emailOrPhone = state.contact,

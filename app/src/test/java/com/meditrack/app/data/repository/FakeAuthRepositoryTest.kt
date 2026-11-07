@@ -35,13 +35,14 @@ class FakeAuthRepositoryTest {
     private lateinit var repository: FakeAuthRepository
 
     @Before
-    fun setUp() {
+    fun setUp() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         userDao = db.userDao()
         userPreferences = UserPreferences(context)
+        userPreferences.setPrivacyConsentGiven(true)
         repository = FakeAuthRepository(userDao, db.medicineDao(), db.doseEventDao(), db.caregiverLinkDao(), userPreferences)
     }
 
@@ -49,6 +50,22 @@ class FakeAuthRepositoryTest {
     fun tearDown() = runTest {
         repository.logout()
         db.close()
+    }
+
+    @Test
+    fun `createAccount fails and creates no user row when privacy consent is not given`() = runTest {
+        userPreferences.setPrivacyConsentGiven(false)
+
+        val createResult = repository.createAccount(
+            name = "No Consent User",
+            emailOrPhone = "noconsent@example.com",
+            password = "securePassword123",
+            role = UserRole.PATIENT
+        )
+
+        assertTrue(createResult.isFailure)
+        assertTrue(createResult.exceptionOrNull() is IllegalStateException)
+        assertNull(userDao.getUserByContact("noconsent@example.com"))
     }
 
     @Test

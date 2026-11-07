@@ -427,7 +427,10 @@ class DoctorViewModel @Inject constructor(
                     doctorCloud.createProposal(newProposal)
                     doctorCloud.updateProposal(
                         oldProposalId,
-                        mapOf("status" to ProposalStatus.SUPERSEDED.name)
+                        mapOf(
+                            "status" to ProposalStatus.SUPERSEDED.name,
+                            "resolvedAt" to System.currentTimeMillis()
+                        )
                     )
                 }
                 _uiState.update { it.copy(userMessage = "Prescription proposal updated (Revision ${updatedPayload.revision + 1}). Awaiting patient acceptance.") }

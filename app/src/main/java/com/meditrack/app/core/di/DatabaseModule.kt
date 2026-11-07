@@ -2,7 +2,9 @@ package com.meditrack.app.core.di
 
 import android.content.Context
 import androidx.room.Room
+import com.meditrack.app.core.security.DatabaseKeyManager
 import com.meditrack.app.data.db.AppDatabase
+import com.meditrack.app.data.db.DatabaseEncryptionMigrator
 import com.meditrack.app.data.db.dao.CaregiverLinkDao
 import com.meditrack.app.data.db.dao.DoctorLinkDao
 import com.meditrack.app.data.db.dao.DoseEventDao
@@ -25,13 +27,29 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAppDatabase(
-        @ApplicationContext context: Context
+        @ApplicationContext context: Context,
+        databaseKeyManager: DatabaseKeyManager
     ): AppDatabase {
+        val passphrase = databaseKeyManager.getOrCreatePassphrase()
+        val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
+
+        // Handle one-time plaintext to encrypted migration if needed
+        try {
+            if (DatabaseEncryptionMigrator.isDatabasePlaintext(dbFile)) {
+                DatabaseEncryptionMigrator.migratePlaintextToEncrypted(context, dbFile, passphrase)
+            }
+        } catch (_: Throwable) {
+            // Best effort migration
+        }
+
+        val factory = net.zetetic.database.sqlcipher.SupportOpenHelperFactory(passphrase)
+
         return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
+        .openHelperFactory(factory)
         .addMigrations(*AppDatabase.ALL_MIGRATIONS)
         .build()
     }

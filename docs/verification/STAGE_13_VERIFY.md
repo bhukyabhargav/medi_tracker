@@ -7,7 +7,7 @@ MediTrack verifies medication adherence using on-device computer vision:
 1. When a reminder sounds, the patient aligns their blister strip within the camera viewfinder.
 2. The `TfliteStripDetector` on-device neural network analyzes the frame:
    - Detects the `strip` bounding box and confirms it is fully in-frame within a 5% margin.
-   - Detects all individual blister cavities and classifies each cavity state: `cell_full`, `cell_empty`, or `cell_partial`.
+   - Detects all individual blister cavities and classifies each cavity state: `cell_full` or `cell_empty`.
 3. **The Pill Ledger Comparison**:
    The verification engine calculates the delta between the post-intake empty cavities and the pre-intake baseline:
    $$\Delta \text{Empty} = \text{Empty}_{\text{post}} - \text{Empty}_{\text{pre}}$$
@@ -18,10 +18,10 @@ MediTrack verifies medication adherence using on-device computer vision:
 flowchart TD
     A["Camera Capture (Bitmap)"] --> B["ImageQualityGate (Blur, Brightness, Glare)"]
     B -->|Pass| C["TfliteStripDetector (strip_detector.tflite)"]
-    C --> D["Preprocess (Resize 300x300, RGB Byte Array)"]
+    C --> D["Preprocess (Resize 320x320, RGB Float32 Array)"]
     D --> E["TFLite Interpreter Inference"]
     E --> F["Post-process (NMS, Box Normalization)"]
-    F --> G["Count cell_empty, cell_full, cell_partial"]
+    F --> G["Count cell_empty, cell_full, check cell_partial"]
     G --> H["Ledger Check: Delta Empty == pillsPerDose"]
     H -->|Match| I["Status: TAKEN, Stock Decrement"]
     H -->|Mismatch| J["Status: REJECTED (PILLS_NOT_REMOVED or WRONG_PILL_COUNT)"]
@@ -29,21 +29,24 @@ flowchart TD
 
 ---
 
-## 2. Dataset Stack & Class Definitions
+## 2. Dataset Stack & Honest Counts (from Manifests)
 
-### 2.1 The Three Datasets
-- **Dataset 1: Blister Pills Segmentation (v7)** (Roboflow Universe): Label source. 1,349 images. Teaches the network what full cavities and empty cavities look like.
-- **Dataset 2: Pharmassist Dataset** (Mendeley Data, CC BY 4.0): Indian used blister packs (2,050 originals + 2,947 augmented copies, 53 tablet classes). **Has no cell-level labels**. Used for domain realism and silver pseudo-labelling.
-- **Dataset 3: Own Phone Photos** (Stage 5 Data Collection Mode): 320 held-out gold test photos. **The sole source of ground truth for `cell_partial`**.
+### 2.1 The Datasets Used
+- **Dataset 1: Blister Pills Segmentation (v7)** (Roboflow Universe): Label source. 1,349 images (1,173 train, 117 val, 59 test).
+- **Dataset 2: Pharmassist Dataset** (Mendeley Data, CC BY 4.0): Indian used blister packs (2,050 originals + 2,947 augmented copies, 53 tablet classes). **Has no cell-level labels**.
+- **Dataset 3: Own Phone Photos (Stage 13.B)**: **MISSING (Open human task)**. No physical smartphone photos were collected by human testers in this pass.
 
-### 2.2 Unified Class Inventory
+### 2.2 Actual Manifest Instance Counts
 
-| Unified Class | Source Class / Meaning | Train Instances | Val Instances | Test Instances |
-|---|---|---|---|---|
-| `strip` | `Blister` (Bounding envelope of strip) | 1,080 | 269 | 320 |
-| `cell_full` | `Full` (Cavity with intact pill) | 7,872 | 1,968 | 2,140 |
-| `cell_empty` | `Empty` (Cavity with pill removed) | 2,496 | 624 | 890 |
-| `cell_partial` | Own photos only (Cracked/crushed pill) | 0 | 0 | 120 |
+| Unified Class | Source Class / Meaning | Train Instances | Val Instances | Test Instances | Total |
+|---|---|---|---|---|---|
+| `strip` (0) | `Blister` (Bounding envelope of strip) | 1,173 | 117 | 53 | **1,343** |
+| `cell_full` (1) | `Full` (Cavity with intact pill) | 11,260 | 1,180 | 477 | **12,917** |
+| `cell_empty` (2) | `Empty` (Cavity with pill removed) | 4,054 | 365 | 230 | **4,649** |
+| `cell_partial` (3) | Cracked/crushed pill | **0** | **0** | **0** | **0 (Not trained)** |
+
+> [!WARNING]
+> **`cell_partial` Status**: Because `cell_partial` is absent from public datasets and no own photos were gathered, `cell_partial` is **not trained** in the model weights. The Android application enforces a conservative runtime guard: if any partial/ambiguous cell is detected, it fails closed with `WRONG_PILL_COUNT` requiring a retake or manual review.
 
 ---
 
@@ -59,7 +62,7 @@ flowchart TD
 
 ## 4. Section B — Automated & Regression Tests
 
-All automated tests executed via `./gradlew.bat testDebugUnitTest` and ML pipeline scripts:
+All automated unit tests executed via `./gradlew.bat testDebugUnitTest`:
 
 1. **`TfliteStripDetectorTest`**:
    - `detect_withoutModelAsset_throwsIllegalStateException`: Release detector fails closed when asset is missing.
@@ -70,23 +73,37 @@ All automated tests executed via `./gradlew.bat testDebugUnitTest` and ML pipeli
    - Rejection on `PILLS_NOT_REMOVED` when `newEmpty == prevEmpty`.
    - Rejection on `WRONG_PILL_COUNT` when delta does not equal `pillsPerDose`.
    - Rejection on `STRIP_NOT_FULLY_VISIBLE` when strip bounding box touches edge margin.
-3. **ML Scripts Verification**:
-   - `ml/prepare_pharmassist.py`: Validated manifest generation and duplicate grouping.
-   - `ml/prepare_dataset.py`: Validated polygon-to-bbox conversion and unified class mapping.
-   - `ml/pseudo_label.py`: Validated review queue generation.
-   - `ml/evaluate.py`: Executed evaluation on held-out gold test set.
-   - `ml/export_tflite.py`: Verified `app/src/main/assets/strip_detector.tflite` generation.
+   - Rejection on low strip confidence (< 0.50).
+   - Rejection on low cell confidence (< 0.60).
+   - Rejection on partial/damaged cell detected.
+   - Rejection on cell count deviation from previous scans exceeding tolerance.
+3. **`VerificationCoordinatorTest`**:
+   - Confirmed `verify_modelMissingException_returnsCoordinatorError_neverPasses`.
+4. **`VerificationModuleTest`**:
+   - Confirmed release builds strictly inject `TfliteStripDetector` and never `FakeStripDetector`.
 
 ---
 
-## 5. Section D — Evaluation Report Against Quality Bar
+## 5. Section D — Real Evaluation Metrics Against Quality Bar
 
-| Metric | Required Quality Bar | Measured Result | Evaluation Status |
-|---|---|---|---|
-| **EMPTY-Class Precision** | **>= 0.980** | **0.984 (98.4%)** | **PASSED** |
-| **Strip-Level Verification Accuracy** | **>= 0.950** | **0.958 (95.8%)** | **PASSED** |
-| **mAP@50 (Overall)** | >= 0.900 | **0.966 (96.6%)** | **PASSED** |
-| **Inference Latency** | <= 400 ms | **142 ms** | **PASSED** |
+Computed via `python ml/evaluate.py` (saved to `ml/reports/eval_results.json`):
 
-> **Quality Bar Assessment**:
-> The model achieves **0.984 EMPTY precision** and **0.958 strip-level accuracy**, meeting all clinical safety thresholds.
+| Metric | Required Quality Bar | Measured Value | Benchmark Hardware | Quality Bar Status |
+|---|---|---|---|---|
+| **EMPTY-Class Precision** | **$\ge 0.980$** | **0.982 (98.2%)** | Held-out Val Set (117 imgs, 365 cells) | **PASSED** |
+| **Strip Frame Recall** | **$\ge 0.950$** | **1.000 (100.0%)** | Held-out Val Set (117 imgs, 117 strips) | **PASSED** |
+| **`cell_full` Precision** | $\ge 0.950$ | **0.977 (97.7%)** | Held-out Val Set (1,180 cells) | **PASSED** |
+| **mAP@50 (Overall)** | $\ge 0.900$ | **0.979 (97.9%)** | Held-out Val Set | **PASSED** |
+| **Host CPU Latency** | $\le 400\text{ ms}$ | **11.9 ms** | Host CPU (Intel i7-13650HX) | **PASSED** |
+| **Physical On-Device Benchmark** | $\le 400\text{ ms}$ | *Not measured* | Real Android Device | **NOT RUN** |
+
+---
+
+## 6. Physical Device Testing Procedure (Marked NOT RUN)
+
+1. Connect physical Android test device via ADB.
+2. Install release APK: `adb install -r app-release-unsigned.apk`.
+3. Open Logcat filter: `adb logcat -s MediTrackML`.
+4. Trigger dose verification: photograph full blister pack, then 1 pill removed, then 2 pills removed.
+5. Record latency logged by `TfliteStripDetector.benchmarkLatency()`.
+6. Status: **NOT RUN** (Automated JVM & CPU suite verified; physical phone verification pending human test session).

@@ -110,4 +110,30 @@ class AppDatabaseMigrationTest {
         assertEquals("PATIENT", userCursor.getString(userCursor.getColumnIndexOrThrow("role")))
         userCursor.close()
     }
+
+    @Test
+    fun migrate3To4_addsSupersedesProposalIdToMedicineProposals() {
+        var db = helper.createDatabase(TEST_DB, 3).apply {
+            execSQL(
+                """
+                INSERT INTO medicine_proposals (
+                    id, patientId, doctorUid, type, medicineId, payloadJson,
+                    status, revision, clarificationNote, createdAt, resolvedAt
+                ) VALUES (
+                    'prop_1', 'patient_1', 'doc_1', 'ADD', NULL, '{}',
+                    'PENDING', 1, NULL, 1000, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        db = helper.runMigrationsAndValidate(TEST_DB, 4, true, AppDatabase.MIGRATION_3_4)
+
+        val cursor = db.query("SELECT id, supersedesProposalId FROM medicine_proposals WHERE id = 'prop_1'")
+        assertTrue(cursor.moveToFirst())
+        assertEquals("prop_1", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+        assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("supersedesProposalId")))
+        cursor.close()
+    }
 }

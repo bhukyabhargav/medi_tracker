@@ -163,10 +163,10 @@ class VerificationPipelineTest {
     }
 
     @Test
-    fun partialCells_countAsFull_notEmpty() = runTest {
+    fun partialCells_triggerRetakeGuard_perStage13A1() = runTest {
+        // Rewritten per Stage 13 Problem A1: cell_partial was never trained/verified in model.
+        // Ambiguous PARTIAL detection must trigger retake (WRONG_PILL_COUNT), not silently count as FULL.
         val sharpBitmap = createSharpBitmap()
-        // 1 EMPTY, 1 PARTIAL -> PARTIAL counts as FULL.
-        // Total empty = 1. lastVerified = 0, delta = 1 == pillsPerDose (1) -> PASS!
         coEvery { stripDetector.detect(any()) } returns Detection(
             cells = listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
@@ -178,15 +178,15 @@ class VerificationPipelineTest {
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
-        assertTrue(result.passed)
-        assertEquals(1, result.emptyCellsAfter)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
     }
 
     @Test
-    fun lowConfidenceCells_areFilteredOut() = runTest {
+    fun lowConfidenceCells_triggerConservativeRejection_perStage13A6() = runTest {
+        // Rewritten per Stage 13 Problem A6: any cell confidence below VerificationConfig threshold
+        // must conservatively reject with a retake message (RejectReason.BLURRY) instead of passing.
         val sharpBitmap = createSharpBitmap()
-        // 1 EMPTY cell with high confidence, 1 EMPTY cell with low confidence (< 0.5)
-        // Only the high confidence cell is counted -> total empty = 1.
         coEvery { stripDetector.detect(any()) } returns Detection(
             cells = listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
@@ -198,8 +198,8 @@ class VerificationPipelineTest {
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
-        assertTrue(result.passed)
-        assertEquals(1, result.emptyCellsAfter)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.BLURRY, result.rejectReason)
     }
 
     @Test
@@ -279,6 +279,72 @@ class VerificationPipelineTest {
 
         assertTrue(result.passed)
         assertEquals(1, result.emptyCellsAfter)
+    }
+
+    @Test
+    fun lowStripConfidence_rejectsWithStripNotFullyVisible() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f)
+            ),
+            stripFullyInFrame = true,
+            stripConfidence = 0.30f // Below VerificationConfig.confidenceThreshold (0.50f)
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+    }
+
+    @Test
+    fun lowCellConfidence_rejectsWithBlurry() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.40f) // Below minCellConfidence (0.60f)
+            ),
+            stripFullyInFrame = true
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.BLURRY, result.rejectReason)
+    }
+
+    @Test
+    fun partialCellDetected_rejectsWithWrongPillCount() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.PARTIAL, confidence = 0.90f) // Ambiguous partial/damaged pill
+            ),
+            stripFullyInFrame = true
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+    }
+
+    @Test
+    fun cellCountDeviation_exceedsTolerance_rejectsWithWrongPillCount() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f)
+            ), // Total 2 cavities
+            stripFullyInFrame = true
+        )
+
+        // Previous scan had 10 cavities. Difference = 8 > tolerance (1)
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0, previousTotalCells = 10)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
     }
 
     @Test

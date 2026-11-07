@@ -78,6 +78,10 @@ class FakeAuthRepository @Inject constructor(
         password: String,
         role: UserRole
     ): Result<String> {
+        if (!userPreferences.isPrivacyConsentGiven.firstOrNull().let { it == true }) {
+            return Result.failure(IllegalStateException("Privacy consent must be granted before account creation or storing data."))
+        }
+
         val (normalizedContact, isEmail) = normalizeContact(emailOrPhone)
         if (normalizedContact.isEmpty()) {
             return Result.failure(IllegalArgumentException("Email or phone number cannot be empty"))

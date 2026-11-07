@@ -194,6 +194,109 @@ async function runTests() {
     );
   });
 
+  // 7b. Clarification and Superseding workflow
+  await test("Patient can request clarification on PENDING proposal", async () => {
+    const propClarifyRef = doctorDb.doc("medicineProposals/prop_to_clarify");
+    await assertSucceeds(
+      propClarifyRef.set({
+        id: "prop_to_clarify",
+        patientId,
+        doctorUid,
+        status: "PENDING",
+        revision: 1,
+        type: "ADD",
+        payloadJson: '{"medicineName":"Aspirin","dosage":"100mg"}',
+      })
+    );
+
+    await assertSucceeds(
+      patientDb.doc("medicineProposals/prop_to_clarify").update({
+        status: "CLARIFICATION_REQUESTED",
+        clarificationNote: "Take with food or empty stomach?",
+      })
+    );
+  });
+
+  await test("Doctor cannot supersede proposal directly from PENDING (only from CLARIFICATION_REQUESTED)", async () => {
+    const propPendingRef = doctorDb.doc("medicineProposals/prop_pending_test");
+    await propPendingRef.set({
+      id: "prop_pending_test",
+      patientId,
+      doctorUid,
+      status: "PENDING",
+      revision: 1,
+      type: "ADD",
+      payloadJson: '{"medicineName":"Atorvastatin"}',
+    });
+
+    await assertFails(
+      propPendingRef.update({
+        status: "SUPERSEDED",
+        resolvedAt: Date.now(),
+      })
+    );
+  });
+
+  await test("Doctor cannot change payload while superseding", async () => {
+    const propRef = doctorDb.doc("medicineProposals/prop_to_clarify");
+    await assertFails(
+      propRef.update({
+        status: "SUPERSEDED",
+        payloadJson: '{"medicineName":"TamperedPayload"}',
+        resolvedAt: Date.now(),
+      })
+    );
+  });
+
+  await test("Patient cannot supersede proposal", async () => {
+    const propRef = patientDb.doc("medicineProposals/prop_to_clarify");
+    await assertFails(
+      propRef.update({
+        status: "SUPERSEDED",
+        resolvedAt: Date.now(),
+      })
+    );
+  });
+
+  await test("Doctor can supersede proposal from CLARIFICATION_REQUESTED changing ONLY status and resolvedAt", async () => {
+    const propRef = doctorDb.doc("medicineProposals/prop_to_clarify");
+    await assertSucceeds(
+      propRef.update({
+        status: "SUPERSEDED",
+        resolvedAt: Date.now(),
+      })
+    );
+  });
+
+  await test("Doctor creates replacement proposal with revision 2 requiring supersedesProposalId", async () => {
+    // Fails without supersedesProposalId
+    await assertFails(
+      doctorDb.doc("medicineProposals/prop_rev2_invalid").set({
+        id: "prop_rev2_invalid",
+        patientId,
+        doctorUid,
+        status: "PENDING",
+        revision: 2,
+        type: "ADD",
+        payloadJson: '{"medicineName":"Aspirin","dosage":"100mg with food"}',
+      })
+    );
+
+    // Succeeds with supersedesProposalId
+    await assertSucceeds(
+      doctorDb.doc("medicineProposals/prop_rev2_valid").set({
+        id: "prop_rev2_valid",
+        patientId,
+        doctorUid,
+        status: "PENDING",
+        revision: 2,
+        supersedesProposalId: "prop_to_clarify",
+        type: "ADD",
+        payloadJson: '{"medicineName":"Aspirin","dosage":"100mg with food"}',
+      })
+    );
+  });
+
   console.log("\n--- Category 3: Patient Clinical Data Isolation ---");
 
   // 8. Doctor direct medicine modification denied

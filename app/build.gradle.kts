@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -27,13 +29,47 @@ android {
         }
     }
 
+    val localPropsFile = rootProject.file("local.properties")
+    val localProps = Properties()
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { localProps.load(it) }
+    }
+
+    val storeFilePath = System.getenv("KEYSTORE_PATH")
+        ?: localProps.getProperty("release.keystore.path")
+    val storePass = System.getenv("KEYSTORE_PASSWORD")
+        ?: localProps.getProperty("release.keystore.password")
+    val keyAliasProp = System.getenv("KEY_ALIAS")
+        ?: localProps.getProperty("release.key.alias")
+    val keyPass = System.getenv("KEY_PASSWORD")
+        ?: localProps.getProperty("release.key.password")
+
+    val hasReleaseSigning = !storeFilePath.isNullOrBlank() && file(storeFilePath).exists()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(storeFilePath!!)
+                storePassword = storePass
+                keyAlias = keyAliasProp
+                keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = null
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -107,6 +143,8 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    implementation(libs.sqlcipher.android)
+    implementation(libs.androidx.sqlite.ktx)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)

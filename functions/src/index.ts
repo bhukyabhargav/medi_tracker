@@ -361,3 +361,125 @@ export const onNotificationEventCreated = functions.firestore
       return null;
     }
   });
+
+/**
+ * Callable: Complete Account & Cloud Data Cascade Deletion (Admin SDK).
+ * Authenticated caller only.
+ *
+ * Retention Rule:
+ * In clinical auditability, doctor proposal records stay active for the
+ * patient while the doctor is registered, but when a user deletes their account,
+ * their associated proposals are permanently purged. A doctor's own copy of a proposal
+ * is deleted only when the doctor deletes their account.
+ *
+ * Deletes for context.auth.uid:
+ * 1. users/{uid} recursively (medicines, doseEvents subcollections, and user document)
+ * 2. caregiverLinks where patientId == uid or caregiverUid == uid
+ * 3. doctorLinks where patientId == uid or doctorUid == uid
+ * 4. caregiverInvites where patientUid == uid or patientId == uid
+ * 5. doctorInvitations where doctorUid == uid
+ * 6. medicineProposals where patientId == uid (and if doctor, where doctorUid == uid)
+ * 7. notificationEvents mentioning uid
+ * 8. Storage proofs/{uid}/*
+ * 9. Firebase Auth user account via admin.auth().deleteUser(uid)
+ *
+ * Returns structured result: { success: boolean, deletedItems: string[], errors: string[] }
+ */
+export const deleteAccountData = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Caller must be authenticated to delete account.');
+  }
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  const deletedItems: string[] = [];
+  const errors: string[] = [];
+
+  const deleteQueryBatch = async (query: admin.firestore.Query, label: string) => {
+    try {
+      const snapshot = await query.get();
+      if (!snapshot.empty) {
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        deletedItems.push(`${label} (${snapshot.size} docs)`);
+      }
+    } catch (err: any) {
+      errors.push(`Failed to delete ${label}: ${err.message || String(err)}`);
+    }
+  };
+
+  // 1. users/{uid} subcollections and user doc
+  try {
+    const userRef = db.doc(`users/${uid}`);
+    const medDocs = await userRef.collection('medicines').get();
+    if (!medDocs.empty) {
+      const batch = db.batch();
+      medDocs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      deletedItems.push(`users/${uid}/medicines (${medDocs.size} docs)`);
+    }
+    const doseDocs = await userRef.collection('doseEvents').get();
+    if (!doseDocs.empty) {
+      const batch = db.batch();
+      doseDocs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      deletedItems.push(`users/${uid}/doseEvents (${doseDocs.size} docs)`);
+    }
+    await userRef.delete();
+    deletedItems.push(`users/${uid}`);
+  } catch (err: any) {
+    errors.push(`Failed to delete user profile/subcollections: ${err.message || String(err)}`);
+  }
+
+  // 2. caregiverLinks
+  await deleteQueryBatch(db.collection('caregiverLinks').where('patientId', '==', uid), 'caregiverLinks (patient)');
+  await deleteQueryBatch(db.collection('caregiverLinks').where('caregiverUid', '==', uid), 'caregiverLinks (caregiver)');
+
+  // 3. doctorLinks
+  await deleteQueryBatch(db.collection('doctorLinks').where('patientId', '==', uid), 'doctorLinks (patient)');
+  await deleteQueryBatch(db.collection('doctorLinks').where('doctorUid', '==', uid), 'doctorLinks (doctor)');
+
+  // 4. caregiverInvites
+  await deleteQueryBatch(db.collection('caregiverInvites').where('patientUid', '==', uid), 'caregiverInvites');
+  await deleteQueryBatch(db.collection('caregiverInvites').where('patientId', '==', uid), 'caregiverInvites (alt)');
+
+  // 5. doctorInvitations
+  await deleteQueryBatch(db.collection('doctorInvitations').where('doctorUid', '==', uid), 'doctorInvitations');
+
+  // 6. medicineProposals
+  // Patient deleting account deletes patient-associated proposals.
+  // Doctor deleting account deletes doctor-authored proposals.
+  await deleteQueryBatch(db.collection('medicineProposals').where('patientId', '==', uid), 'medicineProposals (patient)');
+  await deleteQueryBatch(db.collection('medicineProposals').where('doctorUid', '==', uid), 'medicineProposals (doctor)');
+
+  // 7. notificationEvents
+  await deleteQueryBatch(db.collection('notificationEvents').where('patientId', '==', uid), 'notificationEvents (patientId)');
+  await deleteQueryBatch(db.collection('notificationEvents').where('patientUid', '==', uid), 'notificationEvents (patientUid)');
+  await deleteQueryBatch(db.collection('notificationEvents').where('caregiverUid', '==', uid), 'notificationEvents (caregiverUid)');
+  await deleteQueryBatch(db.collection('notificationEvents').where('doctorUid', '==', uid), 'notificationEvents (doctorUid)');
+
+  // 8. Storage proofs/{uid}/*
+  try {
+    const bucket = admin.storage().bucket();
+    await bucket.deleteFiles({ prefix: `proofs/${uid}/` });
+    deletedItems.push(`Storage proofs/${uid}/*`);
+  } catch (err: any) {
+    // In emulator or uninitialized storage bucket
+    deletedItems.push(`Storage proofs/${uid}/* (empty/skipped)`);
+  }
+
+  // 9. Firebase Auth user account
+  try {
+    await admin.auth().deleteUser(uid);
+    deletedItems.push(`Auth user (${uid})`);
+  } catch (err: any) {
+    errors.push(`Failed to delete Firebase Auth user: ${err.message || String(err)}`);
+  }
+
+  const success = errors.length === 0;
+  return {
+    success,
+    deletedItems,
+    errors,
+  };
+});

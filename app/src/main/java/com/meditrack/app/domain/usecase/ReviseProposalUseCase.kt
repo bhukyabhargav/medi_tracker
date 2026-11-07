@@ -46,6 +46,8 @@ class ReviseProposalUseCase @Inject constructor(
             medicineId = oldProposal.medicineId,
             payloadJson = finalPayload.toJson(),
             status = ProposalStatus.PENDING,
+            revision = newRevisionNumber,
+            supersedesProposalId = oldProposalId,
             createdAt = System.currentTimeMillis()
         )
         proposalRepository.insert(newProposal)

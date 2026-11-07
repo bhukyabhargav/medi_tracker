@@ -166,7 +166,7 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.PrivacyConsent.route) {
                             PrivacyConsentScreen(
                                 onConsentGiven = {
-                                    navController.navigate(Screen.Home.route) {
+                                    navController.navigate(Screen.Splash.route) {
                                         popUpTo(Screen.PrivacyConsent.route) { inclusive = true }
                                     }
                                 },

@@ -62,6 +62,7 @@ class TfliteStripDetector @Inject constructor(
         val inputBuffer = preprocessBitmap(bitmap, activeInterpreter)
         val rawCells = mutableListOf<Cell>()
         var detectedStripBox: RectF? = null
+        var detectedStripConfidence: Float? = null
 
         val margin = VerificationConfig.edgeMarginFraction
         val confidenceThreshold = VerificationConfig.confidenceThreshold
@@ -101,7 +102,10 @@ class TfliteStripDetector @Inject constructor(
                     val box = RectF(xmin, ymin, xmax, ymax)
 
                     when (bestClass) {
-                        CLASS_STRIP -> detectedStripBox = box
+                        CLASS_STRIP -> {
+                            detectedStripBox = box
+                            detectedStripConfidence = maxScore
+                        }
                         CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = maxScore))
                         CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = maxScore))
                         CLASS_CELL_PARTIAL -> rawCells.add(Cell(box = box, state = CellState.PARTIAL, confidence = maxScore))
@@ -136,7 +140,10 @@ class TfliteStripDetector @Inject constructor(
                 val box = RectF(xmin, ymin, xmax, ymax)
 
                 when (rawClass) {
-                    CLASS_STRIP -> detectedStripBox = box
+                    CLASS_STRIP -> {
+                        detectedStripBox = box
+                        detectedStripConfidence = score
+                    }
                     CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = score))
                     CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = score))
                     CLASS_CELL_PARTIAL -> rawCells.add(Cell(box = box, state = CellState.PARTIAL, confidence = score))
@@ -164,7 +171,8 @@ class TfliteStripDetector @Inject constructor(
 
         Detection(
             cells = filteredCells,
-            stripFullyInFrame = isFullyInFrame
+            stripFullyInFrame = isFullyInFrame,
+            stripConfidence = detectedStripConfidence
         )
     }
 

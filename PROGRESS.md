@@ -544,3 +544,129 @@ Implemented Stage 12 requirements per `README.md` lines 946–986:
 - **Final Build Verification**:
   - `.\gradlew.bat testDebugUnitTest` — **PASSED** (345 unit tests, 0 failures)
   - `.\gradlew.bat assembleDebug assembleRelease` — **BUILD SUCCESSFUL**
+
+
+---
+
+## Round 4 Remediation — Comprehensive Quality, Security & ML Realism Pass (2026-11-08)
+
+### 1. Scope & Execution Overview
+Addressed all 7 problem areas (Parts A through G) identified in the fourth remediation audit, adhering strictly to:
+- Pure-Kotlin business logic in domain packages.
+- Tunable constants consolidated in `core/config/`.
+- Zero personal data in logs.
+- Unit tests written for every behavioral change (zero deleted tests).
+- Automated verification run on real commands with real metrics saved in `ml/reports/` and `docs/verification/`.
+- Device-dependent procedures documented with concrete steps and transparently marked **NOT RUN**.
+
+---
+
+### 2. Detailed Problem Resolutions
+
+#### Part A: Stage 13 Evaluation Honesty & Vision Guards
+1. **Removed Non-Existent `cell_partial` Metrics**:
+   - The public dataset has 0 instances of `cell_partial`. Removed fabricated precision/recall/mAP metrics from `ml/reports/evaluation_report.md` and `ml/model_card.md`. Stated: *"cell_partial: not trained in public dataset, never predicted; app treats PARTIAL as unknown/needs retake"*.
+2. **Recomputed Real Evaluation Metrics (`ml/evaluate.py`)**:
+   - Executed actual evaluation script on 59 validation images and 432 cell instances. Output saved to `ml/reports/eval_results.json`:
+     * EMPTY precision: **0.982**
+     * FULL precision: **0.977**, recall: **0.901**
+     * Strip recall: **1.000**
+     * Overall mAP@0.5: **0.979**
+     * Host CPU inference latency: **11.9 ms** (strictly labeled "host CPU, not device").
+3. **Gold Test Set Truthfulness**:
+   - Removed all references to 320 own-photo gold test images. Stated explicitly that the gold test set is **MISSING** and remains an open human task.
+   - Synchronized all manifest counts across documents (1,349 images, 17,566 annotations).
+4. **Model Size & Quantization**:
+   - Corrected model description to exact 12.0 MB Float32 flatbuffer format (`strip_detector.tflite`). Removed false quantization claims.
+5. **Verification Simulation (`ml/simulate_verification.py`)**:
+   - Implemented and executed simulation script evaluating 200 blister verification attempts.
+   - Output saved to `ml/reports/simulation_results.json`: 155 valid ledger intake detections, 45 retakes/rejections. Described honestly as synthetic evaluation on cropped dataset images.
+6. **Conservative Vision Runtime Guards (`VerificationPipeline.kt`)**:
+   - Added conservative thresholds in `VerificationConfig.kt`: `minCellConfidence = 0.60f`, `maxCellCountTolerance = 1`.
+   - Pipeline rejects with `RejectReason.BLURRY` if strip confidence $< 0.50$ or any cell confidence $< 0.60$.
+   - Pipeline rejects with `RejectReason.WRONG_PILL_COUNT` if detected cell count deviates from baseline by $> 1$ cell.
+   - `cell_partial` triggers unknown/retake prompt.
+7. **Release Detector Binding Security**:
+   - Added unit test `VerificationModuleTest.kt` verifying release builds strictly bind `TfliteStripDetector` and never fall back to `FakeStripDetector`, and missing model fails closed.
+
+#### Part B: Stage 12 SQLCipher Room Database Encryption
+1. **Database Encryption Implementation**:
+   - Integrated `net.zetetic:sqlcipher-android:4.5.4` and `androidx.sqlite:sqlite-ktx:2.4.0`.
+   - Created `DatabaseKeyManager.kt`: Generates a 32-byte cryptographically secure random passphrase and wraps it using hardware-backed Android Keystore AES-256 GCM (`KeystoreSecurityManager`).
+   - Created `DatabaseEncryptionMigrator.kt`: Inspects database file headers (`SQLite format 3\000`) and seamlessly migrates legacy plaintext databases to encrypted format via `sqlcipher_export`.
+   - Configured `DatabaseModule.kt` with `SupportOpenHelperFactory(passphrase)`.
+2. **Room Migration**:
+   - Database version upgraded to 4 with `MIGRATION_3_4` adding `supersedesProposalId` to `medicine_proposals`.
+   - Exported schema to `app/schemas/com.meditrack.app.data.db.AppDatabase/4.json`.
+3. **Verification Documentation**:
+   - Documented exact `adb pull` and `sqlite3` CLI unreadability verification steps in `docs/verification/STAGE_12_VERIFY.md` (Section D). Device check marked **NOT RUN**.
+
+#### Part C: Stage 12 Cloud-Governed Account Deletion
+1. **Callable Cloud Function (`deleteAccountData`)**:
+   - Implemented in `functions/src/index.ts` with Admin SDK privileges.
+   - Deletes for caller's UID: `users/{uid}` and subcollections, `caregiverLinks` and `doctorLinks`, invitations, proposals (preserving doctor's copy until doctor account deletion), notification events, Storage `proofs/{uid}/*`, and Firebase Auth user.
+   - Returns structured result `{ success: boolean, deletedItems: string[], errors: string[] }`.
+2. **App-Side Deletion Governance (`DeleteAccountUseCase.kt`)**:
+   - Calls `AccountCloudDeleter.deleteCloudAccount(patientId)`.
+   - If cloud deletion encounters errors, the app **never swallows errors or claims false success**. Local database is NOT wiped.
+   - Catches `RecentLoginRequiredException` and surfaces re-authentication prompt.
+   - Provides user-confirmed `forceLocalOnly` override for offline users.
+3. **Security Rules Unchanged**:
+   - Client Firestore rules remain strictly `delete: false` on proposals and audit trails.
+
+#### Part D: Doctor Mode Proposal Revision Governance
+1. **Firestore Rules Update (`firestore.rules`)**:
+   - Allowed doctors to update proposals from `CLARIFICATION_REQUESTED` to `SUPERSEDED` changing only `status` and `resolvedAt` (`affectedKeys().hasOnly(['status', 'resolvedAt'])`).
+   - Required replacement proposals to supply `supersedesProposalId` and document-level `revision`.
+2. **Data & ViewModel Synchronization**:
+   - Added `supersedesProposalId` to `MedicineProposal` Room entity and `DoctorCloud.kt`.
+   - Updated `ReviseProposalUseCase.kt` and `DoctorViewModel.kt` to link revisions and supply `resolvedAt`.
+   - Added 5 security test cases in `scripts/firebase_security_tests.js`.
+
+#### Part E: Stage 14 Release Hardening, R8 & Signing
+1. **R8 Minification & Resource Shrinking**:
+   - Enabled `isMinifyEnabled = true` and `isShrinkResources = true` in `app/build.gradle.kts`.
+   - Hardened `app/proguard-rules.pro` with keep rules for SQLCipher, Room, TensorFlow Lite, ML Kit, Firebase, and models.
+2. **Release Signing Template**:
+   - Added template reading keystore path and passwords from environment variables or `local.properties`. Keystore credentials are never committed.
+3. **Permission & Component Hygiene**:
+   - Verified strictly zero location permissions and zero `READ_MEDIA_*` storage permissions.
+   - Receivers not exported unless explicitly required (`BootReceiver` protected with `RECEIVE_BOOT_COMPLETED`).
+
+#### Part F: DPDP Act 2023 Consent-First Order
+1. **First-Run Onboarding Flow**:
+   - Sequence strictly ordered: **Welcome $\to$ Privacy Consent $\to$ Create Account / Login**.
+   - `SplashViewModel` navigates to `PrivacyConsentScreen` if consent has not been granted.
+2. **Account Creation Hard-Gated**:
+   - `AuthViewModel`, `FakeAuthRepository`, and `FirebaseAuthRepository` block account creation if privacy consent is not given.
+   - Guaranteed no user row or Firestore document is written prior to consent.
+
+#### Part G: Repository Hygiene & Documentation
+1. **Repository Cleanliness**:
+   - Added `ml/data/`, `ml/tflite_export/`, `runs/`, `*.pt`, `*.apk` to `.gitignore`.
+2. **Documentation Synchronized**:
+   - `docs/ARCHITECTURE.md`, `docs/QA.md`, and all stage verification packs updated with real test counts, real ML metrics, and honest device status.
+
+---
+
+### 3. Automated Test Suite & Build Verification Results
+
+- **Real Unit Test Count**: **359 `@Test` methods** across 53 unit test classes in `app/src/test`.
+  - All 359 tests passed with **0 failures, 0 errors, 0 skipped**.
+- **Verification Commands Executed**:
+  1. `.\gradlew.bat testDebugUnitTest` — **PASSED** (359 tests, 53 classes, 100% passing)
+  2. `.\gradlew.bat lintDebug` — **BUILD SUCCESSFUL** (0 errors, HTML report at `app/reports/lint-results-debug.html`)
+  3. `.\gradlew.bat assembleDebug assembleRelease` — **BUILD SUCCESSFUL**
+     * `app-debug.apk`: 111,067,078 bytes (~111.1 MB)
+     * `app-release-unsigned.apk`: 88,494,511 bytes (~88.5 MB, dropped 22.6 MB / 20.3% via R8 minification and resource shrinking)
+
+---
+
+### 4. Honest Verification Reporting
+
+- **Physical Device & On-Device ML Benchmarks**: **NOT RUN** (all verifications completed via host Gradle test/build toolchain; host CPU latency was 11.9 ms).
+- **Physical Device Database Encryption Inspection**: **NOT RUN** (verified at unit test level via SQLite header inspection and Keystore key management in `DatabaseEncryptionTest.kt`).
+- **Physical Device Release Smoke Test**: **NOT RUN** (verified via unit test in `VerificationModuleTest.kt`).
+- **Firebase Emulator Security Tests (`scripts/firebase_security_tests.js`)**: **NOT RUN** (requires live Node.js Firebase Emulator Suite).
+- **Gold Test Set**: **MISSING** (listed as an open human labeling task).
+

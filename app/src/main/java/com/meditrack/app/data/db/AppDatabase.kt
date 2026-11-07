@@ -33,7 +33,7 @@ import com.meditrack.app.domain.model.VerificationAttempt
         MedicineProposal::class,
         NotificationOutbox::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -128,6 +128,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        /**
+         * v3 -> v4: adds supersedesProposalId to medicine_proposals for tracking
+         * proposal revision lineages in Doctor Mode.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medicine_proposals ADD COLUMN supersedesProposalId TEXT")
+            }
+        }
+
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
     }
 }

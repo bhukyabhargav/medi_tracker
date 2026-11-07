@@ -1,0 +1,60 @@
+{
+  "description": "Simulation of ledger rule (delta == pillsPerDose) on public dataset images",
+  "dataset_source": "Roboflow Blister Pills Segmentation v7 (validation split)",
+  "patient_intake_note": "Simulated pairs on static dataset; not real patient intake photos",
+  "total_simulations": 200,
+  "successful_verifications": 155,
+  "success_rate": 0.775,
+  "details_sample": [
+    {
+      "simulation_id": 1,
+      "file": "my_photo-91_jpg.rf.8b809e8b873e502c26a320634972bbac.txt",
+      "total_cells": 8,
+      "detected_empty": 0,
+      "previous_empty": 0,
+      "delta": 0,
+      "pills_per_dose": 1,
+      "passed": false
+    },
+    {
+      "simulation_id": 2,
+      "file": "luznatural_626_jpg.rf.a8f96b9801a50ba2723c8b24b53f3c6e.txt",
+      "total_cells": 4,
+      "detected_empty": 0,
+      "previous_empty": 0,
+      "delta": 0,
+      "pills_per_dose": 1,
+      "passed": false
+    },
+    {
+      "simulation_id": 3,
+      "file": "20230819_151457_jpg.rf.cf165bee71af0c1ceab94796c9bca94f.txt",
+      "total_cells": 20,
+      "detected_empty": 0,
+      "previous_empty": 0,
+      "delta": 0,
+      "pills_per_dose": 1,
+      "passed": false
+    },
+    {
+      "simulation_id": 4,
+      "file": "my_photo-95_jpg.rf.d9b4816fe337e1bdf70b26ff280680f4.txt",
+      "total_cells": 12,
+      "detected_empty": 2,
+      "previous_empty": 1,
+      "delta": 1,
+      "pills_per_dose": 1,
+      "passed": true
+    },
+    {
+      "simulation_id": 5,
+      "file": "my_photo-42_jpg.rf.0888ed8fa5e036d36e03a04887004670.txt",
+      "total_cells": 15,
+      "detected_empty": 15,
+      "previous_empty": 14,
+      "delta": 1,
+      "pills_per_dose": 1,
+      "passed": true
+    }
+  ]
+}

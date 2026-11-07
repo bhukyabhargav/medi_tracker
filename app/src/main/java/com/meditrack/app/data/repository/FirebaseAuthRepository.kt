@@ -58,6 +58,10 @@ class FirebaseAuthRepository @Inject constructor(
         password: String,
         role: UserRole
     ): Result<String> {
+        if (!userPreferences.isPrivacyConsentGiven.firstOrNull().let { it == true }) {
+            return Result.failure(IllegalStateException("Privacy consent must be granted before account creation or storing data."))
+        }
+
         val auth = firebaseAuth
         val db = firestore
         if (auth == null || db == null) {

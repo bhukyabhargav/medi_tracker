@@ -18,7 +18,8 @@ data class Cell(
 
 data class Detection(
     val cells: List<Cell>,
-    val stripFullyInFrame: Boolean
+    val stripFullyInFrame: Boolean,
+    val stripConfidence: Float? = null
 )
 
 interface StripDetector {

@@ -1,0 +1,54 @@
+{
+  "model_path": "runs/detect/ml/runs/blister_detector/weights/best.pt",
+  "model_format": "TensorFlow Lite Float32 FlatBuffer (12.0 MB / 12,626,120 bytes)",
+  "dataset_source": "Roboflow Universe (blister-pills-segmentation v7)",
+  "image_counts": {
+    "train": 1173,
+    "val": 117,
+    "test": 59,
+    "total": 1349
+  },
+  "instance_counts": {
+    "strip": 1343,
+    "cell_full": 12917,
+    "cell_empty": 4649,
+    "cell_partial": 0
+  },
+  "gold_phone_test_set_status": "MISSING (Human task pending per README Stage 13.B)",
+  "classes": {
+    "strip": {
+      "precision": 0.99,
+      "recall": 1.0,
+      "map50": 0.995,
+      "instances_evaluated": 117
+    },
+    "cell_full": {
+      "precision": 0.977,
+      "recall": 0.901,
+      "map50": 0.949,
+      "instances_evaluated": 1180
+    },
+    "cell_empty": {
+      "precision": 0.982,
+      "recall": 0.975,
+      "map50": 0.992,
+      "instances_evaluated": 365,
+      "quality_bar_target_precision": 0.98,
+      "meets_quality_bar": true
+    },
+    "cell_partial": {
+      "status": "not trained, never predicted by model weights (0 instances in public dataset)",
+      "precision": null,
+      "recall": null,
+      "map50": null,
+      "app_treatment": "Treated as unknown/ambiguous; requires retake or manual verification"
+    }
+  },
+  "overall": {
+    "all_precision": 0.983,
+    "all_recall": 0.959,
+    "all_map50": 0.979,
+    "host_cpu_inference_latency_ms": 13.1,
+    "device_latency_benchmark_status": "NOT RUN (Requires physical Android device session)"
+  }
+}

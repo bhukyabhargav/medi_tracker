@@ -1,9 +1,11 @@
 package com.meditrack.app.feature.auth
 
+import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.User
 import com.meditrack.app.domain.model.UserRole
 import com.meditrack.app.domain.repository.AuthRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -26,6 +28,7 @@ class AuthViewModelTest {
 
     private val testDispatcher: TestDispatcher = StandardTestDispatcher()
     private val authRepository: AuthRepository = mockk(relaxed = true)
+    private val userPreferences: UserPreferences = mockk(relaxed = true)
     private lateinit var viewModel: AuthViewModel
 
     private val sampleUser = User(
@@ -41,7 +44,8 @@ class AuthViewModelTest {
         Dispatchers.setMain(testDispatcher)
         coEvery { authRepository.observeCurrentUser() } returns flowOf(null)
         coEvery { authRepository.observeIsLoggedIn() } returns flowOf(false)
-        viewModel = AuthViewModel(authRepository)
+        coEvery { userPreferences.isPrivacyConsentGiven } returns flowOf(true)
+        viewModel = AuthViewModel(authRepository, userPreferences)
     }
 
     @After
@@ -131,6 +135,23 @@ class AuthViewModelTest {
 
         assertNull(otpRouteContact)
         assertEquals("Password must be at least 6 characters", viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `registration blocks account creation when privacy consent is not given`() = runTest(testDispatcher) {
+        coEvery { userPreferences.isPrivacyConsentGiven } returns flowOf(false)
+        var otpRouteContact: String? = null
+        viewModel.onNameChange("Valid Name")
+        viewModel.onContactChange("patient@test.com")
+        viewModel.onPasswordChange("password123")
+
+        viewModel.createAccount(onNavigateToOtp = { otpRouteContact = it })
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(otpRouteContact)
+        assertTrue(viewModel.uiState.value.errorMessage?.contains("Privacy consent must be granted") == true)
+        // Verify repository is never called
+        coVerify(exactly = 0) { authRepository.createAccount(any(), any(), any(), any()) }
     }
 
     @Test

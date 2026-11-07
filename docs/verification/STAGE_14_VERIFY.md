@@ -2,7 +2,7 @@
 
 ## 1. Overview & Goal
 
-Stage 14 completes final hardening, comprehensive permission boundary verification, accessibility pass, localization scaffolding, reliability checks, and Google Play release packaging for MediTrack.
+Stage 14 completes final hardening, comprehensive permission boundary verification, accessibility pass, localization scaffolding, reliability checks, R8 bytecode obfuscation and resource shrinking, secure signing configuration templating, and Google Play release packaging for MediTrack.
 
 ---
 
@@ -34,7 +34,7 @@ Covered by [`PermissionBoundaryVerificationTest.kt`](file:///C:/Users/bharg/OneD
 ## 3. Section C — Complete End-to-End Acceptance Script
 
 ### Patient Flow:
-1. **Onboarding & Consent**: Launch fresh app $\to$ register as Patient $\to$ grant exact alarm and camera permissions $\to$ read DPDP Act 2023 disclaimer and tap **I Understand & Consent**.
+1. **Onboarding & Consent**: Launch fresh app $\to$ DPDP Act 2023 disclaimer displayed $\to$ tap **I Understand & Consent** $\to$ register as Patient $\to$ grant exact alarm and camera permissions.
 2. **Add / Scan Medicine**:
    - Option A: Tap **+ Add Medicine** $\to$ enter "Metformin", 500mg, 1 pill twice daily (08:00, 20:00), initial stock 30 $\to$ Save.
    - Option B: Tap **Scan Rx** $\to$ photograph pharmacy label $\to$ verify pre-filled fields $\to$ confirm schedule.
@@ -48,7 +48,7 @@ Covered by [`PermissionBoundaryVerificationTest.kt`](file:///C:/Users/bharg/OneD
    - Calendar displays green adherence dot for the date.
 5. **Data Sovereignty**:
    - Settings $\to$ Export My Data $\to$ generates encrypted ZIP archive containing all records and photos.
-   - Settings $\to$ Delete Account $\to$ confirms wipe $\to$ all records purged and returns to Login.
+   - Settings $\to$ Delete Account $\to$ confirms wipe $\to$ all records purged across cloud and local DB and returns to Login.
 
 ### Doctor Flow:
 1. Doctor logs in $\to$ generates invitation code.
@@ -64,7 +64,75 @@ Covered by [`PermissionBoundaryVerificationTest.kt`](file:///C:/Users/bharg/OneD
 
 ---
 
-## 4. Section D — Stage Pack Summary & Automated Test Count
+## 4. Section D — Release Hardening, R8 & Signing Verification
+
+### 1. R8 Minification & Resource Shrinking (`app/build.gradle.kts`)
+- `isMinifyEnabled = true` and `isShrinkResources = true` are active on the release build type.
+- ProGuard rules (`app/proguard-rules.pro`) preserve:
+  - SQLCipher for Android native JNI methods (`net.zetetic.database.sqlcipher.**`)
+  - Room SQLite internal reflection and entities
+  - Dagger-Hilt dependency injection generated classes
+  - TensorFlow Lite runtime native bindings (`org.tensorflow.lite.**`)
+  - Google ML Kit OCR and vision pipelines
+  - Firebase Authentication, Firestore, Cloud Functions, and Cloud Storage DTOs
+  - Pure-Kotlin domain models, enums, and state machines
+- **Measured APK Size Reduction**:
+  - `app-debug.apk`: **111,067,078 bytes** (~111.1 MB)
+  - `app-release-unsigned.apk`: **88,494,511 bytes** (~88.5 MB)
+  - Net APK size reduction via R8 dead code elimination and resource shrinking: **22,572,567 bytes (~22.6 MB / 20.3% reduction)**.
+
+### 2. Release Signing Configuration Template
+- Release builds read signing credentials strictly from environment variables or `local.properties` (never committed to version control):
+  ```properties
+  # In local.properties or System Environment Variables:
+  RELEASE_KEYSTORE_PATH=/path/to/keystore.jks
+  RELEASE_KEYSTORE_PASSWORD=keystore_password
+  RELEASE_KEY_ALIAS=key_alias
+  RELEASE_KEY_PASSWORD=key_password
+  ```
+- If environment variables / properties are absent, Gradle gracefully skips signing, producing an unsigned release APK (`app-release-unsigned.apk`) suitable for CI/CD signing pipelines.
+
+### 3. AndroidManifest Permission & Component Audit
+- Verified permissions in `app/src/main/AndroidManifest.xml`:
+  - `POST_NOTIFICATIONS`: Required for Android 13+ dose notifications.
+  - `SCHEDULE_EXACT_ALARM` & `USE_EXACT_ALARM`: Required for timely medication reminders.
+  - `CAMERA`: Required for blister strip intake verification and prescription OCR scanning.
+  - `RECEIVE_BOOT_COMPLETED`: Required for `BootReceiver` alarm rescheduling.
+  - `INTERNET`: Required for Firebase synchronization and Cloud Function account deletion.
+  - `VIBRATE`: Required for alarm vibration patterns.
+- **Strictly Prohibited Permissions Verified Absent**:
+  - Zero location permissions (`ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`).
+  - Zero storage permission bloat (`READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `READ_MEDIA_IMAGES`). All photos reside strictly in app-private sandboxed directories.
+- **Receiver Export Boundaries**:
+  - `BootReceiver`: `android:exported="true"` strictly protected with `RECEIVE_BOOT_COMPLETED` filter.
+  - `ReminderReceiver`: `android:exported="false"`, strictly internal pending intent receiver.
+  - `FileProvider`: `android:exported="false"`, `android:grantUriPermissions="true"`.
+
+### 4. Release Verification Smoke Test Procedure (Marked NOT RUN)
+```bash
+# Procedure for physical device / emulator release smoke test:
+# 1. Install release build on physical device:
+adb install app-release-unsigned.apk
+
+# 2. Verify debug detector bypass is strictly disabled:
+#    In release builds, VerificationModule binds TfliteStripDetector.
+#    FakeStripDetector is absent from the release dependency graph.
+#    Automated unit test VerificationModuleTest.kt validates release wiring.
+
+# 3. Smoke Test Steps on Physical Device:
+#    a. Open app -> Complete privacy consent -> Login / Home.
+#    b. Add medication: "Aspirin", 100mg, 1 pill.
+#    c. Trigger dose verification camera.
+#    d. Photograph blister strip: confirm TfliteStripDetector processes frames.
+#    e. If model file is absent or corrupted, confirm app fails closed (retake prompt)
+#       and never marks dose as TAKEN via fake bypass.
+```
+> [!NOTE]
+> **Physical Device Smoke Test Status**: **NOT RUN** (verified on host build and JVM test suites).
+
+---
+
+## 5. Section E — Stage Pack Summary & Automated Test Count
 
 | Stage | Pack Document | Focus Area | Automated Test Coverage |
 |---|---|---|---|
@@ -78,14 +146,14 @@ Covered by [`PermissionBoundaryVerificationTest.kt`](file:///C:/Users/bharg/OneD
 | **Stage 10** | `STAGE_10_VERIFY.md` | Caregiver Cloud Mode, Push Notifications | 26 tests |
 | **Stage 10B** | `STAGE_10B_VERIFY.md` | Doctor Mode, Proposal State Machine, Adherence | 48 tests |
 | **Stage 11** | `STAGE_11_VERIFY.md` | Prescription OCR Scan, Review Screen, Prefill | 20 tests |
-| **Stage 12** | `STAGE_12_VERIFY.md` | Settings, DPDP Privacy, Export, Delete, Keystore | 21 tests |
-| **Stage 13** | `STAGE_13_VERIFY.md` | TFLite Model Integration, Latency Benchmark | 4 tests + ML Scripts |
-| **Stage 14** | `STAGE_14_VERIFY.md` | Hardening, 16 Permission Boundaries, Release Readiness | 16 tests |
-| **TOTAL** | **All Stages** | **Complete MediTrack Application** | **345 Unit Tests** (100% Passing) |
+| **Stage 12** | `STAGE_12_VERIFY.md` | Settings, DPDP Privacy, Export, Delete, Keystore, SQLCipher | 25 tests |
+| **Stage 13** | `STAGE_13_VERIFY.md` | TFLite Model Integration, Latency Benchmark | 8 tests + ML Scripts |
+| **Stage 14** | `STAGE_14_VERIFY.md` | Hardening, 16 Permission Boundaries, Release Readiness | 28 tests |
+| **TOTAL** | **All Stages** | **Complete MediTrack Application** | **359 Unit Tests** (100% Passing) |
 
 ---
 
-## 5. Section E — Open Limitations & Risk Registry
+## 6. Section F — Open Limitations & Risk Registry
 
 1. **Hardware Ingestion vs Extraction**:
    - The computer vision model verifies that a pill left the blister foil cavity. It cannot medically prove that the patient placed the pill in their mouth and swallowed it.
@@ -95,3 +163,5 @@ Covered by [`PermissionBoundaryVerificationTest.kt`](file:///C:/Users/bharg/OneD
    - Hourly regimens use fixed elapsed intervals. If traveling across significant time-zone offsets, `AlarmMaintenanceWorker` synchronizes future alarms on `ACTION_TIMEZONE_CHANGED`.
 4. **Third-Party Physician Verification**:
    - MediTrack does not verify state medical licenses or registration numbers of doctors connecting via Doctor Mode. Patients must only share codes with their real-world physicians.
+5. **Human Gold Test Set**:
+   - The held-out own-photo gold test set is currently **MISSING** and remains an open human labeling task per Stage 13 requirements.

@@ -158,6 +158,7 @@ data class MedicineProposal(
     val status: ProposalStatus = ProposalStatus.PENDING,
     val revision: Int = 1,
     val clarificationNote: String? = null,
+    val supersedesProposalId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val resolvedAt: Long? = null
 )
