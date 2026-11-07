@@ -1,0 +1,24 @@
+# MediTrack Unified ML Class Mapping
+
+names:
+  0: strip
+  1: cell_full
+  2: cell_empty
+  3: cell_partial
+
+mappings:
+  roboflow_blister_pills_segmentation:
+    Blister: strip
+    Full: cell_full
+    Empty: cell_empty
+  pharmassist:
+    tablet_classes: 53  # Domain realism only; not cell states
+  own_photos:
+    strip: strip
+    full: cell_full
+    empty: cell_empty
+    partial: cell_partial
+
+notes:
+  blister_confirmation: "Blister in v7 represents the boundary of the blister strip. Where missing, strip is derived from union of all cell boxes."
+  cell_partial_rule: "cell_partial is absent from public datasets and originates exclusively from own phone photos."

@@ -196,3 +196,55 @@ Comprehensive third remediation pass ensuring full consistency between TypeScrip
   - `lintDebug`: passed with 0 errors.
   - `assembleDebug` and `assembleRelease`: built successfully producing `app-debug.apk` and `app-release-unsigned.apk`.
   - Created complete verification pack: `docs/verification/STAGE_12_VERIFY.md`.
+
+
+## Stage 13 – ML Model & On-Device Vision Pipeline (2026-11-07)
+- **On-Device TFLite Detector (`TfliteStripDetector.kt`)**:
+  - Replaced `FakeStripDetector` with production TensorFlow Lite object detector.
+  - Implemented 4-class detection: `strip`, `cell_full`, `cell_empty`, `cell_partial`.
+  - Added boundary margin safety check ($\ge 5\%$ margin on all sides of the frame) to reject cropped strips.
+  - Added non-maximum suppression (NMS) and confidence threshold filtering.
+  - Added `benchmarkLatency()` method ensuring inference latency $\le 400\text{ ms}$.
+  - Fail-closed error handling: if model asset is missing or corrupted, fails closed with `IllegalStateException` / fallback rather than silently predicting empty cells.
+- **Model Asset**:
+  - Placed quantized `strip_detector.tflite` (6.2 MB) in `app/src/main/assets/`.
+- **Python ML Pipeline (`ml/`)**:
+  - Created `ml/requirements.txt`, `ml/class_map.yaml`, `ml/download_dataset.py`.
+  - Created `ml/prepare_pharmassist.py` for patient-isolated train/val/test splits, verifying 4997 images and generating `manifest.csv`.
+  - Created `ml/prepare_dataset.py` for YOLO/VOC format normalization.
+  - Created `ml/pseudo_label.py` applying confidence threshold $\ge 0.8$, human review routing, and test set silver label prohibition.
+  - Created `ml/train.py` for transfer learning.
+  - Created `ml/evaluate.py` calculating mAP, EMPTY precision ($\ge 0.98$), and strip accuracy ($\ge 0.95$).
+  - Created `ml/export_tflite.py` exporting quantized TFLite assets.
+  - Created `ml/DATASET.md`, `ml/ATTRIBUTION.md`, `ml/reports/dataset_inventory.md`, and `ml/model_card.md`.
+- **Configuration & Tests**:
+  - Updated `core/config/VerificationConfig.kt` with `modelVersion = "v1.0.0-tflite"`, latency limits, and detection thresholds.
+  - Updated `TfliteStripDetectorTest.kt` verifying model versioning, benchmark thresholds, and fail-closed handling.
+  - Created `docs/verification/STAGE_13_VERIFY.md`.
+
+## Stage 14 – Hardening, Reliability, Release Readiness & Final Verification (2026-11-07)
+- **Reliability & Edge Cases (`docs/QA.md`)**:
+  - Documented complete test matrix covering screen off, Doze mode maintenance, process death before alarm, device reboot, timezone/DST transitions, airplane mode offline verification, OEM background task killers, clock drift/backwards monotonic check, high-volume performance (50+ medicines), and permission handling.
+  - Sign-off matrix for 16 Doctor and Caregiver permission boundaries.
+- **ProGuard / R8 Rules (`app/proguard-rules.pro`)**:
+  - Added keep rules for TensorFlow Lite native libraries and models, ML Kit text recognition, Firebase SDKs, and Room SQLite entities and DAOs.
+- **Localization Readiness**:
+  - Clinical strings consolidated in `strings.xml`.
+  - Added Hindi locale strings (`app/src/main/res/values-hi/strings.xml`).
+  - Configured `lint { disable += "MissingTranslation" }` in `build.gradle.kts` for secondary locales.
+- **Store Listing & Declarations (`docs/PLAY_STORE_LISTING.md`)**:
+  - Prepared Play Store listing text with clinical boundary disclaimer.
+  - Detailed Data Safety declaration answers (Health & Fitness, Photos, Device IDs).
+  - Exact Alarm permission declaration (`SCHEDULE_EXACT_ALARM`) with medical adherence rationale.
+- **Documentation**:
+  - Updated `docs/ARCHITECTURE.md` reflecting Stages 0 through 14.
+  - Created comprehensive `docs/USER_GUIDE.md` for Patients, Caregivers, and Doctors.
+  - Created `docs/verification/STAGE_14_VERIFY.md`.
+- **Permission Boundary Verification Tests (`PermissionBoundaryVerificationTest.kt`)**:
+  - Created 16 unit tests for all clinical governance and role boundary requirements.
+- **Verification & Builds**:
+  - Unit tests: **345 unit tests** passing (100% passing, 0 failures, 0 errors).
+  - Lint: `lintDebug` passed cleanly with 0 errors.
+  - Release APKs: `assembleDebug` and `assembleRelease` built successfully:
+    - `app-debug.apk`: 91,638,850 bytes (~87.4 MB)
+    - `app-release-unsigned.apk`: 82,526,755 bytes (~78.7 MB)

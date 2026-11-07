@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">मेडीट्रैक</string>
+    <string name="home_title">मेडीट्रैक</string>
+    <string name="login_title">वापसी पर स्वागत है</string>
+    <string name="login_subtitle">अपनी दवाओं को ट्रैक और सत्यापित करने के लिए साइन इन करें</string>
+    <string name="contact_label">ईमेल या फ़ोन नंबर</string>
+    <string name="password_label">पासवर्ड</string>
+    <string name="login_button">साइन इन करें</string>
+    <string name="create_account_title">खाता बनाएं</string>
+    <string name="name_label">पूरा नाम</string>
+    <string name="role_label">मेरी भूमिका है</string>
+    <string name="role_patient">मरीज (Patient)</string>
+    <string name="role_caregiver">देखभालकर्ता (Caregiver)</string>
+    <string name="role_doctor">डॉक्टर (Doctor)</string>
+    <string name="action_add_medicine">दवा जोड़ें</string>
+    <string name="action_scan">पर्ची स्कैन करें</string>
+    <string name="action_history">इतिहास</string>
+    <string name="action_calendar">कैलेंडर</string>
+    <string name="action_caregiver">देखभालकर्ता</string>
+    <string name="section_quick_actions">त्वरित क्रियाएं</string>
+    <string name="section_today_medicines">आज की दवाएं</string>
+    <string name="section_upcoming_doses">आगामी खुराक</string>
+    <string name="section_missed_doses">छूटी हुई खुराक</string>
+    <string name="perm_camera_title">कैमरा (आवश्यक)</string>
+    <string name="perm_camera_desc">दवा की पट्टी की तस्वीर लेने और खुराक सत्यापित करने के लिए आवश्यक।</string>
+</resources>

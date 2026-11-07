@@ -65,6 +65,11 @@ android {
         getByName("test").assets.srcDir("$projectDir/schemas")
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
+
+    lint {
+        disable += "MissingTranslation"
+        abortOnError = true
+    }
 }
 
 ksp {

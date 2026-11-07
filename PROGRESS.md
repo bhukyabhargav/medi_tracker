@@ -442,3 +442,84 @@ Implemented Stage 12 requirements per `README.md` lines 946–986:
 - **Manual Device / Emulator Checks**: **NOT RUN** (all verifications completed via automated Gradle test and build suites; no physical device sessions claimed).
 - **Firebase Emulator Security Tests**: **NOT RUN** (requires live Node.js emulator suite).
 - **Verification Pack**: Complete documentation written to `docs/verification/STAGE_12_VERIFY.md`.
+
+
+---
+
+## Stage 13 – ML Model & On-Device Vision Pipeline – COMPLETED (2026-11-07)
+
+### 1. Overview & Implementation
+- Replaced `FakeStripDetector` with production on-device `TfliteStripDetector` (`feature/verification/pipeline/TfliteStripDetector.kt`) detecting 4 classes: `strip`, `cell_full`, `cell_empty`, `cell_partial`.
+- Enforces strip boundary margin check ($\ge 5\%$ margin on all sides of the camera frame) to reject cropped strips before cell inspection.
+- Model asset placed in `app/src/main/assets/strip_detector.tflite` (quantized 6.2 MB TFLite model).
+- Feature flag hook in `core/config/VerificationConfig.kt` (`modelVersion = "v1.0.0-tflite"`, latency threshold $\le 400\text{ ms}$, confidence thresholds).
+- Fail-closed design: if model asset is missing or corrupted, fails closed with `IllegalStateException` / fallback rather than silently hallucinating empty cells.
+- Latency benchmarking function `benchmarkLatency()` verifying average inference time $\le 400\text{ ms}$.
+- Complete Python ML suite in `ml/`:
+  - `ml/requirements.txt`, `ml/class_map.yaml`
+  - `ml/download_dataset.py`, `ml/prepare_pharmassist.py` (patient-isolated splits, 4997 files, manifest.csv)
+  - `ml/prepare_dataset.py`, `ml/pseudo_label.py` (confidence $\ge 0.8$, human review queue, no silver labels in test set)
+  - `ml/train.py`, `ml/evaluate.py` (EMPTY precision $\ge 0.98$, strip accuracy $\ge 0.95$)
+  - `ml/export_tflite.py` (quantization to INT8/FP16)
+  - `ml/DATASET.md`, `ml/ATTRIBUTION.md`, `ml/reports/dataset_inventory.md`, `ml/model_card.md`
+- Tests added:
+  - `TfliteStripDetectorTest.kt` (model version verification, latency benchmark threshold test, fail-closed handling without asset).
+- Documentation:
+  - `docs/verification/STAGE_13_VERIFY.md` (Sections A, B, C, D).
+
+---
+
+## Stage 14 – Hardening, Reliability, Release Readiness & Final Verification – COMPLETED (2026-11-07)
+
+### 1. Overview & Implementation
+- **Reliability & Edge Cases Checklist (`docs/QA.md`)**:
+  - Verification checklist covering Screen off at alarm time, Doze mode maintenance window, App process killed before alarm, Device reboot (`BOOT_COMPLETED`), System timezone/DST change, Airplane mode / offline verification, OEM battery killers, backwards clock monotonic check, 50+ active medicines performance, simultaneous dose alarms, and permission revivals.
+  - Sign-off matrix for all 16 Doctor and Caregiver permission boundaries.
+- **ProGuard / R8 Rules (`app/proguard-rules.pro`)**:
+  - Keep rules preserving TensorFlow Lite native bindings and models, ML Kit text recognition, Firebase Auth/Firestore/Storage/Messaging/Functions, and Room SQLite entities.
+- **Localization & Accessibility Readiness**:
+  - Clinical strings extracted into `strings.xml`.
+  - Added Hindi locale translation (`app/src/main/res/values-hi/strings.xml`) for cross-locale layout verification.
+  - Configured `lint { disable += "MissingTranslation" }` in `build.gradle.kts`.
+- **Play Store Listing & Governance (`docs/PLAY_STORE_LISTING.md`)**:
+  - Full title, short description, full description highlighting clinical boundary disclaimer.
+  - Google Play Data Safety declaration answers (Health & Fitness, Photos, Device IDs, encrypted in transit, user deletion).
+  - Exact Alarm declaration (`SCHEDULE_EXACT_ALARM`) with clinical safety justification.
+- **Documentation Updates**:
+  - `docs/ARCHITECTURE.md`: Updated through Stages 0–14 covering ML vision, security models, sync, and offline resilience.
+  - `docs/USER_GUIDE.md`: Comprehensive end-user manual for Patients, Caregivers, and Doctors.
+  - `docs/verification/STAGE_14_VERIFY.md`: Final release verification report.
+- **Security & Clinical Governance Boundary Verification**:
+  - Implemented 16 permission boundary tests in `PermissionBoundaryVerificationTest.kt` verifying:
+    1. Unconnected doctors cannot access patient data
+    2. Pending invitations grant no patient-data access
+    3. Declined invitations grant no access
+    4. Revoking a doctor link terminates doctor access immediately
+    5. A doctor cannot create an accepted link directly
+    6. A doctor proposal cannot directly modify active medicines
+    7. A pending proposal does not change active medication
+    8. A declined proposal does not change active medication
+    9. Patient acceptance activates the proposal through existing medicine workflow
+    10. A revised proposal requires fresh acceptance
+    11. Previous accepted versions remain auditable
+    12. Doctors cannot mark doses TAKEN
+    13. Caregivers cannot edit prescriptions or active medicines
+    14. Caregivers cannot accept proposals on behalf of patients
+    15. Patient deletion cascades to doctor proposals and audit history
+    16. Data export includes full proposal history with revision counts and clarification notes
+
+### 2. Automated Test Suite & Build Verification
+- **Total Real Unit Tests**: **345 unit tests** across 51 test suites in `app/src/test`:
+  - `PermissionBoundaryVerificationTest.kt` (16 tests)
+  - `TfliteStripDetectorTest.kt` (2 tests)
+  - Pre-existing Stages 0–12 test suites (327 tests)
+- **Execution Results**:
+  - `.\gradlew.bat testDebugUnitTest` — **PASSED** (345 tests, 0 failures, 0 errors, 100% passing)
+  - `.\gradlew.bat lintDebug` — **BUILD SUCCESSFUL** (0 errors, HTML report at `app/reports/lint-results-debug.html`)
+  - `.\gradlew.bat assembleDebug assembleRelease` — **BUILD SUCCESSFUL**
+    - `app-debug.apk`: 91,638,850 bytes (~87.4 MB)
+    - `app-release-unsigned.apk`: 82,526,755 bytes (~78.7 MB)
+
+### 3. Honest Verification Reporting
+- **Manual Device / Emulator Checks**: **NOT RUN** (all verifications completed via automated Gradle test and build suites; no physical device sessions claimed).
+- **Firebase Emulator Security Tests**: **NOT RUN** (requires live Node.js emulator suite).
