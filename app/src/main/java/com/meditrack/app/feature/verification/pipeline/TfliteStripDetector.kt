@@ -7,6 +7,7 @@ import com.meditrack.app.core.config.VerificationConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -23,7 +24,7 @@ class TfliteStripDetector @Inject constructor(
 ) : StripDetector {
 
     companion object {
-        const val INPUT_SIZE = 300
+        const val DEFAULT_INPUT_SIZE = 320
         const val NUM_DETECTIONS = 10
         const val NUM_COORDINATES = 4
         private const val MODEL_FILE_NAME = "strip_detector.tflite"
@@ -58,65 +59,91 @@ class TfliteStripDetector @Inject constructor(
                 "Model assets/strip_detector.tflite not installed. Real model arrives in Stage 13."
             )
 
-        // 1. Preprocess Bitmap -> ByteBuffer
-        val inputBuffer = preprocessBitmap(bitmap)
-
-        // 2. Prepare Output Tensors
-        // Locations: [1, NUM_DETECTIONS, 4]
-        val outputLocations = Array(1) { Array(NUM_DETECTIONS) { FloatArray(NUM_COORDINATES) } }
-        // Classes: [1, NUM_DETECTIONS]
-        val outputClasses = Array(1) { FloatArray(NUM_DETECTIONS) }
-        // Scores: [1, NUM_DETECTIONS]
-        val outputScores = Array(1) { FloatArray(NUM_DETECTIONS) }
-        // Number of detections: [1]
-        val numDetections = FloatArray(1)
-
-        val outputMap = HashMap<Int, Any>()
-        outputMap[0] = outputLocations
-        outputMap[1] = outputClasses
-        outputMap[2] = outputScores
-        outputMap[3] = numDetections
-
-        // 3. Execute Inference
-        activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputMap)
-
-        // 4. Post-Process Detections
-        val count = numDetections[0].toInt().coerceIn(0, NUM_DETECTIONS)
+        val inputBuffer = preprocessBitmap(bitmap, activeInterpreter)
         val rawCells = mutableListOf<Cell>()
         var detectedStripBox: RectF? = null
 
         val margin = VerificationConfig.edgeMarginFraction
         val confidenceThreshold = VerificationConfig.confidenceThreshold
+        val outputCount = activeInterpreter.outputTensorCount
 
-        for (i in 0 until count) {
-            val score = outputScores[0][i]
-            if (score < confidenceThreshold) continue
+        if (outputCount == 1) {
+            // YOLO detector: shape [1, channels, anchors] (e.g. [1, 8, 2100])
+            val outTensor = activeInterpreter.getOutputTensor(0)
+            val shape = outTensor.shape()
+            val channels = shape.getOrNull(1) ?: 8
+            val anchors = shape.getOrNull(2) ?: 2100
 
-            val rawClass = outputClasses[0][i].toInt()
-            val ymin = outputLocations[0][i][0].coerceIn(0f, 1f)
-            val xmin = outputLocations[0][i][1].coerceIn(0f, 1f)
-            val ymax = outputLocations[0][i][2].coerceIn(0f, 1f)
-            val xmax = outputLocations[0][i][3].coerceIn(0f, 1f)
+            val outputArray = Array(1) { Array(channels) { FloatArray(anchors) } }
+            activeInterpreter.run(inputBuffer, outputArray)
 
-            val box = RectF(xmin, ymin, xmax, ymax)
+            for (j in 0 until anchors) {
+                var bestClass = -1
+                var maxScore = 0f
+                for (c in 4 until channels) {
+                    val score = outputArray[0][c][j]
+                    if (score > maxScore) {
+                        maxScore = score
+                        bestClass = c - 4
+                    }
+                }
 
-            when (rawClass) {
-                CLASS_STRIP -> {
-                    detectedStripBox = box
+                if (maxScore >= confidenceThreshold) {
+                    val xc = outputArray[0][0][j]
+                    val yc = outputArray[0][1][j]
+                    val w = outputArray[0][2][j]
+                    val h = outputArray[0][3][j]
+
+                    val xmin = (xc - w / 2f).coerceIn(0f, 1f)
+                    val ymin = (yc - h / 2f).coerceIn(0f, 1f)
+                    val xmax = (xc + w / 2f).coerceIn(0f, 1f)
+                    val ymax = (yc + h / 2f).coerceIn(0f, 1f)
+                    val box = RectF(xmin, ymin, xmax, ymax)
+
+                    when (bestClass) {
+                        CLASS_STRIP -> detectedStripBox = box
+                        CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = maxScore))
+                        CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = maxScore))
+                        CLASS_CELL_PARTIAL -> rawCells.add(Cell(box = box, state = CellState.PARTIAL, confidence = maxScore))
+                    }
                 }
-                CLASS_CELL_FULL -> {
-                    rawCells.add(Cell(box = box, state = CellState.FULL, confidence = score))
-                }
-                CLASS_CELL_EMPTY -> {
-                    rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = score))
-                }
-                CLASS_CELL_PARTIAL -> {
-                    rawCells.add(Cell(box = box, state = CellState.PARTIAL, confidence = score))
-                }
-                else -> {
-                    // Fallback mapping for generic multi-class models
-                    val mappedState = if (rawClass % 2 == 0) CellState.FULL else CellState.EMPTY
-                    rawCells.add(Cell(box = box, state = mappedState, confidence = score))
+            }
+        } else {
+            // SSD detector: locations [1, N, 4], classes [1, N], scores [1, N], count [1]
+            val outputLocations = Array(1) { Array(NUM_DETECTIONS) { FloatArray(NUM_COORDINATES) } }
+            val outputClasses = Array(1) { FloatArray(NUM_DETECTIONS) }
+            val outputScores = Array(1) { FloatArray(NUM_DETECTIONS) }
+            val numDetections = FloatArray(1)
+
+            val outputMap = HashMap<Int, Any>()
+            outputMap[0] = outputLocations
+            outputMap[1] = outputClasses
+            outputMap[2] = outputScores
+            outputMap[3] = numDetections
+
+            activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputMap)
+
+            val count = numDetections[0].toInt().coerceIn(0, NUM_DETECTIONS)
+            for (i in 0 until count) {
+                val score = outputScores[0][i]
+                if (score < confidenceThreshold) continue
+
+                val rawClass = outputClasses[0][i].toInt()
+                val ymin = outputLocations[0][i][0].coerceIn(0f, 1f)
+                val xmin = outputLocations[0][i][1].coerceIn(0f, 1f)
+                val ymax = outputLocations[0][i][2].coerceIn(0f, 1f)
+                val xmax = outputLocations[0][i][3].coerceIn(0f, 1f)
+                val box = RectF(xmin, ymin, xmax, ymax)
+
+                when (rawClass) {
+                    CLASS_STRIP -> detectedStripBox = box
+                    CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = score))
+                    CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = score))
+                    CLASS_CELL_PARTIAL -> rawCells.add(Cell(box = box, state = CellState.PARTIAL, confidence = score))
+                    else -> {
+                        val mappedState = if (rawClass % 2 == 0) CellState.FULL else CellState.EMPTY
+                        rawCells.add(Cell(box = box, state = mappedState, confidence = score))
+                    }
                 }
             }
         }
@@ -156,21 +183,35 @@ class TfliteStripDetector @Inject constructor(
         times.average().toLong()
     }
 
-    private fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
-        val resized = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
-        val byteBuffer = ByteBuffer.allocateDirect(1 * INPUT_SIZE * INPUT_SIZE * 3)
+    private fun preprocessBitmap(bitmap: Bitmap, activeInterpreter: Interpreter): ByteBuffer {
+        val inTensor = activeInterpreter.getInputTensor(0)
+        val inShape = inTensor.shape()
+        val inHeight = inShape.getOrNull(1)?.takeIf { it > 0 } ?: DEFAULT_INPUT_SIZE
+        val inWidth = inShape.getOrNull(2)?.takeIf { it > 0 } ?: DEFAULT_INPUT_SIZE
+        val isFloat = inTensor.dataType() == DataType.FLOAT32
+
+        val resized = Bitmap.createScaledBitmap(bitmap, inWidth, inHeight, true)
+        val bytesPerChannel = if (isFloat) 4 else 1
+        val byteBuffer = ByteBuffer.allocateDirect(1 * inHeight * inWidth * 3 * bytesPerChannel)
         byteBuffer.order(ByteOrder.nativeOrder())
 
-        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
-        resized.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        val pixels = IntArray(inWidth * inHeight)
+        resized.getPixels(pixels, 0, inWidth, 0, 0, inWidth, inHeight)
 
         for (pixel in pixels) {
-            val r = (pixel shr 16 and 0xFF).toByte()
-            val g = (pixel shr 8 and 0xFF).toByte()
-            val b = (pixel and 0xFF).toByte()
-            byteBuffer.put(r)
-            byteBuffer.put(g)
-            byteBuffer.put(b)
+            val r = (pixel shr 16 and 0xFF)
+            val g = (pixel shr 8 and 0xFF)
+            val b = (pixel and 0xFF)
+
+            if (isFloat) {
+                byteBuffer.putFloat(r / 255.0f)
+                byteBuffer.putFloat(g / 255.0f)
+                byteBuffer.putFloat(b / 255.0f)
+            } else {
+                byteBuffer.put(r.toByte())
+                byteBuffer.put(g.toByte())
+                byteBuffer.put(b.toByte())
+            }
         }
 
         byteBuffer.rewind()

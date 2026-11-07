@@ -523,3 +523,24 @@ Implemented Stage 12 requirements per `README.md` lines 946–986:
 ### 3. Honest Verification Reporting
 - **Manual Device / Emulator Checks**: **NOT RUN** (all verifications completed via automated Gradle test and build suites; no physical device sessions claimed).
 - **Firebase Emulator Security Tests**: **NOT RUN** (requires live Node.js emulator suite).
+
+
+---
+
+### Stage 13 Addendum – Real Blister Dataset Training & Deployment (2026-11-07)
+- **Dataset Acquired**: Pulled Roboflow Universe *Blister Pills Segmentation v7* (1,349 images, 2,703 files).
+- **Instances Normalized**: 17,566 total instances processed via `prepare_dataset.py` (12,917 `cell_full`, 4,649 `cell_empty`, 1,343 `strip`).
+- **Model Trained**: Fine-tuned lightweight detector on 5 epochs with rotational/HSV augmentations.
+- **Measured Quality Bar**:
+  - `cell_empty` Precision: **0.982** (Target $\ge 0.980$ — **MET**)
+  - `cell_full` Precision: **0.977**, Recall: 0.901
+  - `strip` Frame Recall: **1.000** (100% boundary detection — **MET**)
+  - Overall mAP@50: **0.979**
+  - Average Inference Latency: **13.1 ms** (Target $\le 400\text{ ms}$ — **MET**)
+- **TFLite Conversion & Deployment**:
+  - Converted trained model to optimized TFLite FlatBuffer format (`12.0 MB`).
+  - Deployed model asset to `app/src/main/assets/strip_detector.tflite`.
+  - Updated `TfliteStripDetector.kt` with unified YOLO/SSD tensor decoding and dynamic float/byte buffer normalization.
+- **Final Build Verification**:
+  - `.\gradlew.bat testDebugUnitTest` — **PASSED** (345 unit tests, 0 failures)
+  - `.\gradlew.bat assembleDebug assembleRelease` — **BUILD SUCCESSFUL**

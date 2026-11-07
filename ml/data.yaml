@@ -1,9 +1,10 @@
+path: C:/Users/bharg/OneDrive/Documents/Desktop/MedTracker - BioDesign/ml/data/unified
+train: train/images
+val: val/images
+test: test/images
+
 names:
   0: strip
   1: cell_full
   2: cell_empty
   3: cell_partial
-path: ml/data/unified
-test: test/images
-train: train/images
-val: val/images
