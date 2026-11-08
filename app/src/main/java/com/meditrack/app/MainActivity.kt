@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate(Screen.CreateAccount.route)
                                 },
                                 onLoginSuccess = {
-                                    navController.navigate(Screen.Splash.route) {
+                                    navController.navigate(Screen.Home.route) {
                                         popUpTo(Screen.Login.route) { inclusive = true }
                                     }
                                 }
@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
                             VerifyOtpScreen(
                                 contact = contact,
                                 onVerificationSuccess = {
-                                    navController.navigate(Screen.PermissionSetup.route) {
+                                    navController.navigate(Screen.Home.route) {
                                         popUpTo(Screen.Login.route) { inclusive = true }
                                     }
                                 }

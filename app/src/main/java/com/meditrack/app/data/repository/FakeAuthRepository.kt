@@ -180,6 +180,33 @@ class FakeAuthRepository @Inject constructor(
         userPreferences.setBatteryGuidanceSeen(true)
     }
 
+    override suspend fun loginAsDemo(role: UserRole): Result<User> {
+        userPreferences.setPrivacyConsentGiven(true)
+        val demoId = when (role) {
+            UserRole.PATIENT -> "demo_patient_001"
+            UserRole.DOCTOR -> "demo_doctor_001"
+            UserRole.CAREGIVER -> "demo_caregiver_001"
+        }
+        val demoName = when (role) {
+            UserRole.PATIENT -> "Demo Patient"
+            UserRole.DOCTOR -> "Dr. Smith (Demo)"
+            UserRole.CAREGIVER -> "Sarah (Caregiver Demo)"
+        }
+        val demoEmail = "${role.name.lowercase()}.demo@meditrack.app"
+        val user = User(
+            id = demoId,
+            name = demoName,
+            email = demoEmail,
+            role = role,
+            createdAt = System.currentTimeMillis()
+        )
+        userDao.insertUser(user)
+        userPreferences.setLoggedIn(demoId)
+        userPreferences.setOnboardingCompleted(true)
+        userPreferences.setBatteryGuidanceSeen(true)
+        return Result.success(user)
+    }
+
     private fun normalizeContact(raw: String): Pair<String, Boolean> {
         val trimmed = raw.trim()
         val isEmail = trimmed.contains("@")

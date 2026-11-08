@@ -21,6 +21,7 @@ interface AuthRepository {
 
     suspend fun verifyOtp(emailOrPhone: String, otp: String): Result<User>
     suspend fun login(emailOrPhone: String, password: String): Result<User>
+    suspend fun loginAsDemo(role: UserRole = UserRole.PATIENT): Result<User>
     suspend fun logout()
 
     suspend fun setOnboardingCompleted()

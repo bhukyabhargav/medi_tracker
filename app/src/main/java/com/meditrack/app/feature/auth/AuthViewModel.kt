@@ -159,28 +159,17 @@ class AuthViewModel @Inject constructor(
     fun quickDemoLogin(role: UserRole = UserRole.PATIENT, onSuccess: () -> Unit) {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            try {
-                userPreferences.setPrivacyConsentGiven(true)
-                val demoEmail = when (role) {
-                    UserRole.PATIENT -> "patient.demo@meditrack.app"
-                    UserRole.DOCTOR -> "doctor.demo@meditrack.app"
-                    UserRole.CAREGIVER -> "caregiver.demo@meditrack.app"
-                }
-                val demoName = when (role) {
-                    UserRole.PATIENT -> "Demo Patient"
-                    UserRole.DOCTOR -> "Dr. Smith (Demo)"
-                    UserRole.CAREGIVER -> "Sarah (Caregiver Demo)"
-                }
-                val createRes = authRepository.createAccount(demoName, demoEmail, "demo1234", role)
-                if (createRes.isSuccess) {
-                    authRepository.verifyOtp(demoEmail, "123456")
-                } else {
-                    authRepository.login(demoEmail, "demo1234")
-                }
+            val result = authRepository.loginAsDemo(role)
+            result.onSuccess {
                 _uiState.update { it.copy(isLoading = false, isSuccess = true) }
                 onSuccess()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Demo login failed") }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = error.message ?: "Demo login failed"
+                    )
+                }
             }
         }
     }
