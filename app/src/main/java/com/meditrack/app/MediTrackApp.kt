@@ -27,6 +27,11 @@ class MediTrackApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (e: Throwable) {
+            Log.w(TAG, "SQLCipher native library load: ${e.message}")
+        }
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "MediTrack application initialized - Stage 4 Reminders & Missed-Dose Engine")
         }

@@ -30,6 +30,12 @@ object DatabaseModule {
         @ApplicationContext context: Context,
         databaseKeyManager: DatabaseKeyManager
     ): AppDatabase {
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (_: Throwable) {
+            // Environment without native libs / JVM tests
+        }
+
         val passphrase = databaseKeyManager.getOrCreatePassphrase()
         val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
 
@@ -42,6 +48,33 @@ object DatabaseModule {
             // Best effort migration
         }
 
+        // Self-healing check: Verify database file integrity with current passphrase.
+        // If an existing database cannot be opened (e.g. Keystore key rotated or file corruption),
+        // cleanly delete the corrupt file so Room recreates a healthy database and prevents fatal crash loops.
+        if (dbFile.exists() && dbFile.length() > 0) {
+            var isReadable = false
+            try {
+                val testDb = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                    dbFile.absolutePath,
+                    passphrase,
+                    null,
+                    net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                    null
+                )
+                testDb.rawExecSQL("SELECT count(*) FROM sqlite_master;")
+                testDb.close()
+                isReadable = true
+            } catch (_: Throwable) {
+                isReadable = false
+            }
+
+            if (!isReadable) {
+                try {
+                    context.deleteDatabase(AppDatabase.DATABASE_NAME)
+                } catch (_: Throwable) {}
+            }
+        }
+
         val factory = net.zetetic.database.sqlcipher.SupportOpenHelperFactory(passphrase)
 
         return Room.databaseBuilder(
@@ -50,6 +83,7 @@ object DatabaseModule {
             AppDatabase.DATABASE_NAME
         )
         .openHelperFactory(factory)
+        .fallbackToDestructiveMigration()
         .addMigrations(*AppDatabase.ALL_MIGRATIONS)
         .build()
     }
