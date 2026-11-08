@@ -143,7 +143,14 @@ fun CreateAccountScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "ℹ️ Test Mode: No email is sent. Code on the next screen is 123456",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
 
             Button(
                 onClick = { viewModel.createAccount(onNavigateToOtp = onNavigateToOtp) },
@@ -158,7 +165,7 @@ fun CreateAccountScreen(
                         modifier = Modifier.height(24.dp)
                     )
                 } else {
-                    Text(stringResource(R.string.create_account_button))
+                    Text("Register (Test Code: 123456)")
                 }
             }
 

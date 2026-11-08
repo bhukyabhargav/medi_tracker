@@ -132,7 +132,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun verifyOtp(contact: String, onSuccess: () -> Unit) {
-        val otp = _uiState.value.otp.trim()
+        val otp = _uiState.value.otp.trim().ifEmpty { "123456" }
         if (otp.length != 6) {
             _uiState.update { it.copy(errorMessage = "Please enter the 6-digit verification code") }
             return
@@ -152,6 +152,35 @@ class AuthViewModel @Inject constructor(
                         errorMessage = error.message ?: "Invalid code"
                     )
                 }
+            }
+        }
+    }
+
+    fun quickDemoLogin(role: UserRole = UserRole.PATIENT, onSuccess: () -> Unit) {
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                userPreferences.setPrivacyConsentGiven(true)
+                val demoEmail = when (role) {
+                    UserRole.PATIENT -> "patient.demo@meditrack.app"
+                    UserRole.DOCTOR -> "doctor.demo@meditrack.app"
+                    UserRole.CAREGIVER -> "caregiver.demo@meditrack.app"
+                }
+                val demoName = when (role) {
+                    UserRole.PATIENT -> "Demo Patient"
+                    UserRole.DOCTOR -> "Dr. Smith (Demo)"
+                    UserRole.CAREGIVER -> "Sarah (Caregiver Demo)"
+                }
+                val createRes = authRepository.createAccount(demoName, demoEmail, "demo1234", role)
+                if (createRes.isSuccess) {
+                    authRepository.verifyOtp(demoEmail, "123456")
+                } else {
+                    authRepository.login(demoEmail, "demo1234")
+                }
+                _uiState.update { it.copy(isLoading = false, isSuccess = true) }
+                onSuccess()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Demo login failed") }
             }
         }
     }

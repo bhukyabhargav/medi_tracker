@@ -146,7 +146,7 @@ fun VerifyOtpScreen(
                         modifier = Modifier.height(24.dp)
                     )
                 } else {
-                    Text(stringResource(R.string.verify_otp_button))
+                    Text("Verify & Enter App (Code: 123456)")
                 }
             }
         }
