@@ -359,152 +359,199 @@ private fun CameraScanContent(
     onError: (String) -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    val imageCapture = remember {
+        ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+    }
+    val previewView = remember { PreviewView(context) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
-    // F5: Shut down camera executor when leaving composition
-    DisposableEffect(Unit) {
+    LaunchedEffect(lifecycleOwner) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+                val cameraSelector = when {
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                    else -> CameraSelector.DEFAULT_BACK_CAMERA
+                }
+
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageCapture
+                )
+            } catch (e: Throwable) {
+                android.util.Log.e("ScanMedicineScreen", "CameraX binding failed: ${e.message}", e)
+                cameraError = e.message ?: "Camera failed to initialize"
+                onError("Camera initialization issue: ${e.message}. You can choose from gallery.")
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    DisposableEffect(lifecycleOwner) {
         onDispose {
-            cameraExecutor.shutdown()
+            try {
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                if (cameraProviderFuture.isDone) {
+                    cameraProviderFuture.get().unbindAll()
+                }
+            } catch (_: Throwable) {}
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    try {
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-
-                        val capture = ImageCapture.Builder()
-                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                            .build()
-                        imageCapture = capture
-
-                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            capture
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        onError("Camera failed to initialize: ${e.localizedMessage ?: "Unknown error"}. You can choose an image from your gallery.")
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
-                previewView
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Overlay with scanning frame
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
+        if (cameraError != null) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
-            )
-        }
-
-        // Instructions banner
-        Surface(
-            color = Color.Black.copy(alpha = 0.6f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding(16.dp),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text(
-                text = "Align prescription or blister label inside the box",
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        // Bottom control row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.7f))
-                .padding(24.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Gallery picker button (allowed ONLY in Scan stage per README)
-            IconButton(
-                onClick = onPickFromGallery,
-                enabled = !isProcessing,
-                modifier = Modifier
-                    .size(52.dp)
-                    .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = Icons.Default.Image,
-                    contentDescription = "Pick from gallery",
-                    tint = Color.White
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Camera Unavailable",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Camera cannot be accessed on this device/emulator. Please pick a photo from your gallery instead.",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = onPickFromGallery,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Choose from Gallery")
+                }
+            }
+        } else {
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Overlay with scanning frame
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
                 )
             }
 
-            // Capture Shutter Button
-            Button(
-                onClick = {
-                    val capture = imageCapture ?: return@Button
-                    capture.takePicture(
-                        cameraExecutor,
-                        object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(image: ImageProxy) {
-                                val bitmap = imageProxyToBitmap(image)
-                                image.close()
-                                ContextCompat.getMainExecutor(context).execute {
+            // Instructions banner
+            Surface(
+                color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = "Align prescription or blister label inside the box",
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            // Bottom control row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(24.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Gallery picker button (allowed in Scan stage)
+                IconButton(
+                    onClick = onPickFromGallery,
+                    enabled = !isProcessing,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = "Pick from gallery",
+                        tint = Color.White
+                    )
+                }
+
+                // Capture Shutter Button
+                Button(
+                    onClick = {
+                        val scanDir = java.io.File(context.filesDir, "scan_tmp").apply { if (!exists()) mkdirs() }
+                        val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                        val photoFile = java.io.File(scanDir, "scan_$timeStamp.jpg")
+                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+                        imageCapture.takePicture(
+                            outputOptions,
+                            ContextCompat.getMainExecutor(context),
+                            object : ImageCapture.OnImageSavedCallback {
+                                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                    val bitmap = android.graphics.BitmapFactory.decodeFile(photoFile.absolutePath)
                                     if (bitmap != null) {
                                         onImageCaptured(bitmap)
                                     } else {
                                         onError("Could not decode camera image. Please retake.")
                                     }
                                 }
-                            }
 
-                            override fun onError(exception: ImageCaptureException) {
-                                exception.printStackTrace()
-                                ContextCompat.getMainExecutor(context).execute {
+                                override fun onError(exception: ImageCaptureException) {
                                     onError("Camera capture failed: ${exception.localizedMessage ?: "Capture error"}")
                                 }
                             }
-                        }
+                        )
+                    },
+                    enabled = !isProcessing,
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = "Capture",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
                     )
-                },
-                enabled = !isProcessing,
-                modifier = Modifier.size(72.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CameraAlt,
-                    contentDescription = "Capture",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
+                }
 
-            Spacer(modifier = Modifier.size(52.dp))
+                Spacer(modifier = Modifier.size(52.dp))
+            }
         }
     }
 }

@@ -68,6 +68,11 @@ class TfliteStripDetector @Inject constructor(
                 "Model assets/strip_detector.tflite not installed. Real model arrives in Stage 13."
             )
 
+        val inTensor = activeInterpreter.getInputTensor(0)
+        val inShape = inTensor.shape()
+        val inHeight = inShape.getOrNull(1)?.takeIf { it > 0 } ?: DEFAULT_INPUT_SIZE
+        val inWidth = inShape.getOrNull(2)?.takeIf { it > 0 } ?: DEFAULT_INPUT_SIZE
+
         val inputBuffer = preprocessBitmap(bitmap, activeInterpreter)
         val rawCells = mutableListOf<Cell>()
         var detectedStripBox: RectF? = null
@@ -104,10 +109,17 @@ class TfliteStripDetector @Inject constructor(
                     val w = outputArray[0][2][j]
                     val h = outputArray[0][3][j]
 
-                    val xmin = (xc - w / 2f).coerceIn(0f, 1f)
-                    val ymin = (yc - h / 2f).coerceIn(0f, 1f)
-                    val xmax = (xc + w / 2f).coerceIn(0f, 1f)
-                    val ymax = (yc + h / 2f).coerceIn(0f, 1f)
+                    // YOLOv8 exports box coordinates in model input pixels (e.g. 0..320).
+                    // Normalize to 0f..1f so boundary checks and NMS calculate correct geometries.
+                    val normXc = if (xc > 1.0f) xc / inWidth.toFloat() else xc
+                    val normYc = if (yc > 1.0f) yc / inHeight.toFloat() else yc
+                    val normW = if (w > 1.0f) w / inWidth.toFloat() else w
+                    val normH = if (h > 1.0f) h / inHeight.toFloat() else h
+
+                    val xmin = (normXc - normW / 2f).coerceIn(0f, 1f)
+                    val ymin = (normYc - normH / 2f).coerceIn(0f, 1f)
+                    val xmax = (normXc + normW / 2f).coerceIn(0f, 1f)
+                    val ymax = (normYc + normH / 2f).coerceIn(0f, 1f)
                     val box = RectF(xmin, ymin, xmax, ymax)
 
                     when (bestClass) {
@@ -142,10 +154,15 @@ class TfliteStripDetector @Inject constructor(
                 if (score < confidenceThreshold) continue
 
                 val rawClass = outputClasses[0][i].toInt()
-                val ymin = outputLocations[0][i][0].coerceIn(0f, 1f)
-                val xmin = outputLocations[0][i][1].coerceIn(0f, 1f)
-                val ymax = outputLocations[0][i][2].coerceIn(0f, 1f)
-                val xmax = outputLocations[0][i][3].coerceIn(0f, 1f)
+                val rawYmin = outputLocations[0][i][0]
+                val rawXmin = outputLocations[0][i][1]
+                val rawYmax = outputLocations[0][i][2]
+                val rawXmax = outputLocations[0][i][3]
+
+                val ymin = (if (rawYmin > 1.0f) rawYmin / inHeight.toFloat() else rawYmin).coerceIn(0f, 1f)
+                val xmin = (if (rawXmin > 1.0f) rawXmin / inWidth.toFloat() else rawXmin).coerceIn(0f, 1f)
+                val ymax = (if (rawYmax > 1.0f) rawYmax / inHeight.toFloat() else rawYmax).coerceIn(0f, 1f)
+                val xmax = (if (rawXmax > 1.0f) rawXmax / inWidth.toFloat() else rawXmax).coerceIn(0f, 1f)
                 val box = RectF(xmin, ymin, xmax, ymax)
 
                 when (rawClass) {

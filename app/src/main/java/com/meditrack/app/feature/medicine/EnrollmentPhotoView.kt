@@ -156,12 +156,13 @@ fun EnrollmentPhotoView(
             if (stripDetector != null) {
                 try {
                     val detection = stripDetector.detect(bitmap)
-                    val hasBlisterPack = detection.cells.isNotEmpty() ||
-                        (detection.stripConfidence != null && detection.stripConfidence >= 0.35f)
+                    // A valid medicine blister pack must contain pill cavities (cells).
+                    // This prevents sharp background lines (like table edges) from falsely passing as blister strips.
+                    val hasBlisterPack = detection.cells.isNotEmpty()
 
                     if (!hasBlisterPack) {
                         withContext(Dispatchers.Main) {
-                            qualityError = "No blister pack detected. Please ensure a blister pack with medicine cavities is clearly visible in the photo."
+                            qualityError = "No blister pack detected. Please ensure a blister pack with pill cavities is clearly visible in the frame."
                             isCapturing = false
                         }
                         return@launch

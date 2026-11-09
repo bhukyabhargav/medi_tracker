@@ -285,13 +285,12 @@ class VerificationViewModel @Inject constructor(
                 } catch (e: Exception) {
                     null
                 }
-                val hasBlisterPack = detection != null &&
-                    (detection.cells.isNotEmpty() || (detection.stripConfidence != null && detection.stripConfidence >= 0.35f))
+                val hasBlisterPack = detection != null && detection.cells.isNotEmpty()
 
                 if (!hasBlisterPack) {
                     _uiState.update {
                         it.copy(
-                            errorMessage = "No blister pack detected. Please ensure your blister pack is clearly visible to enroll."
+                            errorMessage = "No blister pack detected. Please ensure your blister pack with pill cavities is clearly visible to enroll."
                         )
                     }
                     return@launch
