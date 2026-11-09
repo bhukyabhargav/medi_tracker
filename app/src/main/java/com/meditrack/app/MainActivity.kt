@@ -35,6 +35,9 @@ import com.meditrack.app.feature.reminder.receiver.ReminderReceiver
 import com.meditrack.app.feature.settings.PrivacyConsentScreen
 import com.meditrack.app.feature.settings.SettingsScreen
 import com.meditrack.app.feature.verification.VerificationStubScreen
+import com.meditrack.app.core.database.DatabaseRecoveryState
+import com.meditrack.app.data.db.AppDatabase
+import com.meditrack.app.feature.error.DatabaseErrorScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -60,6 +63,22 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    val dbError = DatabaseRecoveryState.currentError
+                    if (dbError != null) {
+                        DatabaseErrorScreen(
+                            error = dbError,
+                            onRetry = {
+                                DatabaseRecoveryState.clearError()
+                                recreate()
+                            },
+                            onResetData = {
+                                DatabaseRecoveryState.resetLocalData(this@MainActivity, AppDatabase.DATABASE_NAME)
+                                recreate()
+                            }
+                        )
+                        return@Surface
+                    }
+
                     val navController = rememberNavController()
                     val targetDoseId by pendingDoseId
                     val flagSecureEnabled by userPreferences.isFlagSecureEnabled.collectAsState(initial = true)

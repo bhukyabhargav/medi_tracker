@@ -1,7 +1,10 @@
 package com.meditrack.app.core.di
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Room
+import com.meditrack.app.core.database.DatabaseRecoveryState
+import com.meditrack.app.core.database.SqlCipherLoader
 import com.meditrack.app.core.security.DatabaseKeyManager
 import com.meditrack.app.data.db.AppDatabase
 import com.meditrack.app.data.db.DatabaseEncryptionMigrator
@@ -18,11 +21,14 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.io.File
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
+
+    private const val TAG = "DatabaseModule"
 
     @Provides
     @Singleton
@@ -30,33 +36,59 @@ object DatabaseModule {
         @ApplicationContext context: Context,
         databaseKeyManager: DatabaseKeyManager
     ): AppDatabase {
-        try {
-            System.loadLibrary("sqlcipher")
-        } catch (_: Throwable) {
-            // Environment without native libs / JVM tests
+        // A6: Centralized native library load
+        val nativeLoadResult = SqlCipherLoader.load()
+        if (nativeLoadResult.isFailure) {
+            val err = nativeLoadResult.exceptionOrNull()
+            DatabaseRecoveryState.setError(
+                DatabaseRecoveryState.DatabaseError(
+                    title = "Database Engine Error",
+                    message = "The secure database library (SQLCipher) failed to load on this device.",
+                    details = err?.stackTraceToString(),
+                    isRecoverable = false,
+                    cause = err
+                )
+            )
+            return createFallbackDatabase(context)
         }
 
-        val passphrase = databaseKeyManager.getOrCreatePassphrase()
+        // A3 & A4: Explicitly handle passphrase retrieval failure
+        val rawPassphrase = try {
+            databaseKeyManager.getOrCreatePassphrase()
+        } catch (e: Throwable) {
+            DatabaseRecoveryState.setError(
+                DatabaseRecoveryState.DatabaseError(
+                    title = "KeyStore Security Error",
+                    message = "Could not access or decrypt the database encryption key. Your local data file is preserved.",
+                    details = e.stackTraceToString(),
+                    isRecoverable = true,
+                    cause = e
+                )
+            )
+            return createFallbackDatabase(context)
+        }
+
         val dbFile = context.getDatabasePath(AppDatabase.DATABASE_NAME)
 
-        // Handle one-time plaintext to encrypted migration if needed
+        // A2: Handle one-time plaintext to encrypted migration if needed
         try {
             if (DatabaseEncryptionMigrator.isDatabasePlaintext(dbFile)) {
-                DatabaseEncryptionMigrator.migratePlaintextToEncrypted(context, dbFile, passphrase)
+                DatabaseEncryptionMigrator.migratePlaintextToEncrypted(context, dbFile, rawPassphrase)
             }
-        } catch (_: Throwable) {
-            // Best effort migration
+        } catch (e: Throwable) {
+            Log.w(TAG, "Plaintext to encrypted migration attempt threw: ${e.message}", e)
         }
 
-        // Self-healing check: Verify database file integrity with current passphrase.
-        // If an existing database cannot be opened (e.g. Keystore key rotated or file corruption),
-        // cleanly delete the corrupt file so Room recreates a healthy database and prevents fatal crash loops.
+        val openerPassphrase = DatabaseKeyManager.derivePassphraseBytes(rawPassphrase)
+
+        // A1: Verify database file readability without deleting the file on failure
         if (dbFile.exists() && dbFile.length() > 0) {
             var isReadable = false
+            var openError: Throwable? = null
             try {
                 val testDb = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
                     dbFile.absolutePath,
-                    passphrase,
+                    openerPassphrase,
                     null,
                     net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
                     null
@@ -64,28 +96,55 @@ object DatabaseModule {
                 testDb.rawExecSQL("SELECT count(*) FROM sqlite_master;")
                 testDb.close()
                 isReadable = true
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 isReadable = false
+                openError = t
             }
 
             if (!isReadable) {
-                try {
-                    context.deleteDatabase(AppDatabase.DATABASE_NAME)
-                } catch (_: Throwable) {}
+                // A1: DO NOT DELETE USER DATABASE. Keep file and surface recoverable error screen.
+                DatabaseRecoveryState.setError(
+                    DatabaseRecoveryState.DatabaseError(
+                        title = "Database Decryption Error",
+                        message = "The database exists but cannot be decrypted with the current credentials. Your local file has been preserved.",
+                        details = openError?.stackTraceToString(),
+                        isRecoverable = true,
+                        cause = openError
+                    )
+                )
+                return createFallbackDatabase(context)
             }
         }
 
-        val factory = net.zetetic.database.sqlcipher.SupportOpenHelperFactory(passphrase)
+        val factory = net.zetetic.database.sqlcipher.SupportOpenHelperFactory(openerPassphrase)
 
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            AppDatabase.DATABASE_NAME
-        )
-        .openHelperFactory(factory)
-        .fallbackToDestructiveMigration()
-        .addMigrations(*AppDatabase.ALL_MIGRATIONS)
-        .build()
+        return try {
+            Room.databaseBuilder(
+                context,
+                AppDatabase::class.java,
+                AppDatabase.DATABASE_NAME
+            )
+                .openHelperFactory(factory)
+                .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+                .build()
+        } catch (t: Throwable) {
+            DatabaseRecoveryState.setError(
+                DatabaseRecoveryState.DatabaseError(
+                    title = "Database Initialization Failed",
+                    message = "Could not initialize database: ${t.message}",
+                    details = t.stackTraceToString(),
+                    isRecoverable = true,
+                    cause = t
+                )
+            )
+            createFallbackDatabase(context)
+        }
+    }
+
+    private fun createFallbackDatabase(context: Context): AppDatabase {
+        return Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
     }
 
     @Provides

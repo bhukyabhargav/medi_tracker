@@ -670,3 +670,52 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
 - **Firebase Emulator Security Tests (`scripts/firebase_security_tests.js`)**: **NOT RUN** (requires live Node.js Firebase Emulator Suite).
 - **Gold Test Set**: **MISSING** (listed as an open human labeling task).
 
+
+
+---
+
+## Round 5 Stability: Stage 1 (Startup Crashes & Silent Data Loss A1 - A6)
+
+### 1. Implementation Summary
+- **A1 (Database Data Loss & Destructive Migration Removal)**:
+  - Removed `context.deleteDatabase` and `.fallbackToDestructiveMigration()` from `DatabaseModule.kt`. Room database files on disk are never silently wiped.
+  - Added `DatabaseRecoveryState` and `DatabaseErrorScreen` with user actions: Retry, Export Diagnostics, and confirmed Reset Local Data.
+- **A2 (Plaintext-to-Encrypted Key Synchronization)**:
+  - Standardized PBKDF2 passphrase derivation in `DatabaseKeyManager` (`derivePassphraseString` & `derivePassphraseBytes`) so `ATTACH DATABASE ... KEY '$passphraseStr'` matches `SupportOpenHelperFactory(passphraseBytes)`.
+  - Added `<name>.bak` retention in `DatabaseEncryptionMigrator.kt` with query verification and atomic rollback if encryption validation fails.
+- **A3 (Keystore Fail-Closed Architecture)**:
+  - Removed hardcoded fallback secret (`ByteArray(32) { 42 }`) from `KeystoreSecurityManager.kt`.
+  - Introduced `KeyProvider` interface, `AndroidKeystoreKeyProvider` (throws `KeystoreUnavailableException`), and `TestKeyProvider` for unit tests.
+- **A4 (Database Key Decryption Handling)**:
+  - Added `DatabaseKeyException` in `DatabaseKeyManager.kt` to prevent silent key regeneration when existing key cannot be decrypted. Handled cleanly in `DatabaseModule.kt`.
+- **A5 (ProGuard Rules Fix for Release Builds)**:
+  - Fixed ProGuard keep rules in `app/proguard-rules.pro` from `net.sqlcipher.**` to `net.zetetic.database.sqlcipher.** { *; }`.
+- **A6 (Centralized Native Library Loading)**:
+  - Centralized `System.loadLibrary("sqlcipher")` in `SqlCipherLoader.kt`.
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **278**
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 1m 4s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 1m 41s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,323,263 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL in 4m 8s`
+  - **Artifact**: `app-release-unsigned.apk` (48,058,447 bytes, R8 minified)
+
+### 3. Honest Verification Reporting
+- **Host Unit Test Suite**: **VERIFIED** (278 passed, 0 failed).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded).
+- **Physical Device Smoke Test (Cold start, Add Medicine, Scan, Verify)**: **NOT RUN** (requires physical Android hardware).
+  - *Steps for Manual Run:*
+    1. `adb install -r app-release-unsigned.apk` (or signed release build).
+    2. Launch app and observe splash screen transition.
+    3. Add a medicine (e.g. "Metformin 500mg").
+    4. Verify medicine persists and appears in "Current Medicines".
+    5. Test "Scan Rx" and camera blister verification.

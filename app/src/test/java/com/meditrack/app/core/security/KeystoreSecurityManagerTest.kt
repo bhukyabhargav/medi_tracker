@@ -1,6 +1,6 @@
 package com.meditrack.app.core.security
 
-import android.content.Context
+import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -9,16 +9,17 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import javax.crypto.AEADBadTagException
+import javax.crypto.spec.SecretKeySpec
 
 class KeystoreSecurityManagerTest {
 
-    private val context: Context = mockk(relaxed = true)
+    private lateinit var keyProvider: KeyProvider
     private lateinit var securityManager: KeystoreSecurityManager
 
     @Before
     fun setUp() {
-        securityManager = KeystoreSecurityManager(context)
+        keyProvider = TestKeyProvider()
+        securityManager = KeystoreSecurityManager(keyProvider)
     }
 
     @Test
@@ -53,6 +54,17 @@ class KeystoreSecurityManagerTest {
 
         assertThrows(Exception::class.java) {
             securityManager.decrypt(ciphertext)
+        }
+    }
+
+    @Test
+    fun `encrypt throws KeystoreUnavailableException when KeyProvider fails`() {
+        val failingProvider = mockk<KeyProvider>()
+        every { failingProvider.getOrCreateKey() } throws KeystoreUnavailableException("AndroidKeyStore hardware error")
+
+        val failingSecurityManager = KeystoreSecurityManager(failingProvider)
+        assertThrows(KeystoreUnavailableException::class.java) {
+            failingSecurityManager.encrypt("test data".toByteArray())
         }
     }
 }

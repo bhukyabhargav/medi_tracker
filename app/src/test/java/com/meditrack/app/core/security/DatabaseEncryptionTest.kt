@@ -3,9 +3,12 @@ package com.meditrack.app.core.security
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.meditrack.app.data.db.DatabaseEncryptionMigrator
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -23,7 +26,7 @@ class DatabaseEncryptionTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        keystoreSecurityManager = KeystoreSecurityManager(context)
+        keystoreSecurityManager = KeystoreSecurityManager(TestKeyProvider())
         databaseKeyManager = DatabaseKeyManager(context, keystoreSecurityManager)
     }
 
@@ -59,5 +62,32 @@ class DatabaseEncryptionTest {
 
         testDbFile.delete()
         encryptedDbFile.delete()
+    }
+
+    @Test
+    fun derivePassphrase_producesConsistentAsciiHexOnBothSides() {
+        val rawKey = ByteArray(32) { (it + 1).toByte() }
+        val passphraseStr = DatabaseKeyManager.derivePassphraseString(rawKey)
+        val openerBytes = DatabaseKeyManager.derivePassphraseBytes(rawKey)
+
+        assertEquals(64, passphraseStr.length)
+        assertEquals(64, openerBytes.size)
+        assertEquals(passphraseStr, String(openerBytes, Charsets.US_ASCII))
+    }
+
+    @Test
+    fun getOrCreatePassphrase_throwsDatabaseKeyException_whenDecryptFails() {
+        val keyFile = File(context.filesDir, DatabaseKeyManager.KEY_FILE_NAME)
+        keyFile.writeBytes(ByteArray(50) { 0xFF.toByte() }) // Corrupt key file
+
+        val failingSecurityManager = mockk<KeystoreSecurityManager>()
+        every { failingSecurityManager.decrypt(any()) } throws RuntimeException("Corrupted tag")
+
+        val manager = DatabaseKeyManager(context, failingSecurityManager)
+        assertThrows(DatabaseKeyException::class.java) {
+            manager.getOrCreatePassphrase()
+        }
+
+        keyFile.delete()
     }
 }

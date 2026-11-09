@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.meditrack.app.core.database.SqlCipherLoader
 import com.meditrack.app.feature.medicine.worker.DailyDoseExtensionWorker
 import com.meditrack.app.feature.reminder.NotificationChannels
 import com.meditrack.app.feature.reminder.worker.OverdueDoseSafetyWorker
@@ -27,11 +28,13 @@ class MediTrackApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        try {
-            System.loadLibrary("sqlcipher")
-        } catch (e: Throwable) {
-            Log.w(TAG, "SQLCipher native library load: ${e.message}")
+
+        // Stage 12 / Stability Fix A6: Centralized SQLCipher native library loading
+        val sqlCipherResult = SqlCipherLoader.load()
+        if (sqlCipherResult.isFailure) {
+            Log.w(TAG, "SQLCipher native library not loaded at app start: ${sqlCipherResult.exceptionOrNull()?.message}")
         }
+
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "MediTrack application initialized - Stage 4 Reminders & Missed-Dose Engine")
         }

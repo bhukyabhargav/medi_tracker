@@ -1,6 +1,6 @@
 # ProGuard rules for MediTrack
 
-# Keep data classes and Room schemas
+# Keep Room schemas, DAOs, entities, and database classes
 -keepclassmembers class * {
     @androidx.room.Entity *;
     @androidx.room.Dao *;
@@ -8,29 +8,39 @@
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
 
-# SQLCipher
--keep class net.sqlcipher.** { *; }
--keep class net.sqlcipher.database.** { *; }
--dontwarn net.sqlcipher.**
+# SQLCipher (Zetetic package) - Fix A5
+-keep class net.zetetic.database.sqlcipher.** { *; }
+-keepclassmembers class net.zetetic.database.sqlcipher.** { *; }
+-keep class net.zetetic.database.** { *; }
+-keepclassmembers class net.zetetic.database.** { *; }
+-dontwarn net.zetetic.**
 
-# Keep TensorFlow Lite native and java classes
+# SQLCipher JNI callbacks
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# TensorFlow Lite native and java classes
 -keep class org.tensorflow.lite.** { *; }
 -keepclassmembers class org.tensorflow.lite.** { *; }
 -dontwarn org.tensorflow.lite.**
 
-# Keep ML Kit text recognition
+# ML Kit text recognition
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**
 
-# Keep Firebase Auth, Firestore, Storage, Functions, Messaging
+# Firebase Auth, Firestore, Storage, Functions, Messaging
 -keep class com.google.firebase.** { *; }
 -dontwarn com.google.firebase.**
 
-# Keep Hilt / Dagger
+# Hilt / Dagger
+-keep class dagger.hilt.** { *; }
+-keepclassmembers class dagger.hilt.** { *; }
+-dontwarn dagger.hilt.**
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
 
-# Keep domain entities, enums and verification pipeline models
+# Domain entities, enums and verification pipeline models
 -keep class com.meditrack.app.domain.model.** { *; }
 -keep enum com.meditrack.app.domain.model.** { *; }
 -keep class com.meditrack.app.feature.verification.pipeline.Cell* { *; }

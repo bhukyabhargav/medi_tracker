@@ -181,3 +181,36 @@ This document details all changes and new files introduced during the Round 4 re
 - `ml/simulate_verification.py`
 - `ml/reports/simulation_results.json`
 - `CHANGES.md`
+
+
+---
+
+## Round 5 Stability Fixes (Stage 1: Findings A1 - A6)
+
+### Fixed Showstoppers & Startup Crashes
+1. **A1 (Zero Silent Data Wipes & Recoverable Database Error Screen)**
+   - Modified `core/di/DatabaseModule.kt`: Removed `context.deleteDatabase(AppDatabase.DATABASE_NAME)` and `.fallbackToDestructiveMigration()`. If an existing database cannot be opened or decrypted, the file is preserved intact on disk.
+   - Added `core/database/DatabaseRecoveryState.kt` and `feature/error/DatabaseErrorScreen.kt`: Surfaces a user-facing error screen detailing the issue, offering **Retry Database Unlock**, **Export Diagnostics** (via `Intent.ACTION_SEND` without leaking PHI), and **Reset Local Data** (with explicit confirmation dialog).
+   - Integrated into `MainActivity.kt`.
+
+2. **A2 (SQLCipher Key Mismatch & Plaintext Backup Rollback)**
+   - Modified `data/db/DatabaseEncryptionMigrator.kt` and `core/security/DatabaseKeyManager.kt`: Added `DatabaseKeyManager.derivePassphraseString(rawKey)` and `derivePassphraseBytes(rawKey)` to unify key derivation. `ATTACH DATABASE ... KEY '$passphraseStr'` and `SupportOpenHelperFactory(openerBytes)` now evaluate the exact same PBKDF2 key.
+   - Preserves plaintext database as `<name>.bak` during migration until the encrypted DB is opened and verified with `SELECT count(*) FROM sqlite_master;`. If verification fails, rolls back to `.bak` automatically.
+   - Added instrumented test: `androidTest/java/com/meditrack/app/data/db/DatabaseEncryptionMigrationInstrumentedTest.kt`.
+
+3. **A3 (Fail-Closed KeyStore & KeyProvider Abstraction)**
+   - Created `core/security/KeyProvider.kt`, `core/security/AndroidKeystoreKeyProvider.kt`, and `core/security/KeystoreUnavailableException.kt`.
+   - Modified `core/security/KeystoreSecurityManager.kt`: Removed hardcoded `ByteArray(32) { 42 }` fallback key entirely. Fails closed with `KeystoreUnavailableException` on real devices when AndroidKeyStore is locked or inaccessible.
+   - Created `core/di/SecurityModule.kt` for Hilt binding and `core/security/TestKeyProvider.kt` for unit testing.
+
+4. **A4 (Database Key Decryption & Crash Loop Prevention)**
+   - Modified `core/security/DatabaseKeyManager.kt`: Throws typed `DatabaseKeyException` on decryption failure; never silently regenerates keys for existing databases.
+   - Handled in `DatabaseModule.kt`: Catches `DatabaseKeyException` and `KeystoreUnavailableException`, setting `DatabaseRecoveryState` and using an in-memory fallback so Hilt doesn't crash app startup before Compose can display the recovery screen.
+
+5. **A5 (ProGuard Rules for Zetetic SQLCipher & Release Minification)**
+   - Modified `app/proguard-rules.pro`: Added `-keep class net.zetetic.database.sqlcipher.** { *; }`, `-keep class net.zetetic.database.** { *; }`, and JNI callback rules.
+   - Verified with `./gradlew.bat assembleRelease`: Build succeeded and produced `app-release-unsigned.apk` (48,058,447 bytes).
+
+6. **A6 (Centralized SQLCipher Native Library Loading)**
+   - Created `core/database/SqlCipherLoader.kt`: Thread-safe single point of loading for `libsqlcipher.so`.
+   - Updated `MediTrackApp.kt`, `DatabaseModule.kt`, and `DatabaseEncryptionMigrator.kt` to use `SqlCipherLoader.load()`.
