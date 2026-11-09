@@ -175,7 +175,8 @@ fun AddEditMedicineScreen(
                     onPhotoCaptured = viewModel::onPhotoCaptured,
                     onSkip = viewModel::onSkipPhoto,
                     onConfirmSave = viewModel::onConfirmPhotoAndSave,
-                    modifier = modifier.padding(innerPadding)
+                    modifier = modifier.padding(innerPadding),
+                    stripDetector = viewModel.stripDetector
                 )
             }
             AddEditStep.SUCCESS -> {

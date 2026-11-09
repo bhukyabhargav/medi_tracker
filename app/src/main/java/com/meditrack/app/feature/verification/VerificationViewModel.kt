@@ -66,7 +66,8 @@ class VerificationViewModel @Inject constructor(
     private val skipDoseUseCase: SkipDoseUseCase,
     private val alarmScheduler: AlarmScheduler,
     private val verificationCoordinator: VerificationCoordinator,
-    private val fakeStripDetector: FakeStripDetector
+    private val fakeStripDetector: FakeStripDetector,
+    private val stripDetector: com.meditrack.app.feature.verification.pipeline.StripDetector
 ) : ViewModel() {
 
     val doseId: String = checkNotNull(savedStateHandle["doseId"])
@@ -188,7 +189,7 @@ class VerificationViewModel @Inject constructor(
 
             val dose = doseRepository.getById(doseId)
             val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
-            if (medicine != null) {
+            if (medicine != null && fakeStripDetector.behavior != ForceDetectorBehavior.DEFAULT) {
                 val latestVerified = doseRepository.getLatestVerifiedDose(medicine.id)
                 val prevEmpty = latestVerified?.emptyCellsAfter ?: medicine.baselineEmptyCells
                 fakeStripDetector.mockPreviousEmptyCellsCount = prevEmpty
@@ -267,14 +268,66 @@ class VerificationViewModel @Inject constructor(
     fun recordBaselineEnrollment(photoPath: String) {
         viewModelScope.launch {
             val med = uiState.value.medicine ?: return@launch
-            val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = 0)
-            medicineRepository.update(updatedMed)
-            _uiState.update {
-                it.copy(
-                    medicine = updatedMed,
-                    needsBaselinePhoto = false,
-                    infoMessage = "Baseline strip enrolled successfully."
-                )
+            val bitmap = BitmapFactory.decodeFile(photoPath)
+            if (bitmap != null) {
+                val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
+                if (!quality.passed) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = quality.friendlyMessage ?: "Baseline photo quality check failed. Please retake in good lighting."
+                        )
+                    }
+                    return@launch
+                }
+
+                val detection = try {
+                    stripDetector.detect(bitmap)
+                } catch (e: Exception) {
+                    null
+                }
+                val hasBlisterPack = detection != null &&
+                    (detection.cells.isNotEmpty() || (detection.stripConfidence != null && detection.stripConfidence >= 0.35f))
+
+                if (!hasBlisterPack) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "No blister pack detected. Please ensure your blister pack is clearly visible to enroll."
+                        )
+                    }
+                    return@launch
+                }
+
+                if (!detection.stripFullyInFrame) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "The blister pack is cut off at the edge. Please center the entire blister strip inside the camera guide."
+                        )
+                    }
+                    return@launch
+                }
+
+                val emptyCells = detection.cells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+                val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = emptyCells)
+                medicineRepository.update(updatedMed)
+                _uiState.update {
+                    it.copy(
+                        medicine = updatedMed,
+                        needsBaselinePhoto = false,
+                        errorMessage = null,
+                        infoMessage = "Baseline strip enrolled successfully."
+                    )
+                }
+            } else {
+                val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = 0)
+                medicineRepository.update(updatedMed)
+                _uiState.update {
+                    it.copy(
+                        medicine = updatedMed,
+                        needsBaselinePhoto = false,
+                        errorMessage = null,
+                        infoMessage = "Baseline strip enrolled successfully."
+                    )
+                }
             }
         }
     }

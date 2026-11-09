@@ -41,13 +41,22 @@ class TfliteStripDetector @Inject constructor(
     init {
         try {
             val assetManager = context.assets
-            val fileDescriptor = assetManager.openFd(MODEL_FILE_NAME)
-            val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-            val fileChannel = inputStream.channel
-            val startOffset = fileDescriptor.startOffset
-            val declaredLength = fileDescriptor.declaredLength
-            val modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
-            interpreter = Interpreter(modelBuffer)
+            try {
+                val fileDescriptor = assetManager.openFd(MODEL_FILE_NAME)
+                val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+                val fileChannel = inputStream.channel
+                val startOffset = fileDescriptor.startOffset
+                val declaredLength = fileDescriptor.declaredLength
+                val modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+                interpreter = Interpreter(modelBuffer)
+            } catch (_: Throwable) {
+                // Fallback if asset is compressed or openFd unsupported
+                val bytes = assetManager.open(MODEL_FILE_NAME).use { it.readBytes() }
+                val buffer = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
+                buffer.put(bytes)
+                buffer.rewind()
+                interpreter = Interpreter(buffer)
+            }
         } catch (_: Throwable) {
             interpreter = null
         }
@@ -166,7 +175,7 @@ class TfliteStripDetector @Inject constructor(
                     effectiveStripBox.right <= (1.0f - margin) &&
                     effectiveStripBox.bottom <= (1.0f - margin)
         } else {
-            true
+            false
         }
 
         Detection(

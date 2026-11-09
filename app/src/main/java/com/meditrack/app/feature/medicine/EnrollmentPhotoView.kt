@@ -32,8 +32,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.meditrack.app.feature.verification.pipeline.StripDetector
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,7 +85,8 @@ fun EnrollmentPhotoView(
     onPhotoCaptured: (String) -> Unit,
     onSkip: () -> Unit,
     onConfirmSave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    stripDetector: StripDetector? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -120,9 +128,91 @@ fun EnrollmentPhotoView(
         }
     }
 
+    val scope = rememberCoroutineScope()
     var capturedPhotoPath by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var qualityError by remember { mutableStateOf<String?>(null) }
+
+    fun validateAndAccept(path: String) {
+        scope.launch(Dispatchers.Default) {
+            val bitmap = android.graphics.BitmapFactory.decodeFile(path)
+            if (bitmap == null) {
+                withContext(Dispatchers.Main) {
+                    qualityError = "Failed to load captured photo."
+                    isCapturing = false
+                }
+                return@launch
+            }
+
+            val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
+            if (!quality.passed) {
+                withContext(Dispatchers.Main) {
+                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
+                    isCapturing = false
+                }
+                return@launch
+            }
+
+            if (stripDetector != null) {
+                try {
+                    val detection = stripDetector.detect(bitmap)
+                    val hasBlisterPack = detection.cells.isNotEmpty() ||
+                        (detection.stripConfidence != null && detection.stripConfidence >= 0.35f)
+
+                    if (!hasBlisterPack) {
+                        withContext(Dispatchers.Main) {
+                            qualityError = "No blister pack detected. Please ensure a blister pack with medicine cavities is clearly visible in the photo."
+                            isCapturing = false
+                        }
+                        return@launch
+                    }
+
+                    if (!detection.stripFullyInFrame) {
+                        withContext(Dispatchers.Main) {
+                            qualityError = "The blister pack is cut off at the edge. Please center the entire blister strip inside the frame."
+                            isCapturing = false
+                        }
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    Log.w("EnrollmentPhotoView", "Strip detector check during enrollment: ${e.message}")
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                capturedPhotoPath = path
+                isCapturing = false
+                qualityError = null
+                onPhotoCaptured(path)
+            }
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            isCapturing = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val baselineDir = File(context.filesDir, "baseline").apply { if (!exists()) mkdirs() }
+                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    val destFile = File(baselineDir, "baseline_gallery_$timeStamp.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    validateAndAccept(destFile.absolutePath)
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        qualityError = "Failed to load selected image: ${e.message}"
+                        isCapturing = false
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -184,22 +274,7 @@ fun EnrollmentPhotoView(
                 hasCameraPermission -> {
                     CameraXCapturePreview(
                         onImageSaved = { path ->
-                            val bitmap = android.graphics.BitmapFactory.decodeFile(path)
-                            if (bitmap != null) {
-                                val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
-                                if (!quality.passed) {
-                                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
-                                    isCapturing = false
-                                } else {
-                                    capturedPhotoPath = path
-                                    isCapturing = false
-                                    onPhotoCaptured(path)
-                                }
-                            } else {
-                                capturedPhotoPath = path
-                                isCapturing = false
-                                onPhotoCaptured(path)
-                            }
+                            validateAndAccept(path)
                         },
                         isCapturing = isCapturing,
                         onError = {
@@ -314,6 +389,22 @@ fun EnrollmentPhotoView(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
+
+                OutlinedButton(
+                    onClick = {
+                        galleryLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isCapturing
+                ) {
+                    Icon(imageVector = Icons.Default.Image, contentDescription = null)
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Upload from Gallery")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 TextButton(
                     onClick = onSkip,

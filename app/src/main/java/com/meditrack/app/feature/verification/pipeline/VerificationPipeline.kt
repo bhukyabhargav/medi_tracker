@@ -65,6 +65,15 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
+        // Conservative Guard: Confirm blister cells or strip were detected
+        if (detection.cells.isEmpty()) {
+            return VerificationResult(
+                passed = false,
+                rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
+                friendlyMessage = "No blister pack detected. Please align your blister strip within the frame."
+            )
+        }
+
         // Conservative Guard: Strip detection confidence check
         if (detection.stripConfidence != null && detection.stripConfidence < VerificationConfig.confidenceThreshold) {
             return VerificationResult(

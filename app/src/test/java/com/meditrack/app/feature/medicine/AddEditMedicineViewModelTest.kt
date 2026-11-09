@@ -235,4 +235,11 @@ class AddEditMedicineViewModelTest {
         assertFalse(newVm.validateForm())
         assertTrue(newVm.uiState.value.errorMessage?.contains("strip/pack", ignoreCase = true) == true)
     }
+
+    @Test
+    fun onPhotoCapturedWithLedger_storesBaselinePathAndEmptyCells() {
+        viewModel.onPhotoCapturedWithLedger("file:///path/to/baseline.jpg", 2)
+        assertEquals("file:///path/to/baseline.jpg", viewModel.uiState.value.baselinePhotoPath)
+        assertEquals(2, viewModel.uiState.value.baselineEmptyCells)
+    }
 }

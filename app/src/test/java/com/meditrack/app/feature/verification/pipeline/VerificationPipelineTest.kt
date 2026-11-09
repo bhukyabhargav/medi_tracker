@@ -125,6 +125,20 @@ class VerificationPipelineTest {
     }
 
     @Test
+    fun noCellsDetected_failsStripNotFullyVisible() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = emptyList(),
+            stripFullyInFrame = true
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+    }
+
+    @Test
     fun zeroPillsRemoved_failsPillsNotRemoved() = runTest {
         val sharpBitmap = createSharpBitmap()
         // lastVerified was 0 empty cells, current has 0 empty cells -> delta = 0

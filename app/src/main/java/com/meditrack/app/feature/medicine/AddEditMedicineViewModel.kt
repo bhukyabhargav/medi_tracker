@@ -45,6 +45,7 @@ data class AddEditMedicineUiState(
     val instructions: String = "",
     val reminderEnabled: Boolean = true,
     val baselinePhotoPath: String? = null,
+    val baselineEmptyCells: Int = 0,
     val isEditing: Boolean = false,
     val editingMedicineId: String? = null,
     val currentStep: AddEditStep = AddEditStep.FORM,
@@ -61,7 +62,8 @@ data class AddEditMedicineUiState(
 class AddEditMedicineViewModel @Inject constructor(
     private val medicineRepository: MedicineRepository,
     private val saveMedicineUseCase: SaveMedicineUseCase,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    val stripDetector: com.meditrack.app.feature.verification.pipeline.StripDetector? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddEditMedicineUiState())
@@ -253,6 +255,10 @@ class AddEditMedicineViewModel @Inject constructor(
         _uiState.update { it.copy(baselinePhotoPath = photoPath) }
     }
 
+    fun onPhotoCapturedWithLedger(photoPath: String, baselineEmpty: Int) {
+        _uiState.update { it.copy(baselinePhotoPath = photoPath, baselineEmptyCells = baselineEmpty) }
+    }
+
     fun onSkipPhoto() {
         _uiState.update { it.copy(baselinePhotoPath = null) }
         saveMedicine()
@@ -317,7 +323,7 @@ class AddEditMedicineViewModel @Inject constructor(
                         reminderEnabled = state.reminderEnabled,
                         initialStock = state.initialStock,
                         currentStock = state.initialStock,
-                        baselineEmptyCells = 0,
+                        baselineEmptyCells = state.baselineEmptyCells,
                         baselinePhotoPath = state.baselinePhotoPath,
                         createdAt = now,
                         updatedAt = now

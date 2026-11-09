@@ -13,6 +13,14 @@ class VerificationModuleTest {
     private val tfliteDetector: TfliteStripDetector = mockk(relaxed = true)
 
     @Test
+    fun provideStripDetector_default_usesTfliteDetector() {
+        com.meditrack.app.feature.verification.pipeline.FakeStripDetector.debugForcedBehavior =
+            com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior.DEFAULT
+        val detector = VerificationModule.provideStripDetector(fakeDetector, tfliteDetector)
+        assertTrue("Detector must be TfliteStripDetector by default", detector is TfliteStripDetector)
+    }
+
+    @Test
     fun provideStripDetector_releaseBuildLogic_strictlyUsesTfliteAndRejectsFake() {
         // Verify release build contract: when isDebug is false, FakeStripDetector cannot be provided
         val isDebug = false
