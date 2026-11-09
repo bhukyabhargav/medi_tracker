@@ -113,11 +113,15 @@ class DeleteAccountUseCaseTest {
         val enrollmentDir = File(testFilesDir, "enrollment").apply { mkdirs() }
         val dummyBaseline = File(enrollmentDir, "base1.jpg").apply { writeText("dummy baseline") }
 
+        val scanTmpDir = File(testFilesDir, "scan_tmp").apply { mkdirs() }
+        val dummyScan = File(scanTmpDir, "scan_prescription.jpg").apply { writeText("dummy scan rx") }
+
         val exportsDir = File(testCacheDir, "exports").apply { mkdirs() }
         val dummyExport = File(exportsDir, "archive.zip").apply { writeText("dummy export") }
 
         assertTrue(dummyProof.exists())
         assertTrue(dummyBaseline.exists())
+        assertTrue(dummyScan.exists())
         assertTrue(dummyExport.exists())
 
         val result = useCase("patient_del_1")
@@ -125,6 +129,7 @@ class DeleteAccountUseCaseTest {
 
         assertFalse(dummyProof.exists())
         assertFalse(dummyBaseline.exists())
+        assertFalse(dummyScan.exists())
         assertFalse(dummyExport.exists())
     }
 

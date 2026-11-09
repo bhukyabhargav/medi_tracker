@@ -135,10 +135,14 @@ fun EnrollmentPhotoView(
 
     fun validateAndAccept(path: String) {
         scope.launch(Dispatchers.Default) {
-            val bitmap = android.graphics.BitmapFactory.decodeFile(path)
+            val bitmap = try {
+                com.meditrack.app.core.util.BitmapLoader.decodeSampled(path, maxSidePx = 1920)
+            } catch (t: Throwable) {
+                null
+            }
             if (bitmap == null) {
                 withContext(Dispatchers.Main) {
-                    qualityError = "Failed to load captured photo."
+                    qualityError = "Failed to load captured photo due to memory constraints."
                     isCapturing = false
                 }
                 return@launch
@@ -456,7 +460,22 @@ fun CameraXCapturePreview(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val imageCapture = remember { ImageCapture.Builder().build() }
+    val imageCapture = remember {
+        val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                androidx.camera.core.resolutionselector.ResolutionStrategy(
+                    android.util.Size(1920, 1440),
+                    androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER
+                )
+            )
+            .build()
+
+        ImageCapture.Builder()
+            .setResolutionSelector(resolutionSelector)
+            .setJpegQuality(90)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+    }
     val previewView = remember { PreviewView(context) }
     var cameraError by remember { mutableStateOf<String?>(null) }
 

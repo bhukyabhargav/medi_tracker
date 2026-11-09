@@ -1,5 +1,7 @@
 package com.meditrack.app.feature.verification
 
+import com.meditrack.app.domain.model.RejectReason
+
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -251,16 +253,29 @@ fun CaptureScreen(
             } else {
                 // Live CameraX Preview + Framing Guide
                 val imageCapture = remember {
+                    val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                        .setResolutionStrategy(
+                            androidx.camera.core.resolutionselector.ResolutionStrategy(
+                                android.util.Size(1920, 1440),
+                                androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER
+                            )
+                        )
+                        .build()
+
                     ImageCapture.Builder()
+                        .setResolutionSelector(resolutionSelector)
+                        .setJpegQuality(90)
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build()
                 }
 
-                AndroidView(
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx)
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                        cameraProviderFuture.addListener({
+                var cameraError by remember { mutableStateOf<String?>(null) }
+                val previewView = remember { PreviewView(context) }
+
+                LaunchedEffect(lifecycleOwner) {
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                    cameraProviderFuture.addListener({
+                        try {
                             val cameraProvider = cameraProviderFuture.get()
                             val preview = Preview.Builder().build().also {
                                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -270,20 +285,33 @@ fun CaptureScreen(
                                 cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
                                 else -> CameraSelector.DEFAULT_BACK_CAMERA
                             }
-                            try {
-                                cameraProvider.unbindAll()
-                                camera = cameraProvider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    cameraSelector,
-                                    preview,
-                                    imageCapture
-                                )
-                            } catch (e: Exception) {
-                                Log.e(MediTrackApp.TAG, "Failed to bind CameraX lifecycle: ${e.message}", e)
+                            cameraProvider.unbindAll()
+                            camera = cameraProvider.bindToLifecycle(
+                                lifecycleOwner,
+                                cameraSelector,
+                                preview,
+                                imageCapture
+                            )
+                        } catch (e: Throwable) {
+                            Log.e(MediTrackApp.TAG, "Failed to bind CameraX lifecycle: ${e.message}", e)
+                            cameraError = "Camera unavailable: ${e.message}"
+                        }
+                    }, ContextCompat.getMainExecutor(context))
+                }
+
+                DisposableEffect(lifecycleOwner) {
+                    onDispose {
+                        try {
+                            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                            if (cameraProviderFuture.isDone) {
+                                cameraProviderFuture.get().unbindAll()
                             }
-                        }, ContextCompat.getMainExecutor(ctx))
-                        previewView
-                    },
+                        } catch (_: Throwable) {}
+                    }
+                }
+
+                AndroidView(
+                    factory = { previewView },
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -358,6 +386,7 @@ fun CaptureScreen(
                     } else {
                         IconButton(
                             onClick = {
+                                if (isCapturing) return@IconButton
                                 isCapturing = true
                                 val executor = ContextCompat.getMainExecutor(context)
                                 imageCapture.takePicture(
@@ -365,15 +394,17 @@ fun CaptureScreen(
                                     object : ImageCapture.OnImageCapturedCallback() {
                                         override fun onCaptureSuccess(image: ImageProxy) {
                                             try {
-                                                val rawBitmap = image.toBitmap()
-                                                val rotation = image.imageInfo.rotationDegrees
-                                                val bitmap = if (rotation != 0) {
-                                                    val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
-                                                    Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
-                                                } else {
-                                                    rawBitmap
+                                                val bitmap = com.meditrack.app.core.util.BitmapLoader.decodeSampled(image, maxSidePx = 1920)
+                                                if (bitmap == null) {
+                                                    qualityFailure = QualityResult(
+                                                        passed = false,
+                                                        reason = null,
+                                                        friendlyMessage = "Failed to process photo due to low memory. Please retake.",
+                                                        metrics = QualityMetrics(0.0, 0.0, 0.0)
+                                                    )
+                                                    isCapturing = false
+                                                    return
                                                 }
-                                                image.close()
 
                                                 // Run ImageQualityGate
                                                 val qualityResult = ImageQualityGate.analyze(bitmap)
@@ -392,9 +423,19 @@ fun CaptureScreen(
                                                         onPhotoVerifiedQuality(savedPath, pHash, qualityResult.metrics)
                                                     }
                                                 }
-                                            } catch (e: Exception) {
-                                                Log.e(MediTrackApp.TAG, "Error processing captured photo: ${e.message}", e)
+                                            } catch (t: Throwable) {
+                                                Log.e(MediTrackApp.TAG, "Error processing captured photo: ${t.message}", t)
+                                                qualityFailure = QualityResult(
+                                                    passed = false,
+                                                    reason = null,
+                                                    friendlyMessage = "Photo processing error (${t.message ?: "memory limit"}). Please retake.",
+                                                    metrics = QualityMetrics(0.0, 0.0, 0.0)
+                                                )
                                                 isCapturing = false
+                                            } finally {
+                                                try {
+                                                    image.close()
+                                                } catch (_: Throwable) {}
                                             }
                                         }
 

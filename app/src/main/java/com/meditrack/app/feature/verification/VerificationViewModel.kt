@@ -176,12 +176,16 @@ class VerificationViewModel @Inject constructor(
     fun processCapturedPhoto(photoPath: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null) }
-            val bitmap = BitmapFactory.decodeFile(photoPath)
+            val bitmap = try {
+                com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
+            } catch (t: Throwable) {
+                null
+            }
             if (bitmap == null) {
                 _uiState.update {
                     it.copy(
                         isAnalyzing = false,
-                        errorMessage = "Failed to load captured image from: $photoPath"
+                        errorMessage = "Failed to load verification photo due to memory limitations. Please retake."
                     )
                 }
                 return@launch
@@ -268,7 +272,11 @@ class VerificationViewModel @Inject constructor(
     fun recordBaselineEnrollment(photoPath: String) {
         viewModelScope.launch {
             val med = uiState.value.medicine ?: return@launch
-            val bitmap = BitmapFactory.decodeFile(photoPath)
+            val bitmap = try {
+                com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
+            } catch (t: Throwable) {
+                null
+            }
             if (bitmap != null) {
                 val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
                 if (!quality.passed) {

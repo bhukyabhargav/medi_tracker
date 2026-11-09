@@ -96,10 +96,11 @@ class DeleteAccountUseCase @Inject constructor(
             notificationOutboxDao.clearAll()
             userDao.clearUsers()
 
-            // 3. Purge local app-private files (proofs, baselines, cache exports)
+            // 3. Purge local app-private files (proofs, baselines, cache exports, and scan_tmp)
             deleteDirectoryContents(File(context.filesDir, "proofs"))
             deleteDirectoryContents(File(context.filesDir, "enrollment"))
             deleteDirectoryContents(File(context.filesDir, "dataset"))
+            deleteDirectoryContents(File(context.filesDir, "scan_tmp"))
             deleteDirectoryContents(File(context.cacheDir, "exports"))
 
             // 4. Wipe all local preferences, session flags, and log out

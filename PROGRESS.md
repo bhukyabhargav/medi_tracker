@@ -719,3 +719,44 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
     3. Add a medicine (e.g. "Metformin 500mg").
     4. Verify medicine persists and appears in "Current Medicines".
     5. Test "Scan Rx" and camera blister verification.
+
+
+---
+
+## Round 5 Stability: Stage 2 (Out-Of-Memory & Camera Pipeline B1 - B3 + E1)
+
+### 1. Implementation Summary
+- **B1 (Centralized Bitmap Downsampling & Memory Safety)**:
+  - Created `BitmapLoader.kt` with sampled bounds-first decoding (`decodeSampled`), EXIF rotation, intermediate bitmap recycling, and `Throwable` / `OutOfMemoryError` handling.
+  - Capped CameraX `ImageCapture` to 1920x1440 (~2-3 MP) at 90% JPEG quality across all camera screens (`CaptureScreen`, `EnrollmentPhotoView`, `ScanMedicineScreen`).
+  - Scoped all photo decodes in `VerificationViewModel`, `EnrollmentPhotoView`, and `ScanMedicineScreen` to `BitmapLoader.decodeSampled`.
+  - Ensured `image.close()` in `CaptureScreen` is in a `finally` block to prevent ImageProxy buffer starvation.
+  - Added `BitmapLoaderTest.kt` asserting size limits on large synthetic bitmaps.
+- **B2 (CameraX Hardware Guard & Lifecycle Cleanliness)**:
+  - Wrapped `cameraProviderFuture.get()` in `try/catch` with camera fallback and clean `unbindAll()` on disposal.
+- **B3 (Prescription Temp File Management)**:
+  - Implemented `ScanFileCleaner.kt` for immediate cleanup after OCR, 1-hour startup purging in `MediTrackApp`, and deletion on account deletion (`DeleteAccountUseCase.kt`).
+  - Added `ScanFileCleanerTest.kt` and updated `DeleteAccountUseCaseTest.kt`.
+- **E1 (Crash Logging & Diagnosability)**:
+  - Installed rotating uncaught exception handler in `CrashLogger.kt` (last 5 crashes) and enabled debug `StrictMode`.
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **373**
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 45s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 3m 57s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,348,015 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-release-unsigned.apk` (48,065,243 bytes)
+
+### 3. Honest Verification Reporting
+- **Host Unit Test Suite**: **VERIFIED** (373 passed, 0 failed).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded).
+- **Physical Device Low-Memory Stress Test (1.5GB RAM emulator, 20 consecutive captures, mid-capture rotation)**: **NOT RUN** (requires manual emulator testing session per `docs/QA.md`).

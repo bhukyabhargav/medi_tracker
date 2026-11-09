@@ -1,5 +1,10 @@
 package com.meditrack.app.feature.scan
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -360,7 +365,18 @@ private fun CameraScanContent(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val imageCapture = remember {
+        val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                androidx.camera.core.resolutionselector.ResolutionStrategy(
+                    android.util.Size(1920, 1440),
+                    androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER
+                )
+            )
+            .build()
+
         ImageCapture.Builder()
+            .setResolutionSelector(resolutionSelector)
+            .setJpegQuality(90)
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .build()
     }
@@ -513,25 +529,33 @@ private fun CameraScanContent(
                 // Capture Shutter Button
                 Button(
                     onClick = {
-                        val scanDir = java.io.File(context.filesDir, "scan_tmp").apply { if (!exists()) mkdirs() }
+                        if (isProcessing) return@Button
+                        val scanDir = com.meditrack.app.core.util.ScanFileCleaner.getScanTmpDir(context)
                         val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
                         val photoFile = java.io.File(scanDir, "scan_$timeStamp.jpg")
                         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
+                        val executor = ContextCompat.getMainExecutor(context)
                         imageCapture.takePicture(
                             outputOptions,
-                            ContextCompat.getMainExecutor(context),
+                            executor,
                             object : ImageCapture.OnImageSavedCallback {
                                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                    val bitmap = android.graphics.BitmapFactory.decodeFile(photoFile.absolutePath)
-                                    if (bitmap != null) {
-                                        onImageCaptured(bitmap)
-                                    } else {
-                                        onError("Could not decode camera image. Please retake.")
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        val bitmap = com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoFile.absolutePath, maxSidePx = 1920)
+                                        com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            if (bitmap != null) {
+                                                onImageCaptured(bitmap)
+                                            } else {
+                                                onError("Could not decode captured image due to memory limits. Please retake.")
+                                            }
+                                        }
                                     }
                                 }
 
                                 override fun onError(exception: ImageCaptureException) {
+                                    com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
                                     onError("Camera capture failed: ${exception.localizedMessage ?: "Capture error"}")
                                 }
                             }

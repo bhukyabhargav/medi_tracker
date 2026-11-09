@@ -214,3 +214,32 @@ This document details all changes and new files introduced during the Round 4 re
 6. **A6 (Centralized SQLCipher Native Library Loading)**
    - Created `core/database/SqlCipherLoader.kt`: Thread-safe single point of loading for `libsqlcipher.so`.
    - Updated `MediTrackApp.kt`, `DatabaseModule.kt`, and `DatabaseEncryptionMigrator.kt` to use `SqlCipherLoader.load()`.
+
+
+---
+
+## Round 5 Stability Fixes (Stage 2: Out-Of-Memory & Camera Pipeline B1 - B3 + E1)
+
+### Fixed Out-Of-Memory Crashes & Camera Leaks
+1. **B1 (Centralized Sampled Bitmap Decoding & Memory-Safe Captures)**
+   - Created `core/util/BitmapLoader.kt`: Central utility with `decodeSampled(path|file|bytes|uri|imageProxy, maxSidePx = 1920)`. Reads image bounds first via `inJustDecodeBounds = true`, computes optimal `inSampleSize`, applies EXIF orientation with intermediate bitmap recycling, scales down safely, and catches `Throwable` (including `OutOfMemoryError`).
+   - Configured `ImageCapture` in `CaptureScreen.kt`, `ScanMedicineScreen.kt`, and `EnrollmentPhotoView.kt` with a `ResolutionSelector` capped to 1920x1440 (~2-3 MP) and `setJpegQuality(90)` instead of default 12-50 MP sensor dumps.
+   - Refactored `VerificationViewModel.kt` (`processCapturedPhoto` and `recordBaselineEnrollment`), `EnrollmentPhotoView.kt` (`validateAndAccept`), and `ScanMedicineScreen.kt` to decode exclusively through `BitmapLoader.decodeSampled`.
+   - In `CaptureScreen.kt`: Guaranteed `image.close()` runs inside a `finally` block to prevent `ImageProxy` pipeline starvation. Added `if (isCapturing) return` guard against duplicate shutter taps.
+   - In `ScanMedicineScreen.kt`: Moved file decoding off the main thread to `Dispatchers.IO`.
+   - Added unit test: `core/util/BitmapLoaderTest.kt` verifying that large synthetic images (4000x3000) are downsampled and strictly capped to `maxSidePx`.
+
+2. **B2 (CameraX Lifecycle Binding & Hardware Availability Guard)**
+   - In `CaptureScreen.kt`: Wrapped `cameraProviderFuture.get()` in a `try/catch(Throwable)` block inside `LaunchedEffect(lifecycleOwner)` with camera fallback (`DEFAULT_BACK_CAMERA` -> `DEFAULT_FRONT_CAMERA`).
+   - Added `cameraProvider.unbindAll()` on `DisposableEffect`.
+   - Ignored duplicate capture taps while `isCapturing` is active.
+
+3. **B3 (Prescription Scan Temp File Lifecycle Management)**
+   - Created `core/util/ScanFileCleaner.kt`: Deletes temporary photos in `scan_tmp` immediately after OCR decoding and on error/cancellation.
+   - Added startup purge in `MediTrackApp.onCreate()` removing temporary scan files older than 1 hour.
+   - Added `scan_tmp` deletion in `DeleteAccountUseCase.kt` and verified with unit test in `DeleteAccountUseCaseTest.kt`.
+   - Added unit test: `core/util/ScanFileCleanerTest.kt`.
+
+4. **E1 (Local Crash Diagnosability & StrictMode)**
+   - Created `core/util/CrashLogger.kt`: Installed `Thread.setDefaultUncaughtExceptionHandler` in `MediTrackApp.kt` that records sanitized crash stack traces (no PHI) to rotating log files in `filesDir/crashes` (retaining last 5 crashes) before delegating to default handler.
+   - Enabled `StrictMode` thread and VM policies in debug builds (`detectDiskReads`, `detectDiskWrites`, `detectLeakedClosableObjects` with `.penaltyLog()`).

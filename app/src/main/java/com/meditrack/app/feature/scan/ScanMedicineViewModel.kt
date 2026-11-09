@@ -133,7 +133,7 @@ class ScanMedicineViewModel @Inject constructor() : ViewModel() {
         viewModelScope.launch(Dispatchers.Default) {
             try {
                 // C2: Read EXIF orientation and C3: downsample with inSampleSize <= 2048px
-                val bitmap = decodeSampledAndRotatedBitmap(context, uri)
+                val bitmap = com.meditrack.app.core.util.BitmapLoader.decodeSampled(context, uri, maxSidePx = 1920)
                 if (bitmap == null) {
                     _uiState.update {
                         it.copy(
