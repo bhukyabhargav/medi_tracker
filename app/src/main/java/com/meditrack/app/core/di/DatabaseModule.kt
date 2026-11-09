@@ -86,11 +86,12 @@ object DatabaseModule {
             var isReadable = false
             var openError: Throwable? = null
             try {
+                // Use OPEN_READWRITE so SQLite WAL mode can recover un-checkpointed frames if previous session ended abruptly
                 val testDb = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
                     dbFile.absolutePath,
                     openerPassphrase,
                     null,
-                    net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                    net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE,
                     null
                 )
                 testDb.rawExecSQL("SELECT count(*) FROM sqlite_master;")
@@ -99,6 +100,7 @@ object DatabaseModule {
             } catch (t: Throwable) {
                 isReadable = false
                 openError = t
+                Log.e(TAG, "Test database open check failed: ${t.message}", t)
             }
 
             if (!isReadable) {

@@ -296,7 +296,9 @@ class TfliteStripDetector @Inject constructor(
                 deriveStripBox(clusteredCells)
             }
 
-            val isFullyInFrame = if (effectiveStripBox != null) {
+            val isFullyInFrame = if (clusteredCells.isNotEmpty()) {
+                true
+            } else if (effectiveStripBox != null) {
                 effectiveStripBox.left >= margin &&
                         effectiveStripBox.top >= margin &&
                         effectiveStripBox.right <= (1.0f - margin) &&

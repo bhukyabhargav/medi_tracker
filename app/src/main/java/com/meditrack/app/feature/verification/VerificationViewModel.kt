@@ -298,16 +298,7 @@ class VerificationViewModel @Inject constructor(
                 if (!hasBlisterPack) {
                     _uiState.update {
                         it.copy(
-                            errorMessage = "No blister pack detected. Please ensure your blister pack with pill cavities is clearly visible to enroll."
-                        )
-                    }
-                    return@launch
-                }
-
-                if (!detection.stripFullyInFrame) {
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = "The blister pack is cut off at the edge. Please center the entire blister strip inside the camera guide."
+                            errorMessage = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
                         )
                     }
                     return@launch

@@ -177,17 +177,7 @@ fun EnrollmentPhotoView(
                         withContext(Dispatchers.Main) {
                             pendingPhotoPath = path
                             pendingEmptyCells = 0
-                            qualityError = "No blister pack detected. Please ensure a blister pack with pill cavities is clearly visible in the frame."
-                            isCapturing = false
-                        }
-                        return@launch
-                    }
-
-                    if (!detection.stripFullyInFrame) {
-                        withContext(Dispatchers.Main) {
-                            pendingPhotoPath = path
-                            pendingEmptyCells = detectedEmptyCells
-                            qualityError = "The blister pack is cut off at the edge. Please center the entire blister strip inside the frame."
+                            qualityError = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
                             isCapturing = false
                         }
                         return@launch

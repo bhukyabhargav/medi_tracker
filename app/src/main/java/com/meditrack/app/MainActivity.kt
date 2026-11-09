@@ -76,11 +76,27 @@ class MainActivity : ComponentActivity() {
                             error = dbError,
                             onRetry = {
                                 DatabaseRecoveryState.clearError()
-                                recreate()
+                                try {
+                                    val pm = this@MainActivity.packageManager
+                                    val launchIntent = pm.getLaunchIntentForPackage(this@MainActivity.packageName)
+                                    val restartIntent = android.content.Intent.makeRestartActivityTask(launchIntent?.component)
+                                    this@MainActivity.startActivity(restartIntent)
+                                    Runtime.getRuntime().exit(0)
+                                } catch (_: Throwable) {
+                                    recreate()
+                                }
                             },
                             onResetData = {
                                 DatabaseRecoveryState.resetLocalData(this@MainActivity, AppDatabase.DATABASE_NAME)
-                                recreate()
+                                try {
+                                    val pm = this@MainActivity.packageManager
+                                    val launchIntent = pm.getLaunchIntentForPackage(this@MainActivity.packageName)
+                                    val restartIntent = android.content.Intent.makeRestartActivityTask(launchIntent?.component)
+                                    this@MainActivity.startActivity(restartIntent)
+                                    Runtime.getRuntime().exit(0)
+                                } catch (_: Throwable) {
+                                    recreate()
+                                }
                             }
                         )
                         return@Surface

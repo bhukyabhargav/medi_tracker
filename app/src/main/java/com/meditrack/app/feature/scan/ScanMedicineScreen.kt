@@ -77,6 +77,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -192,21 +193,7 @@ fun ScanMedicineScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (uiState.isProcessing) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(56.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "Analyzing prescription with ML Kit OCR...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            } else if (!hasCameraPermission && uiState.isScanning) {
+            if (!hasCameraPermission && uiState.isScanning) {
                 val navigateManualEntry = {
                     onProceedToAddMedicine(
                         "", "", FrequencyType.DAILY.name, listOf("08:00"), "6",
@@ -230,23 +217,50 @@ fun ScanMedicineScreen(
                         emptyList(), "", FoodRelation.ANY.name, "", "", "1"
                     )
                 }
-                CameraScanContent(
-                    context = context,
-                    isProcessing = uiState.isProcessing,
-                    onImageCaptured = { bitmap ->
-                        viewModel.processBitmap(bitmap)
-                    },
-                    onPickFromGallery = {
-                        galleryPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    onError = { err ->
-                        viewModel.onCaptureError(err)
-                    },
-                    onEnterManually = navigateManualEntry,
-                    onRetryCamera = { viewModel.rescan() }
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    CameraScanContent(
+                        context = context,
+                        isProcessing = uiState.isProcessing,
+                        onImageCaptured = { bitmap ->
+                            viewModel.processBitmap(bitmap)
+                        },
+                        onPickFromGallery = {
+                            galleryPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        onError = { err ->
+                            viewModel.onCaptureError(err)
+                        },
+                        onEnterManually = navigateManualEntry,
+                        onRetryCamera = { viewModel.rescan() }
+                    )
+
+                    if (uiState.isProcessing) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.7f),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(56.dp),
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    "Analyzing prescription with ML Kit OCR...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
             } else {
                 ReviewPrescriptionContent(
                     uiState = uiState,
@@ -589,52 +603,79 @@ private fun CameraScanContent(
                     )
                 }
 
+                var isCapturing by remember { mutableStateOf(false) }
+                val coroutineScope = rememberCoroutineScope()
+
                 // Capture Shutter Button
                 Button(
                     onClick = {
-                        if (isProcessing) return@Button
-                        val scanDir = com.meditrack.app.core.util.ScanFileCleaner.getScanTmpDir(context)
-                        val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-                        val photoFile = java.io.File(scanDir, "scan_$timeStamp.jpg")
-                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                        if (isProcessing || isCapturing) return@Button
+                        isCapturing = true
+                        try {
+                            val scanDir = com.meditrack.app.core.util.ScanFileCleaner.getScanTmpDir(context)
+                            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                            val photoFile = java.io.File(scanDir, "scan_$timeStamp.jpg")
+                            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
-                        val executor = ContextCompat.getMainExecutor(context)
-                        imageCapture.takePicture(
-                            outputOptions,
-                            executor,
-                            object : ImageCapture.OnImageSavedCallback {
-                                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                        val bitmap = com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoFile.absolutePath, maxSidePx = 1920)
-                                        com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
-                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            if (bitmap != null) {
-                                                onImageCaptured(bitmap)
-                                            } else {
-                                                onError("Could not decode captured image due to memory limits. Please retake.")
+                            val executor = ContextCompat.getMainExecutor(context)
+                            imageCapture.takePicture(
+                                outputOptions,
+                                executor,
+                                object : ImageCapture.OnImageSavedCallback {
+                                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            try {
+                                                val bitmap = com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoFile.absolutePath, maxSidePx = 1920)
+                                                com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
+                                                withContext(Dispatchers.Main) {
+                                                    isCapturing = false
+                                                    if (bitmap != null) {
+                                                        onImageCaptured(bitmap)
+                                                    } else {
+                                                        onError("Could not decode captured image due to memory limits. Please retake.")
+                                                    }
+                                                }
+                                            } catch (t: Throwable) {
+                                                com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
+                                                withContext(Dispatchers.Main) {
+                                                    isCapturing = false
+                                                    onError("Error processing photo: ${t.localizedMessage ?: "Unknown error"}")
+                                                }
                                             }
                                         }
                                     }
-                                }
 
-                                override fun onError(exception: ImageCaptureException) {
-                                    com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
-                                    onError("Camera capture failed: ${exception.localizedMessage ?: "Capture error"}")
+                                    override fun onError(exception: ImageCaptureException) {
+                                        com.meditrack.app.core.util.ScanFileCleaner.deleteTempFile(photoFile)
+                                        isCapturing = false
+                                        onError("Camera capture failed: ${exception.localizedMessage ?: "Capture error"}")
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        } catch (t: Throwable) {
+                            isCapturing = false
+                            onError("Camera capture error: ${t.localizedMessage ?: "Could not take photo"}")
+                        }
                     },
-                    enabled = !isProcessing,
+                    enabled = !isProcessing && !isCapturing,
                     modifier = Modifier.size(72.dp),
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "Capture",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    if (isCapturing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = Color.White,
+                            strokeWidth = 3.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Capture",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
 
                 IconButton(

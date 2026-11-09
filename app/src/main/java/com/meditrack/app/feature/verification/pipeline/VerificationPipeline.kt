@@ -57,20 +57,13 @@ class VerificationPipeline @Inject constructor(
 
         // Step 3: Strip cell detection
         val detection = stripDetector.detect(bitmap)
-        if (!detection.stripFullyInFrame) {
-            return VerificationResult(
-                passed = false,
-                rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = "The blister strip is not fully in frame. Please align the entire strip within the guide."
-            )
-        }
 
-        // Conservative Guard: Confirm blister cells or strip were detected
+        // Confirm blister cells or strip were detected
         if (detection.cells.isEmpty()) {
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = "No blister pack detected. Please align your blister strip within the frame."
+                friendlyMessage = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
             )
         }
 

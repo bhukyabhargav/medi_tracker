@@ -32,6 +32,9 @@ object ImageQualityGate {
 
         val pixels = IntArray(totalPixels)
         scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+        if (scaled != bitmap && !scaled.isRecycled) {
+            scaled.recycle()
+        }
 
         // 1. Convert to grayscale luminance (0..255)
         val luminance = FloatArray(totalPixels)

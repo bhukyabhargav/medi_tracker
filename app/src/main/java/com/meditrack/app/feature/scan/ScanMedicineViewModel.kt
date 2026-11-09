@@ -57,7 +57,8 @@ class ScanMedicineViewModel @Inject constructor() : ViewModel() {
     private val recognizer by lazy {
         try {
             TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        } catch (_: Exception) {
+        } catch (t: Throwable) {
+            android.util.Log.e("ScanMedicineVM", "Failed to initialize ML Kit TextRecognizer: ${t.message}", t)
             null
         }
     }
@@ -78,49 +79,75 @@ class ScanMedicineViewModel @Inject constructor() : ViewModel() {
         _uiState.update { it.copy(isProcessing = true, errorMessage = null) }
 
         viewModelScope.launch(Dispatchers.Default) {
-            // C3: Downsample large images so longest side is at most 2048 px
-            val maxDim = maxOf(bitmap.width, bitmap.height)
-            val preparedBitmap = if (maxDim > 2048) {
-                val scale = 2048f / maxDim
-                val targetW = (bitmap.width * scale).toInt()
-                val targetH = (bitmap.height * scale).toInt()
-                Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
-            } else {
-                bitmap
-            }
-
-            // F1: Image Quality Gate check before passing to OCR
-            val quality = ImageQualityGate.analyze(preparedBitmap)
-            if (!quality.passed) {
-                _uiState.update {
-                    it.copy(
-                        isProcessing = false,
-                        isScanning = true,
-                        errorMessage = quality.friendlyMessage ?: "Image quality check failed. Please retake in good lighting."
-                    )
+            var preparedBitmap: Bitmap? = null
+            try {
+                // C3: Downsample large images so longest side is at most 2048 px
+                val maxDim = maxOf(bitmap.width, bitmap.height)
+                preparedBitmap = if (maxDim > 2048) {
+                    val scale = 2048f / maxDim
+                    val targetW = (bitmap.width * scale).toInt()
+                    val targetH = (bitmap.height * scale).toInt()
+                    Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+                } else {
+                    bitmap
                 }
-                return@launch
-            }
 
-            val rec = recognizer
-            if (rec == null) {
-                _uiState.update { it.copy(isProcessing = false, errorMessage = "OCR engine unavailable.") }
-                return@launch
-            }
-
-            val image = InputImage.fromBitmap(preparedBitmap, 0)
-            rec.process(image)
-                .addOnSuccessListener { visionText ->
-                    onTextExtracted(visionText.text)
-                }
-                .addOnFailureListener { e ->
+                // F1: Image Quality Gate check before passing to OCR
+                val quality = ImageQualityGate.analyze(preparedBitmap)
+                if (!quality.passed) {
                     _uiState.update {
                         it.copy(
                             isProcessing = false,
-                            errorMessage = "Failed to recognize text: ${e.localizedMessage ?: "Unknown error"}"
+                            isScanning = true,
+                            errorMessage = quality.friendlyMessage ?: "Image quality check failed. Please retake in good lighting."
                         )
                     }
+                    return@launch
                 }
+
+                val rec = recognizer
+                if (rec == null) {
+                    _uiState.update {
+                        it.copy(
+                            isProcessing = false,
+                            errorMessage = "OCR engine is currently unavailable on this device. You can enter prescription details manually."
+                        )
+                    }
+                    return@launch
+                }
+
+                val image = InputImage.fromBitmap(preparedBitmap, 0)
+                rec.process(image)
+                    .addOnSuccessListener { visionText ->
+                        try {
+                            onTextExtracted(visionText.text)
+                        } catch (t: Throwable) {
+                            android.util.Log.e("ScanMedicineVM", "Failed to parse OCR text: ${t.message}", t)
+                            _uiState.update {
+                                it.copy(
+                                    isProcessing = false,
+                                    errorMessage = "Error parsing prescription text. You can enter details manually."
+                                )
+                            }
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        _uiState.update {
+                            it.copy(
+                                isProcessing = false,
+                                errorMessage = "Failed to recognize text: ${e.localizedMessage ?: "Unknown error"}. You can enter details manually."
+                            )
+                        }
+                    }
+            } catch (t: Throwable) {
+                android.util.Log.e("ScanMedicineVM", "processBitmap failed: ${t.message}", t)
+                _uiState.update {
+                    it.copy(
+                        isProcessing = false,
+                        errorMessage = "Error analyzing image: ${t.localizedMessage ?: "OCR processing failed"}. You can enter details manually or pick from gallery."
+                    )
+                }
+            }
         }
     }
 
@@ -239,7 +266,12 @@ class ScanMedicineViewModel @Inject constructor() : ViewModel() {
     }
 
     fun onTextExtracted(text: String) {
-        val parsed = PrescriptionParser.parse(text)
+        val parsed = try {
+            PrescriptionParser.parse(text)
+        } catch (t: Throwable) {
+            android.util.Log.w("ScanMedicineVM", "PrescriptionParser failed: ${t.message}", t)
+            ParsedPrescription(rawText = text, requiresManualReview = true, reviewReasons = listOf("Parsing review required"))
+        }
         _uiState.update {
             val stockStr = parsed.initialStock?.toString() ?: ""
             // C7: Stop auto-filling 08:00 when parser found no times
