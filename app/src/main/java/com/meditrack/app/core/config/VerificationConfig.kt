@@ -9,8 +9,8 @@ package com.meditrack.app.core.config
 object VerificationConfig {
     var modelVersion: String = "v1.0.0-tflite"
     var isTfliteEnabled: Boolean = true
-    var confidenceThreshold: Float = 0.50f
-    var minCellConfidence: Float = 0.60f
+    var confidenceThreshold: Float = 0.45f
+    var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
     var edgeMarginFraction: Float = 0.05f // 5% border margin for strip bounds
     var maxInferenceLatencyMs: Long = 400L // Target <= 400 ms on mid-range devices
