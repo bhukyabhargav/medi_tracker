@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import com.meditrack.app.core.config.VerificationConfig
 import com.meditrack.app.core.util.LetterboxTransform
+import com.meditrack.app.core.util.StripCropPlanner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -159,7 +160,49 @@ class TfliteStripDetector @Inject constructor(
      * Executes blister strip and cell detection on [bitmap].
      * Serialized with [Mutex] to prevent SIGSEGV from concurrent interpreter access (C6).
      */
+    /**
+     * Two-stage detection.
+     *
+     * Pass 1 runs on the whole photo and locates the strip (this works even when the strip is small in the frame).
+     * When the strip fills only a small part of the photo, the cells are just a few pixels wide at the model's
+     * 320x320 input and are missed (especially EMPTY cells) or get low confidence, so pass 2 re-runs the model
+     * on a crop around the strip. The in-frame check and the strip confidence always come from pass 1.
+     *
+     * Serialized with [Mutex] to prevent SIGSEGV from concurrent interpreter access.
+     */
     override suspend fun detect(bitmap: Bitmap): Detection = mutex.withLock {
+        val first = detectUnlocked(bitmap)
+        val box = first.stripBox ?: return@withLock first
+
+        val area = StripCropPlanner.areaFraction(box.left, box.top, box.right, box.bottom)
+        if (area >= VerificationConfig.stripZoomAreaThreshold) return@withLock first
+
+        val crop = StripCropPlanner.plan(
+            box.left, box.top, box.right, box.bottom,
+            bitmap.width, bitmap.height, VerificationConfig.stripCropMarginFraction
+        ) ?: return@withLock first
+
+        var cropped: Bitmap? = null
+        try {
+            val cropBitmap = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width, crop.height)
+            cropped = cropBitmap
+            val second = detectUnlocked(cropBitmap)
+            // The crop must not find FEWER cells than the whole photo; otherwise keep the first result.
+            if (second.cells.size < first.cells.size) return@withLock first
+            second.copy(
+                stripFullyInFrame = first.stripFullyInFrame,
+                stripConfidence = first.stripConfidence ?: second.stripConfidence,
+                stripBox = box
+            )
+        } catch (_: OutOfMemoryError) {
+            first
+        } finally {
+            cropped?.let { if (it !== bitmap && !it.isRecycled) it.recycle() }
+        }
+    }
+
+    /** Single inference pass on [bitmap] (the caller must hold [mutex]). */
+    private suspend fun detectUnlocked(bitmap: Bitmap): Detection =
         withContext(Dispatchers.Default) {
             val activeInterpreter = getOrInitInterpreter()
                 ?: throw IllegalStateException(
@@ -310,10 +353,10 @@ class TfliteStripDetector @Inject constructor(
             Detection(
                 cells = clusteredCells,
                 stripFullyInFrame = isFullyInFrame,
-                stripConfidence = detectedStripConfidence
+                stripConfidence = detectedStripConfidence,
+                stripBox = effectiveStripBox
             )
         }
-    }
 
     /**
      * Latency benchmark: executes repeated inference runs and returns average latency in ms.

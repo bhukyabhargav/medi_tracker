@@ -377,4 +377,37 @@ class VerificationPipelineTest {
         )
         assertEquals(expectedReasons, RejectReason.values().toSet())
     }
+
+    @Test
+    fun singleWeakCellAmongManyReliableCells_isNotRejected() = runTest {
+        // Real foil strips regularly have one cell at 0.45-0.60. That must NOT reject the whole photo.
+        val sharpBitmap = createSharpBitmap()
+        val cells = buildList {
+            add(Cell(state = CellState.EMPTY, confidence = 0.52f)) // weaker but still a valid cell
+            add(Cell(state = CellState.EMPTY, confidence = 0.80f))
+            repeat(8) { add(Cell(state = CellState.FULL, confidence = 0.85f)) }
+        }
+        coEvery { stripDetector.detect(any()) } returns Detection(cells = cells, stripFullyInFrame = true)
+
+        val medicine = sampleMedicine.copy(baselineEmptyCells = 1)
+        val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = 1)
+
+        // 2 empty now, 1 before, pillsPerDose = 1 -> PASS
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun manyUnreliableCells_areStillRejectedAsBlurry() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        val cells = buildList {
+            repeat(6) { add(Cell(state = CellState.FULL, confidence = 0.50f)) }
+            repeat(4) { add(Cell(state = CellState.FULL, confidence = 0.90f)) }
+        }
+        coEvery { stripDetector.detect(any()) } returns Detection(cells = cells, stripFullyInFrame = true)
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.BLURRY, result.rejectReason)
+    }
 }

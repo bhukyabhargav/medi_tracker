@@ -76,8 +76,12 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
-        // Conservative Guard: Cell confidence check (A6)
-        val hasLowConfidenceCell = detection.cells.any { it.confidence < VerificationConfig.minCellConfidence }
+        // Conservative Guard: Cell confidence check (A6).
+        // A single weaker cell is normal on a reflective foil strip (real photos regularly have one or two cells
+        // at 0.45-0.60), so only reject when a large share of the detected cells is unreliable.
+        val unreliableCells = detection.cells.count { it.confidence < VerificationConfig.reliableCellConfidence }
+        val unreliableFraction = unreliableCells.toFloat() / detection.cells.size
+        val hasLowConfidenceCell = unreliableFraction > VerificationConfig.maxUnreliableCellFraction
         if (hasLowConfidenceCell) {
             return VerificationResult(
                 passed = false,
@@ -96,7 +100,7 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
-        val validCells = detection.cells.filter { it.confidence >= AppConfig.DETECTOR_MIN_CONFIDENCE }
+        val validCells = detection.cells.filter { it.confidence >= VerificationConfig.minCellConfidence }
 
         // Conservative Guard: Cell count tolerance check against previous capture of the same strip (A6)
         if (previousTotalCells != null && abs(validCells.size - previousTotalCells) > VerificationConfig.maxCellCountTolerance) {

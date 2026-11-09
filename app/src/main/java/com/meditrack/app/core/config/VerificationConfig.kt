@@ -15,4 +15,15 @@ object VerificationConfig {
     var edgeMarginFraction: Float = 0.05f // 5% border margin for strip bounds
     var maxInferenceLatencyMs: Long = 400L // Target <= 400 ms on mid-range devices
     var maxCellCountTolerance: Int = 1 // Max allowable discrepancy in total cavities detected
+
+    // Two-stage detection: when the strip fills less than this fraction of the photo, the cells are only a few
+    // pixels wide at the model's 320x320 input and are missed or classified with low confidence. The detector
+    // then re-runs on a crop around the strip.
+    var stripZoomAreaThreshold: Float = 0.55f
+    var stripCropMarginFraction: Float = 0.08f // extra context kept around the strip box when cropping
+
+    // Confidence guard: a real foil strip nearly always has one or two cells at 0.45-0.60, so a single weaker
+    // cell must not reject the whole photo. Reject only when MANY cells are unreliable.
+    var reliableCellConfidence: Float = 0.60f
+    var maxUnreliableCellFraction: Float = 0.30f
 }

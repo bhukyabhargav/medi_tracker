@@ -304,7 +304,7 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
-                val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
+                val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.VerificationConfig.minCellConfidence }
                 val emptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
                 val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = emptyCells)
                 medicineRepository.update(updatedMed)

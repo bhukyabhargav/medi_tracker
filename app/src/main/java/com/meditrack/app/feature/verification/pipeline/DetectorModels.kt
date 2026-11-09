@@ -19,7 +19,9 @@ data class Cell(
 data class Detection(
     val cells: List<Cell>,
     val stripFullyInFrame: Boolean,
-    val stripConfidence: Float? = null
+    val stripConfidence: Float? = null,
+    /** Strip box in normalized coordinates of the ORIGINAL image (null when no strip could be located). */
+    val stripBox: RectF? = null
 )
 
 interface StripDetector {

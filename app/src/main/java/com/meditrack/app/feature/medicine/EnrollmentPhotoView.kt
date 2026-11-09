@@ -170,7 +170,7 @@ fun EnrollmentPhotoView(
                     val hasBlisterPack = detection.cells.isNotEmpty()
 
                     // Count baseline empty cells for ledger tracking (C5)
-                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
+                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.VerificationConfig.minCellConfidence }
                     detectedEmptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
 
                     if (!hasBlisterPack) {
