@@ -22,7 +22,10 @@ import com.meditrack.app.BuildConfig
 import com.meditrack.app.core.navigation.Screen
 import com.meditrack.app.core.ui.theme.MediTrackTheme
 import com.meditrack.app.data.prefs.UserPreferences
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import com.meditrack.app.domain.repository.AuthRepository
 import com.meditrack.app.feature.auth.CreateAccountScreen
 import com.meditrack.app.feature.auth.LoginScreen
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val navController = rememberNavController()
+                    val coroutineScope = rememberCoroutineScope()
                     val targetDoseId by pendingDoseId
                     val flagSecureEnabled by userPreferences.isFlagSecureEnabled.collectAsState(initial = true)
 
@@ -136,8 +140,12 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate(Screen.CreateAccount.route)
                                 },
                                 onLoginSuccess = {
-                                    navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    coroutineScope.launch {
+                                        val onboardingDone = authRepository.observeIsOnboardingCompleted().first()
+                                        val target = if (onboardingDone) Screen.Home.route else Screen.PermissionSetup.route
+                                        navController.navigate(target) {
+                                            popUpTo(Screen.Login.route) { inclusive = true }
+                                        }
                                     }
                                 }
                             )
@@ -164,8 +172,12 @@ class MainActivity : ComponentActivity() {
                             VerifyOtpScreen(
                                 contact = contact,
                                 onVerificationSuccess = {
-                                    navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    coroutineScope.launch {
+                                        val onboardingDone = authRepository.observeIsOnboardingCompleted().first()
+                                        val target = if (onboardingDone) Screen.Home.route else Screen.PermissionSetup.route
+                                        navController.navigate(target) {
+                                            popUpTo(Screen.Login.route) { inclusive = true }
+                                        }
                                     }
                                 }
                             )
@@ -186,7 +198,7 @@ class MainActivity : ComponentActivity() {
                             BatteryOptimizationScreen(
                                 authRepository = authRepository,
                                 onContinueToHome = {
-                                    navController.navigate(Screen.PrivacyConsent.route) {
+                                    navController.navigate(Screen.Home.route) {
                                         popUpTo(Screen.BatteryGuidance.route) { inclusive = true }
                                     }
                                 }
