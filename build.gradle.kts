@@ -8,5 +8,6 @@ plugins {
 }
 
 allprojects {
-    layout.buildDirectory.set(file("C:/Users/bharg/.gradle-builds/MedTracker/${project.name}"))
+    val userHome = System.getProperty("user.home")
+    layout.buildDirectory.set(file("$userHome/.gradle-builds/MedTracker/${project.name}"))
 }
