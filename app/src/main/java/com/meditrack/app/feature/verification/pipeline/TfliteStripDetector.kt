@@ -271,8 +271,31 @@ class TfliteStripDetector @Inject constructor(
             // C4: Apply Class-Agnostic Non-Maximum Suppression (NMS) across all cell states
             val filteredCells = applyNms(rawCells, VerificationConfig.iouThreshold)
 
+            // Spatially cluster cells to filter out stray background false-positives (e.g. tablecloth patterns, table edges)
+            val clusteredCells = filterOutlierCells(filteredCells)
+
+            // Check if detectedStripBox actually encloses the majority of detected cells.
+            // If the model predicted a strip on an artifact (e.g. table edge or background border)
+            // that does not enclose the cells, discard it in favor of cell cluster bounding.
+            val stripEnclosesCells = if (detectedStripBox != null && clusteredCells.isNotEmpty()) {
+                val cellsInside = clusteredCells.count { cell ->
+                    val cx = (cell.box.left + cell.box.right) / 2f
+                    val cy = (cell.box.top + cell.box.bottom) / 2f
+                    cx >= detectedStripBox.left && cx <= detectedStripBox.right &&
+                            cy >= detectedStripBox.top && cy <= detectedStripBox.bottom
+                }
+                cellsInside.toFloat() / clusteredCells.size >= 0.5f
+            } else {
+                detectedStripBox != null
+            }
+
             // Determine if strip is fully in frame based on normalized original image coordinates
-            val effectiveStripBox = detectedStripBox ?: deriveStripBox(filteredCells)
+            val effectiveStripBox = if (detectedStripBox != null && stripEnclosesCells) {
+                detectedStripBox
+            } else {
+                deriveStripBox(clusteredCells)
+            }
+
             val isFullyInFrame = if (effectiveStripBox != null) {
                 effectiveStripBox.left >= margin &&
                         effectiveStripBox.top >= margin &&
@@ -283,7 +306,7 @@ class TfliteStripDetector @Inject constructor(
             }
 
             Detection(
-                cells = filteredCells,
+                cells = clusteredCells,
                 stripFullyInFrame = isFullyInFrame,
                 stripConfidence = detectedStripConfidence
             )
@@ -355,14 +378,47 @@ class TfliteStripDetector @Inject constructor(
         }
     }
 
-    private fun deriveStripBox(cells: List<Cell>): RectF? {
+    internal fun filterOutlierCells(cells: List<Cell>): List<Cell> {
+        if (cells.size <= 2) return cells
+
+        val centers = cells.map { cell ->
+            val cx = (cell.box.left + cell.box.right) / 2f
+            val cy = (cell.box.top + cell.box.bottom) / 2f
+            Pair(cx, cy)
+        }
+
+        val sortedX = centers.map { it.first }.sorted()
+        val sortedY = centers.map { it.second }.sorted()
+        val medX = sortedX[sortedX.size / 2]
+        val medY = sortedY[sortedY.size / 2]
+
+        val distances = centers.map { (cx, cy) ->
+            val dx = cx - medX
+            val dy = cy - medY
+            kotlin.math.sqrt(dx * dx + dy * dy)
+        }
+
+        val sortedDistances = distances.sorted()
+        val medDistance = sortedDistances[sortedDistances.size / 2]
+
+        // Reject isolated detections far from the main cell cluster.
+        // Threshold allows genuine oblong blister packs (up to 0.40 normalized radius)
+        // while dropping background false-positives at the edges of the photo.
+        val threshold = max(0.40f, medDistance * 3.0f)
+
+        val clustered = cells.filterIndexed { index, _ -> distances[index] <= threshold }
+        return if (clustered.isNotEmpty()) clustered else cells
+    }
+
+    internal fun deriveStripBox(cells: List<Cell>): RectF? {
         if (cells.isEmpty()) return null
+        val cluster = filterOutlierCells(cells)
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = Float.MIN_VALUE
         var maxY = Float.MIN_VALUE
 
-        for (cell in cells) {
+        for (cell in cluster) {
             minX = min(minX, cell.box.left)
             minY = min(minY, cell.box.top)
             maxX = max(maxX, cell.box.right)

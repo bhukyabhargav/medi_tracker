@@ -363,3 +363,21 @@ This document details all changes and new files introduced during the Round 4 re
 4. **History & Deleted Medicine Snapshot Preservation**
    - Audited `feature/history/HistoryViewModel.kt`, `feature/calendar/CalendarViewModel.kt`, and `domain/usecase/AdherenceCalculator.kt`.
    - Added tests in `feature/history/HistoryViewModelTest.kt`: verified that historical dose records preserve medicine name and dosage snapshot even if the medicine is deleted, and verified skipped doses are properly reflected in adherence calculation.
+
+
+---
+
+## Round 5 Stability Fixes (Blister Edge Cutoff & Outlier Remediation)
+
+### Fixed Background Pattern False-Cutoff, Outlier Cavities, and Added Photo Override
+1. **Outlier Cell Filtering & Strip Enclosure Check (`TfliteStripDetector.kt`)**
+   - Modified `feature/verification/pipeline/TfliteStripDetector.kt`:
+     * Added `filterOutlierCells(cells)`: Uses Euclidean distance from spatial median of cell centers to filter out distant false-positive detections caused by tablecloth prints, mandalas, or table edges.
+     * Added enclosure guard: Confirms `detectedStripBox` actually covers >= 50% of detected cavities. Impostor strip boxes on table edges are discarded in favor of `deriveStripBox(clusteredCells)`.
+     * Clustered cavities are passed to `Detection.cells`, preventing stray background marks from corrupting total cavity counts.
+   - Added unit tests: `filterOutlierCells_removesDistantFalsePositiveDetections()`, `deriveStripBox_ignoresOutliersAndComputesTightBoundingBox()`, and `detect_whenStripCandidateDoesNotEncloseCells_fallsBackToClusterDerivation()`.
+
+2. **Unblocking Baseline Enrollment Dialog (`EnrollmentPhotoView.kt`)**
+   - Modified `feature/medicine/EnrollmentPhotoView.kt`:
+     * Saved `pendingPhotoPath` and `pendingEmptyCells` on quality warnings.
+     * Added "Use Photo Anyway" button to `AlertDialog` allowing patients to accept their centered photo even if background textures trigger a warning.

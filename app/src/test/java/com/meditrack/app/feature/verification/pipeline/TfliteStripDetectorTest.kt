@@ -186,21 +186,88 @@ class TfliteStripDetectorTest {
     }
 
     @Test
-    fun concurrentDetect_serializedSafelyByMutex() = runTest {
+    fun filterOutlierCells_removesDistantFalsePositiveDetections() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val detector = TfliteStripDetector(context)
-        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
 
-        // Launch concurrent calls to detect; all should execute without crashing or corrupting state
-        val deferred = (1..5).map {
-            async(Dispatchers.Default) {
-                assertThrows(IllegalStateException::class.java) {
-                    runBlocking {
-                        detector.detect(bitmap)
-                    }
-                }
+        // Tightly packed 3x2 blister pack cavities in the center (0.45 .. 0.55)
+        val clusterCells = listOf(
+            Cell(box = RectF(0.40f, 0.40f, 0.46f, 0.46f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.48f, 0.40f, 0.54f, 0.46f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.56f, 0.40f, 0.62f, 0.46f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.40f, 0.50f, 0.46f, 0.56f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.48f, 0.50f, 0.54f, 0.56f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.56f, 0.50f, 0.62f, 0.56f), state = CellState.FULL, confidence = 0.9f)
+        )
+        // False positive detection on tablecloth floral circle near the top-left border
+        val outlierOnCloth = Cell(box = RectF(0.01f, 0.01f, 0.04f, 0.04f), state = CellState.FULL, confidence = 0.85f)
+
+        val filtered = detector.filterOutlierCells(clusterCells + outlierOnCloth)
+
+        assertEquals("Outlier at image border must be dropped", 6, filtered.size)
+        assertFalse("Outlier on tablecloth pattern must not be present", filtered.contains(outlierOnCloth))
+        assertTrue("Cluster cells in center must be retained", filtered.containsAll(clusterCells))
+    }
+
+    @Test
+    fun deriveStripBox_ignoresOutliersAndComputesTightBoundingBox() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        val clusterCells = listOf(
+            Cell(box = RectF(0.30f, 0.40f, 0.40f, 0.50f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.45f, 0.40f, 0.55f, 0.50f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.60f, 0.40f, 0.70f, 0.50f), state = CellState.FULL, confidence = 0.9f)
+        )
+        val outlierCell = Cell(box = RectF(0.01f, 0.01f, 0.03f, 0.03f), state = CellState.FULL, confidence = 0.8f)
+
+        val derivedBox = detector.deriveStripBox(clusterCells + outlierCell)
+
+        assertNotNull(derivedBox)
+        assertEquals("Strip left should be bounded by cluster, not outlier", 0.30f, derivedBox!!.left, 0.001f)
+        assertEquals("Strip right should be bounded by cluster", 0.70f, derivedBox.right, 0.001f)
+        assertTrue("Derived strip box must be well within frame margin (> 0.05)", derivedBox.left >= 0.05f)
+    }
+
+    @Test
+    fun detect_whenStripCandidateDoesNotEncloseCells_fallsBackToClusterDerivation() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val mockInterpreter = mockk<Interpreter>(relaxed = true)
+
+        every { mockInterpreter.inputTensorCount } returns 1
+        every { mockInterpreter.getInputTensor(0).shape() } returns intArrayOf(1, 320, 320, 3)
+        every { mockInterpreter.getInputTensor(0).dataType() } returns org.tensorflow.lite.DataType.FLOAT32
+        every { mockInterpreter.outputTensorCount } returns 1
+        every { mockInterpreter.getOutputTensor(0).shape() } returns intArrayOf(1, 8, 4)
+
+        every { mockInterpreter.run(any(), any()) } answers {
+            val outArray = secondArg<Array<Array<FloatArray>>>()
+            // Anchor 0: CLASS_STRIP false detection on table edge at the border (x=5, y=5, w=8, h=8)
+            outArray[0][0][0] = 5f
+            outArray[0][1][0] = 5f
+            outArray[0][2][0] = 8f
+            outArray[0][3][0] = 8f
+            outArray[0][4][0] = 0.92f // CLASS_STRIP
+
+            // Anchors 1, 2, 3: Centered blister cells around center (160, 160)
+            for (j in 1..3) {
+                outArray[0][0][j] = 120f + (j * 30f)
+                outArray[0][1][j] = 160f
+                outArray[0][2][j] = 20f
+                outArray[0][3][j] = 20f
+                outArray[0][4][j] = 0.01f
+                outArray[0][5][j] = 0.90f // CLASS_CELL_FULL
             }
         }
-        deferred.awaitAll()
+
+        val detector = TfliteStripDetector(context, mockInterpreter)
+        val bitmap = Bitmap.createBitmap(320, 320, Bitmap.Config.ARGB_8888)
+        val detection = detector.detect(bitmap)
+
+        assertEquals("Cells must be detected", 3, detection.cells.size)
+        assertTrue(
+            "Strip must be considered fully in frame because table-edge strip was discarded for cell cluster",
+            detection.stripFullyInFrame
+        )
     }
 }

@@ -132,6 +132,8 @@ fun EnrollmentPhotoView(
     var capturedPhotoPath by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var qualityError by remember { mutableStateOf<String?>(null) }
+    var pendingPhotoPath by remember { mutableStateOf<String?>(null) }
+    var pendingEmptyCells by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     fun validateAndAccept(path: String) {
         scope.launch(Dispatchers.Default) {
@@ -151,6 +153,8 @@ fun EnrollmentPhotoView(
             val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
             if (!quality.passed) {
                 withContext(Dispatchers.Main) {
+                    pendingPhotoPath = path
+                    pendingEmptyCells = 0
                     qualityError = quality.friendlyMessage ?: "Photo quality check failed"
                     isCapturing = false
                 }
@@ -165,8 +169,14 @@ fun EnrollmentPhotoView(
                     // This prevents sharp background lines (like table edges) from falsely passing as blister strips.
                     val hasBlisterPack = detection.cells.isNotEmpty()
 
+                    // Count baseline empty cells for ledger tracking (C5)
+                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
+                    detectedEmptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+
                     if (!hasBlisterPack) {
                         withContext(Dispatchers.Main) {
+                            pendingPhotoPath = path
+                            pendingEmptyCells = 0
                             qualityError = "No blister pack detected. Please ensure a blister pack with pill cavities is clearly visible in the frame."
                             isCapturing = false
                         }
@@ -175,15 +185,13 @@ fun EnrollmentPhotoView(
 
                     if (!detection.stripFullyInFrame) {
                         withContext(Dispatchers.Main) {
+                            pendingPhotoPath = path
+                            pendingEmptyCells = detectedEmptyCells
                             qualityError = "The blister pack is cut off at the edge. Please center the entire blister strip inside the frame."
                             isCapturing = false
                         }
                         return@launch
                     }
-
-                    // Count baseline empty cells for ledger tracking (C5)
-                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
-                    detectedEmptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
                 } catch (e: Exception) {
                     Log.w("EnrollmentPhotoView", "Strip detector check during enrollment: ${e.message}")
                 }
@@ -191,6 +199,7 @@ fun EnrollmentPhotoView(
 
             withContext(Dispatchers.Main) {
                 capturedPhotoPath = path
+                pendingPhotoPath = null
                 isCapturing = false
                 qualityError = null
                 onPhotoCaptured(path, detectedEmptyCells)
@@ -431,7 +440,10 @@ fun EnrollmentPhotoView(
 
         if (qualityError != null) {
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = { qualityError = null },
+                onDismissRequest = {
+                    qualityError = null
+                    pendingPhotoPath = null
+                },
                 icon = {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
@@ -447,8 +459,28 @@ fun EnrollmentPhotoView(
                     Text(qualityError ?: "The captured image did not pass quality checks.")
                 },
                 confirmButton = {
-                    Button(onClick = { qualityError = null }) {
+                    Button(onClick = {
+                        qualityError = null
+                        pendingPhotoPath = null
+                    }) {
                         Text("Retake")
+                    }
+                },
+                dismissButton = {
+                    if (pendingPhotoPath != null) {
+                        OutlinedButton(onClick = {
+                            val p = pendingPhotoPath
+                            val empty = pendingEmptyCells
+                            qualityError = null
+                            pendingPhotoPath = null
+                            if (p != null) {
+                                capturedPhotoPath = p
+                                isCapturing = false
+                                onPhotoCaptured(p, empty)
+                            }
+                        }) {
+                            Text("Use Photo Anyway")
+                        }
                     }
                 }
             )
