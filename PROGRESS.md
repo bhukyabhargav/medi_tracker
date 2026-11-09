@@ -925,3 +925,68 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
 - **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded, 0 ProGuard/R8 issues).
 - **Physical Device Low-Memory Stress Test (1.5GB RAM, 20 consecutive captures, mid-capture rotation)**: **NOT RUN** (requires interactive emulator/physical device session per `docs/QA.md` Section 5).
 - **Gold-Standard Real Blister Strip Photo Test Set (5+ photos in `androidTest/assets/selftest/`)**: **OPEN / NOT RUN** (held-out photos must be supplied by product owner; synthetic verification passed).
+
+
+---
+
+## Round 5 Stability: Alarms, Notifications & History Correctness Audit
+
+### 1. Implementation & Audit Summary
+- **Alarms & Scheduling Correctness**:
+  - Audited `AlarmSchedulerImpl.kt`: Verified exact alarm scheduling via `AlarmManager.setAlarmClock` (bypassing Doze mode), fallback to `setAndAllowWhileIdle` when `canScheduleExactAlarms()` is false.
+  - Verified `BootReceiver.kt` and `TimezoneReceiver.kt`: Automatically queries all active pending doses within the next 24 hours on device boot (`ACTION_BOOT_COMPLETED`) or timezone/time change (`ACTION_TIMEZONE_CHANGED`, `ACTION_TIME_SET`) and reschedules exact alarms and WorkManager missed-dose fallbacks.
+  - **Fixed Critical Notification Drawer Desync Bug**:
+    - In `AlarmSchedulerImpl.kt`: `cancelDoseAlarm(doseId)` previously only cancelled `PendingIntent` and WorkManager `missed_$doseId`, but left active reminder/missed notifications stuck in the Android notification drawer.
+    - Updated `cancelDoseAlarm(doseId)` to immediately invoke `notificationManager?.cancel(NotificationChannels.getNotificationIdForDose(doseId))` and `+ 100` (missed dose notification).
+    - Now when a dose is taken via `RecordVerifiedDoseUseCase`, snoozed, or skipped, any active heads-up or missed-dose notification is immediately dismissed from the notification drawer.
+- **Notifications & Receivers Refactoring & Testability**:
+  - `ReminderReceiver.kt`: Extracted pure suspend business logic to `internal suspend fun processReminder(context: Context, doseId: String)` for deterministic testing.
+    - Validates `dose.status == DoseStatus.PENDING` (never notifies for already taken, skipped, or cancelled doses).
+    - Checks user privacy/session isolation: verifies `medicine.patientId == currentUserId` before displaying notification so doses from other profiles do not leak.
+    - Skips notification if medicine is marked deleted (`medicine.isDeleted`) or if reminders are disabled (`medicine.reminderEnabled == false`).
+    - Configures high-priority heads-up notification with action buttons: "Taken" (opens verification camera), "Snooze 15m", and "Skip".
+  - `DoseActionReceiver.kt`: Extracted pure suspend action processor to `internal suspend fun processAction(context: Context, doseId: String, action: String, snoozeMinutes: Int)`:
+    - `ACTION_SNOOZE`: Calls `snoozeDoseUseCase`, checks snooze count limit (`AppConfig.MAX_SNOOZES_PER_DOSE = 3`) and intake window cutoff (`dose.windowEndsAt`), reschedules exact alarm to `targetTriggerTime`, and cancels the active notification.
+    - `ACTION_SKIP`: Calls `skipDoseUseCase`, marks dose event as `SKIPPED`, cancels exact alarm, and clears notification from the shade.
+- **History & Adherence Audit**:
+  - Audited `HistoryViewModel.kt`, `CalendarViewModel.kt`, and `AdherenceCalculator.kt`:
+    - Adherence rate formula correctly accounts for `SKIPPED` doses in the denominator as prescribed doses.
+    - Preserves deleted medicine name, dosage, and instructions in historical records via snapshot data in `DoseEvent` even after the parent `Medicine` is soft-deleted.
+    - Strict multi-user isolation: history query filters doses by active patient session (`doseRepository.getByPatientId(userId)`).
+- **Test Suites Added / Enhanced**:
+  - `ReminderReceiverTest.kt` (5 tests):
+    1. `processReminder_whenPendingDose_postsNotificationWithActions`
+    2. `processReminder_whenDoseNotPending_skipsNotification`
+    3. `processReminder_whenDifferentUser_skipsNotificationForPrivacy`
+    4. `processReminder_whenMedicineReminderDisabled_skipsNotification`
+    5. `processReminder_whenMedicineDeleted_skipsNotification`
+  - `DoseActionReceiverTest.kt` (2 tests):
+    1. `processAction_snooze_schedulesNewAlarmAndCancelsNotification`
+    2. `processAction_skip_callsSkipUseCaseAndCancelsAlarmAndNotification`
+  - `AlarmAndNotificationLifecycleTest.kt` (2 tests):
+    1. `cancelDoseAlarm_clearsActiveNotificationFromDrawer`
+    2. `recordVerifiedDose_clearsActiveNotificationWhenDoseIsTaken`
+  - `HistoryViewModelTest.kt` (+2 new tests):
+    1. `history preserves name and dosage for deleted medicines`
+    2. `skipped doses are reflected in history list and adherence denominator`
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **420** (up from 409 in Stage 5, +11 new tests)
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 35s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 1m 24s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,373,084 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL in 3m 22s`
+  - **Artifact**: `app-release-unsigned.apk` (48,073,478 bytes, R8 minified)
+
+### 3. Honest Verification Reporting
+- **Host Unit & Robolectric Test Suite**: **VERIFIED** (420 passed, 0 failed across 64 test classes).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded, 0 ProGuard/R8 issues).
+- **Physical Device Alarm Triggering & Notification Shade Interaction**: **NOT RUN** (requires physical device or running emulator with AlarmManager clock triggers).

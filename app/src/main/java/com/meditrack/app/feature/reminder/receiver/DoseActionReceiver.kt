@@ -35,45 +35,54 @@ class DoseActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val doseId = intent.getStringExtra(ReminderReceiver.EXTRA_DOSE_ID) ?: return
         val action = intent.action ?: return
+        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 15)
         Log.d(MediTrackApp.TAG, "DoseActionReceiver received action $action for dose $doseId")
 
         val pendingResult = try { goAsync() } catch (_: Exception) { null }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-                when (action) {
-                    ACTION_SNOOZE -> {
-                        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 15)
-                        val snoozeResult = snoozeDoseUseCase(doseId, snoozeMinutes = snoozeMinutes)
-
-                        snoozeResult.onSuccess { targetTriggerTime ->
-                            val updatedDose = doseRepository.getById(doseId)
-                            if (updatedDose != null) {
-                                alarmScheduler.scheduleDoseAlarm(updatedDose, targetTriggerTime)
-                                notificationManager.cancel(NotificationChannels.getNotificationIdForDose(doseId))
-                                Log.d(MediTrackApp.TAG, "Snoozed dose $doseId for $snoozeMinutes min to $targetTriggerTime")
-                            }
-                        }.onFailure { error ->
-                            Log.w(MediTrackApp.TAG, "Failed to snooze dose $doseId: ${error.message}")
-                        }
-                    }
-
-                    ACTION_SKIP -> {
-                        val skipResult = skipDoseUseCase(doseId)
-                        skipResult.onSuccess {
-                            alarmScheduler.cancelDoseAlarm(doseId)
-                            notificationManager.cancel(NotificationChannels.getNotificationIdForDose(doseId))
-                            Log.d(MediTrackApp.TAG, "Marked dose $doseId as SKIPPED")
-                        }.onFailure { error ->
-                            Log.w(MediTrackApp.TAG, "Failed to skip dose $doseId: ${error.message}")
-                        }
-                    }
-                }
+                processAction(context, doseId, action, snoozeMinutes)
             } catch (e: Exception) {
                 Log.e(MediTrackApp.TAG, "Error processing dose action $action for dose $doseId: ${e.message}", e)
             } finally {
                 pendingResult?.finish()
+            }
+        }
+    }
+
+    internal suspend fun processAction(
+        context: Context,
+        doseId: String,
+        action: String,
+        snoozeMinutes: Int = 15
+    ) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        when (action) {
+            ACTION_SNOOZE -> {
+                val snoozeResult = snoozeDoseUseCase(doseId, snoozeMinutes = snoozeMinutes)
+
+                snoozeResult.onSuccess { targetTriggerTime ->
+                    val updatedDose = doseRepository.getById(doseId)
+                    if (updatedDose != null) {
+                        alarmScheduler.scheduleDoseAlarm(updatedDose, targetTriggerTime)
+                        notificationManager.cancel(NotificationChannels.getNotificationIdForDose(doseId))
+                        Log.d(MediTrackApp.TAG, "Snoozed dose $doseId for $snoozeMinutes min to $targetTriggerTime")
+                    }
+                }.onFailure { error ->
+                    Log.w(MediTrackApp.TAG, "Failed to snooze dose $doseId: ${error.message}")
+                }
+            }
+
+            ACTION_SKIP -> {
+                val skipResult = skipDoseUseCase(doseId)
+                skipResult.onSuccess {
+                    alarmScheduler.cancelDoseAlarm(doseId)
+                    notificationManager.cancel(NotificationChannels.getNotificationIdForDose(doseId))
+                    Log.d(MediTrackApp.TAG, "Marked dose $doseId as SKIPPED")
+                }.onFailure { error ->
+                    Log.w(MediTrackApp.TAG, "Failed to skip dose $doseId: ${error.message}")
+                }
             }
         }
     }

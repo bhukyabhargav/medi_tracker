@@ -237,4 +237,65 @@ class HistoryViewModelTest {
 
         job.cancel()
     }
+    @Test
+    fun `history preserves name and dosage for deleted medicines`() = runTest {
+        val deletedMed = sampleMed.copy(id = "med_deleted", name = "Discontinued Penicillin", isDeleted = true)
+        val takenDose = DoseEvent(
+            id = "dose_deleted_med",
+            medicineId = "med_deleted",
+            scheduledAt = testNowMillis - 3600000L,
+            windowEndsAt = testNowMillis,
+            status = DoseStatus.TAKEN
+        )
+        every { medicineRepository.observeAll() } returns flowOf(listOf(deletedMed))
+        every { doseRepository.observeBetween(any(), any()) } returns flowOf(listOf(takenDose))
+
+        val vm = createViewModel()
+        val job = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val items = vm.uiState.value.items
+        assertEquals(1, items.size)
+        assertEquals("Discontinued Penicillin", items.first().medicineName)
+        assertEquals("500mg", items.first().dosageText)
+        assertEquals("Taken", items.first().statusLabel)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `skipped doses are reflected in history list and adherence denominator`() = runTest {
+        val skippedDose = DoseEvent(
+            id = "dose_skipped",
+            medicineId = sampleMed.id,
+            scheduledAt = testNowMillis - 3600000L,
+            windowEndsAt = testNowMillis,
+            status = DoseStatus.SKIPPED
+        )
+        val takenDose = DoseEvent(
+            id = "dose_taken_on_time",
+            medicineId = sampleMed.id,
+            scheduledAt = testNowMillis - 7200000L,
+            windowEndsAt = testNowMillis - 3600000L,
+            status = DoseStatus.TAKEN
+        )
+        every { doseRepository.observeBetween(any(), any()) } returns flowOf(listOf(skippedDose, takenDose))
+
+        val vm = createViewModel()
+        val job = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val items = vm.uiState.value.items
+        assertEquals(2, items.size)
+        val skippedItem = items.first { it.dose.id == "dose_skipped" }
+        assertEquals("Skipped", skippedItem.statusLabel)
+
+        val report = vm.uiState.value.adherenceReport
+        assertEquals(1, report.verifiedTakenCount)
+        assertEquals(1, report.skippedCount)
+        assertEquals(2, report.closedDosesCount)
+        assertEquals(50.0, report.percentage!!, 0.001)
+
+        job.cancel()
+    }
 }

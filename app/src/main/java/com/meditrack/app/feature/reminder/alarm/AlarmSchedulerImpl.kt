@@ -1,6 +1,7 @@
 package com.meditrack.app.feature.reminder.alarm
 
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -146,7 +147,16 @@ class AlarmSchedulerImpl @Inject constructor(
             }
         }
 
-        Log.d(MediTrackApp.TAG, "Cancelled alarm (missedWorkerCancelled=$cancelMissedWorker) for dose $doseId")
+        // Cancel any active reminder or missed notification for this dose from the system drawer
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.cancel(NotificationChannels.getNotificationIdForDose(doseId))
+            notificationManager?.cancel(NotificationChannels.getNotificationIdForDose(doseId) + 100)
+        } catch (e: Exception) {
+            Log.w(MediTrackApp.TAG, "Failed to cancel notification for dose $doseId: ${e.message}")
+        }
+
+        Log.d(MediTrackApp.TAG, "Cancelled alarm and cleared notification (missedWorkerCancelled=$cancelMissedWorker) for dose $doseId")
     }
 
     override suspend fun rescheduleAllPendingAlarms() {

@@ -40,101 +40,105 @@ class ReminderReceiver : BroadcastReceiver() {
         val pendingResult = try { goAsync() } catch (_: Exception) { null }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                NotificationChannels.createChannels(context)
-
-                val dose = doseRepository.getById(doseId)
-                if (dose == null || dose.status != DoseStatus.PENDING) {
-                    Log.d(MediTrackApp.TAG, "Dose $doseId is not pending (status: ${dose?.status}), skipping notification")
-                    return@launch
-                }
-
-                // Account isolation: never show another (logged-out) account's reminder.
-                val currentUserId = userPreferences.currentUserId.firstOrNull()
-                if (dose.patientId.isNotBlank() && dose.patientId != currentUserId) {
-                    Log.d(MediTrackApp.TAG, "Dose $doseId belongs to another account, skipping notification")
-                    return@launch
-                }
-
-                val medicine = medicineRepository.getById(dose.medicineId)
-                if (medicine != null && (medicine.isDeleted || medicine.stoppedByDoctor)) {
-                    return@launch
-                }
-                if (medicine?.reminderEnabled == false) {
-                    Log.d(MediTrackApp.TAG, "Reminder disabled for medicine ${medicine.name}, skipping notification")
-                    return@launch
-                }
-                val medicineName = medicine?.name ?: "Medicine"
-                val dosage = medicine?.dosageText ?: ""
-                val pills = medicine?.pillsPerDose ?: 1
-                val food = medicine?.foodRelation?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: ""
-
-                // 1. Action: Taken -> Launches Verification Stub
-                val takenIntent = Intent(context, MainActivity::class.java).apply {
-                    action = ACTION_TAKEN_VERIFY
-                    putExtra(EXTRA_DOSE_ID, doseId)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                }
-                val takenPendingIntent = PendingIntent.getActivity(
-                    context,
-                    NotificationChannels.getNotificationIdForDose(doseId) + 1,
-                    takenIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
-                // 2. Action: Snooze (15m) -> Handled by DoseActionReceiver
-                val snoozeIntent = Intent(context, DoseActionReceiver::class.java).apply {
-                    action = DoseActionReceiver.ACTION_SNOOZE
-                    putExtra(EXTRA_DOSE_ID, doseId)
-                    putExtra(DoseActionReceiver.EXTRA_SNOOZE_MINUTES, 15)
-                }
-                val snoozePendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    NotificationChannels.getNotificationIdForDose(doseId) + 2,
-                    snoozeIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
-                // 3. Action: Skip -> Handled by DoseActionReceiver
-                val skipIntent = Intent(context, DoseActionReceiver::class.java).apply {
-                    action = DoseActionReceiver.ACTION_SKIP
-                    putExtra(EXTRA_DOSE_ID, doseId)
-                }
-                val skipPendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    NotificationChannels.getNotificationIdForDose(doseId) + 3,
-                    skipIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
-                val contentText = buildString {
-                    if (dosage.isNotBlank()) append(dosage)
-                    append(" • $pills pill(s)")
-                    if (food.isNotBlank()) append(" • $food")
-                }
-
-                val notification = NotificationCompat.Builder(context, NotificationChannels.CHANNEL_DOSE_REMINDERS)
-                    .setSmallIcon(R.mipmap.ic_launcher)
-                    .setContentTitle("Time to take $medicineName")
-                    .setContentText(contentText)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setCategory(NotificationCompat.CATEGORY_ALARM)
-                    .setAutoCancel(false)
-                    .setOngoing(false)
-                    .setContentIntent(takenPendingIntent)
-                    .addAction(R.drawable.ic_launcher_foreground, "Taken", takenPendingIntent)
-                    .addAction(R.drawable.ic_launcher_foreground, "Snooze 15m", snoozePendingIntent)
-                    .addAction(R.drawable.ic_launcher_foreground, "Skip", skipPendingIntent)
-                    .build()
-
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(NotificationChannels.getNotificationIdForDose(doseId), notification)
-                Log.d(MediTrackApp.TAG, "Posted dose reminder notification for $medicineName ($doseId)")
+                processReminder(context, doseId)
             } catch (e: Exception) {
                 Log.e(MediTrackApp.TAG, "Error displaying reminder notification for dose $doseId: ${e.message}", e)
             } finally {
                 pendingResult?.finish()
             }
         }
+    }
+
+    internal suspend fun processReminder(context: Context, doseId: String) {
+        NotificationChannels.createChannels(context)
+
+        val dose = doseRepository.getById(doseId)
+        if (dose == null || dose.status != DoseStatus.PENDING) {
+            Log.d(MediTrackApp.TAG, "Dose $doseId is not pending (status: ${dose?.status}), skipping notification")
+            return
+        }
+
+        // Account isolation: never show another (logged-out) account's reminder.
+        val currentUserId = userPreferences.currentUserId.firstOrNull()
+        if (dose.patientId.isNotBlank() && dose.patientId != currentUserId) {
+            Log.d(MediTrackApp.TAG, "Dose $doseId belongs to another account, skipping notification")
+            return
+        }
+
+        val medicine = medicineRepository.getById(dose.medicineId)
+        if (medicine != null && (medicine.isDeleted || medicine.stoppedByDoctor)) {
+            return
+        }
+        if (medicine?.reminderEnabled == false) {
+            Log.d(MediTrackApp.TAG, "Reminder disabled for medicine ${medicine.name}, skipping notification")
+            return
+        }
+        val medicineName = medicine?.name ?: "Medicine"
+        val dosage = medicine?.dosageText ?: ""
+        val pills = medicine?.pillsPerDose ?: 1
+        val food = medicine?.foodRelation?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: ""
+
+        // 1. Action: Taken -> Launches Verification Stub
+        val takenIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_TAKEN_VERIFY
+            putExtra(EXTRA_DOSE_ID, doseId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val takenPendingIntent = PendingIntent.getActivity(
+            context,
+            NotificationChannels.getNotificationIdForDose(doseId) + 1,
+            takenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 2. Action: Snooze (15m) -> Handled by DoseActionReceiver
+        val snoozeIntent = Intent(context, DoseActionReceiver::class.java).apply {
+            action = DoseActionReceiver.ACTION_SNOOZE
+            putExtra(EXTRA_DOSE_ID, doseId)
+            putExtra(DoseActionReceiver.EXTRA_SNOOZE_MINUTES, 15)
+        }
+        val snoozePendingIntent = PendingIntent.getBroadcast(
+            context,
+            NotificationChannels.getNotificationIdForDose(doseId) + 2,
+            snoozeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 3. Action: Skip -> Handled by DoseActionReceiver
+        val skipIntent = Intent(context, DoseActionReceiver::class.java).apply {
+            action = DoseActionReceiver.ACTION_SKIP
+            putExtra(EXTRA_DOSE_ID, doseId)
+        }
+        val skipPendingIntent = PendingIntent.getBroadcast(
+            context,
+            NotificationChannels.getNotificationIdForDose(doseId) + 3,
+            skipIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val contentText = buildString {
+            if (dosage.isNotBlank()) append(dosage)
+            append(" • $pills pill(s)")
+            if (food.isNotBlank()) append(" • $food")
+        }
+
+        val notification = NotificationCompat.Builder(context, NotificationChannels.CHANNEL_DOSE_REMINDERS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Time to take $medicineName")
+            .setContentText(contentText)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(false)
+            .setOngoing(false)
+            .setContentIntent(takenPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Taken", takenPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Snooze 15m", snoozePendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Skip", skipPendingIntent)
+            .build()
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NotificationChannels.getNotificationIdForDose(doseId), notification)
+        Log.d(MediTrackApp.TAG, "Posted dose reminder notification for $medicineName ($doseId)")
     }
 
     companion object {

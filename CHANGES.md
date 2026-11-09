@@ -337,3 +337,29 @@ This document details all changes and new files introduced during the Round 4 re
    - Wired navigation button from `feature/debug/DebugToolsScreen.kt`.
    - Added unit test: `feature/debug/ModelSelfTestViewModelTest.kt`.
    - Created `app/src/androidTest/assets/selftest/README.md` and instrumented test `feature/verification/RealStripDetectorInstrumentedTest.kt` (marked OPEN for human-supplied photos).
+
+
+---
+
+## Round 5 Stability Fixes (Alarms, Notifications & History Correctness Audit)
+
+### Fixed Notification Drawer Dismissal, Receiver Isolation & Historical Data Preservation
+1. **Alarm & Notification Shade Synchronization (`AlarmSchedulerImpl.kt`)**
+   - Modified `feature/reminder/alarm/AlarmSchedulerImpl.kt`: Updated `cancelDoseAlarm(doseId)` to immediately invoke `notificationManager?.cancel(NotificationChannels.getNotificationIdForDose(doseId))` and `+ 100` (missed dose notification).
+   - This ensures whenever a dose is recorded as taken in `RecordVerifiedDoseUseCase` or skipped, any active reminder notification in the Android shade is cleared immediately.
+   - Added unit test: `feature/reminder/alarm/AlarmAndNotificationLifecycleTest.kt` verifying both direct cancellation and intake workflow dismissals.
+
+2. **ReminderReceiver Pure Business Logic Refactoring & Patient Isolation**
+   - Modified `feature/reminder/receiver/ReminderReceiver.kt`: Extracted `processReminder(context, doseId)` suspend function.
+   - Added checks: validates dose is `PENDING`, verifies `medicine.patientId == currentUserId` before displaying (prevents multi-user notification leakage), verifies `medicine.reminderEnabled` and `!medicine.isDeleted`.
+   - Added unit test: `feature/reminder/receiver/ReminderReceiverTest.kt` (5 tests).
+
+3. **DoseActionReceiver Action Handling & Notification Clearance**
+   - Modified `feature/reminder/receiver/DoseActionReceiver.kt`: Extracted `processAction(context, doseId, action, snoozeMinutes)` suspend function.
+   - For `ACTION_SNOOZE`: Calls `snoozeDoseUseCase`, reschedules alarm to target time, and dismisses active notification.
+   - For `ACTION_SKIP`: Calls `skipDoseUseCase`, cancels dose alarm, and dismisses active notification.
+   - Added unit test: `feature/reminder/receiver/DoseActionReceiverTest.kt` (2 tests).
+
+4. **History & Deleted Medicine Snapshot Preservation**
+   - Audited `feature/history/HistoryViewModel.kt`, `feature/calendar/CalendarViewModel.kt`, and `domain/usecase/AdherenceCalculator.kt`.
+   - Added tests in `feature/history/HistoryViewModelTest.kt`: verified that historical dose records preserve medicine name and dosage snapshot even if the medicine is deleted, and verified skipped doses are properly reflected in adherence calculation.
