@@ -89,13 +89,13 @@ fun VerifyOtpScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Test / Demo OTP Code",
+                            text = "Verification Code: 123456",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Code: 123456 (no external email is sent in test mode)",
+                            text = "No real cellular SMS/email is dispatched. Use code 123456 to verify immediately.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )

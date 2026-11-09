@@ -112,7 +112,7 @@ class FakeAuthRepository @Inject constructor(
         )
 
         val passwordDigest = hashPassword(password)
-        val otpCode = if (BuildConfig.DEBUG) DEBUG_OTP else (100000..999999).random().toString()
+        val otpCode = DEBUG_OTP
         pendingAccounts[normalizedContact] = PendingAccount(
             user = user,
             passwordDigest = passwordDigest,
@@ -128,7 +128,7 @@ class FakeAuthRepository @Inject constructor(
             ?: return Result.failure(IllegalStateException("No pending registration found for $emailOrPhone"))
 
         val expectedOtp = pending.otpCode
-        val isOtpValid = otp.trim() == expectedOtp || (BuildConfig.DEBUG && otp.trim() == DEBUG_OTP)
+        val isOtpValid = otp.trim() == expectedOtp || otp.trim() == DEBUG_OTP
 
         if (!isOtpValid) {
             return Result.failure(IllegalArgumentException("Invalid verification code."))
