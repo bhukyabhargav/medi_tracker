@@ -19,8 +19,9 @@ object VerificationConfig {
     // Two-stage detection: when the strip fills less than this fraction of the photo, the cells are only a few
     // pixels wide at the model's 320x320 input and are missed or classified with low confidence. The detector
     // then re-runs on a crop around the strip.
-    var stripZoomAreaThreshold: Float = 0.55f
-    var stripCropMarginFraction: Float = 0.08f // extra context kept around the strip box when cropping
+    var stripZoomAreaThreshold: Float = 0.85f
+    // Margins (fraction of the strip box on each side) for the crops that are pooled with the whole-photo pass.
+    var stripCropMargins: List<Float> = listOf(0.08f, 0.02f, 0.20f)
 
     // Confidence guard: a real foil strip nearly always has one or two cells at 0.45-0.60, so a single weaker
     // cell must not reject the whole photo. Reject only when MANY cells are unreliable.

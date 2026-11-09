@@ -25,3 +25,13 @@
 
 ## NOT RUN
 Nothing was compiled or run on a device here. Run: ./gradlew testDebugUnitTest assembleDebug, then retry on the phone.
+
+## Round 2: pooled multi-crop detection (still BLURRY after round 1)
+- `TfliteStripDetector.detect()` now runs the model on the whole photo plus up to three crops around the strip
+  (`VerificationConfig.stripCropMargins` = 8%, 2%, 20%), maps every cell back to original-photo coordinates
+  (`StripCropPlanner.mapToOriginal`; the old code returned crop-space boxes), pools them and de-duplicates with
+  class-agnostic NMS so the most confident view of each cell wins.
+- Crops are used whenever the strip fills < 85% of the photo (was 55%).
+- Host check with the bundled model on your strip photo: 10 of 10 cells, 2 empty, lowest cell confidence 0.56.
+  Before: 9 cells with 2 below 0.60.
+- NOT RUN on device or with Gradle. Run `./gradlew testDebugUnitTest assembleDebug`, then reinstall.

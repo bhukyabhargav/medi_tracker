@@ -157,18 +157,16 @@ class TfliteStripDetector @Inject constructor(
     }
 
     /**
-     * Executes blister strip and cell detection on [bitmap].
-     * Serialized with [Mutex] to prevent SIGSEGV from concurrent interpreter access (C6).
-     */
-    /**
-     * Two-stage detection.
+     * Multi-pass detection, serialized with [Mutex] to prevent SIGSEGV from concurrent interpreter access.
      *
-     * Pass 1 runs on the whole photo and locates the strip (this works even when the strip is small in the frame).
-     * When the strip fills only a small part of the photo, the cells are just a few pixels wide at the model's
-     * 320x320 input and are missed (especially EMPTY cells) or get low confidence, so pass 2 re-runs the model
-     * on a crop around the strip. The in-frame check and the strip confidence always come from pass 1.
+     * Pass 1 runs on the whole photo and locates the strip (works even when the strip is small in the frame).
+     * Unless the strip already fills most of the photo, the model is then re-run on several crops around the
+     * strip (different margins). Cells are only a few pixels wide at the model's 320x320 input in pass 1, so
+     * they are missed or get low confidence; each crop sees them at a different scale. All cells are mapped
+     * back to the original photo, pooled, and de-duplicated with class-agnostic NMS (highest confidence wins),
+     * so one weak view of a cell is outvoted by a better one.
      *
-     * Serialized with [Mutex] to prevent SIGSEGV from concurrent interpreter access.
+     * The strip confidence and the in-frame check always come from pass 1.
      */
     override suspend fun detect(bitmap: Bitmap): Detection = mutex.withLock {
         val first = detectUnlocked(bitmap)
@@ -177,28 +175,35 @@ class TfliteStripDetector @Inject constructor(
         val area = StripCropPlanner.areaFraction(box.left, box.top, box.right, box.bottom)
         if (area >= VerificationConfig.stripZoomAreaThreshold) return@withLock first
 
-        val crop = StripCropPlanner.plan(
-            box.left, box.top, box.right, box.bottom,
-            bitmap.width, bitmap.height, VerificationConfig.stripCropMarginFraction
-        ) ?: return@withLock first
+        val pooled = first.cells.toMutableList()
+        for (margin in VerificationConfig.stripCropMargins) {
+            val crop = StripCropPlanner.plan(
+                box.left, box.top, box.right, box.bottom,
+                bitmap.width, bitmap.height, margin
+            ) ?: continue
 
-        var cropped: Bitmap? = null
-        try {
-            val cropBitmap = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width, crop.height)
-            cropped = cropBitmap
-            val second = detectUnlocked(cropBitmap)
-            // The crop must not find FEWER cells than the whole photo; otherwise keep the first result.
-            if (second.cells.size < first.cells.size) return@withLock first
-            second.copy(
-                stripFullyInFrame = first.stripFullyInFrame,
-                stripConfidence = first.stripConfidence ?: second.stripConfidence,
-                stripBox = box
-            )
-        } catch (_: OutOfMemoryError) {
-            first
-        } finally {
-            cropped?.let { if (it !== bitmap && !it.isRecycled) it.recycle() }
+            var cropBitmap: Bitmap? = null
+            try {
+                cropBitmap = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width, crop.height)
+                val second = detectUnlocked(cropBitmap)
+                for (cell in second.cells) {
+                    val m = StripCropPlanner.mapToOriginal(
+                        cell.box.left, cell.box.top, cell.box.right, cell.box.bottom,
+                        crop, bitmap.width, bitmap.height
+                    )
+                    pooled.add(cell.copy(box = RectF(m[0], m[1], m[2], m[3])))
+                }
+            } catch (_: OutOfMemoryError) {
+                // Keep whatever has been pooled so far.
+            } finally {
+                cropBitmap?.let { if (it !== bitmap && !it.isRecycled) it.recycle() }
+            }
         }
+
+        val merged = filterOutlierCells(applyNms(pooled, VerificationConfig.iouThreshold))
+        // Never return fewer cells than the plain whole-photo pass.
+        if (merged.size < first.cells.size) return@withLock first
+        first.copy(cells = merged)
     }
 
     /** Single inference pass on [bitmap] (the caller must hold [mutex]). */

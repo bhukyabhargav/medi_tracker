@@ -57,4 +57,27 @@ object StripCropPlanner {
         val h = (bottom - top).coerceIn(0f, 1f)
         return w * h
     }
+
+    /**
+     * Maps a box that is normalized (0..1) inside [crop] back to normalized coordinates of the original image.
+     * @return [left, top, right, bottom]
+     */
+    fun mapToOriginal(
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        crop: CropRect,
+        imageWidth: Int,
+        imageHeight: Int
+    ): FloatArray {
+        val w = imageWidth.toFloat()
+        val h = imageHeight.toFloat()
+        return floatArrayOf(
+            (crop.left + left * crop.width) / w,
+            (crop.top + top * crop.height) / h,
+            (crop.left + right * crop.width) / w,
+            (crop.top + bottom * crop.height) / h
+        )
+    }
 }
