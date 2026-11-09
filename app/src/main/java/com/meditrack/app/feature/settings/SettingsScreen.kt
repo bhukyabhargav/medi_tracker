@@ -82,6 +82,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.meditrack.app.BuildConfig
+import com.meditrack.app.core.util.CrashLogger
 import com.meditrack.app.domain.model.DoctorLink
 import com.meditrack.app.domain.model.DoctorLinkStatus
 import com.meditrack.app.domain.model.MedicineProposal
@@ -876,6 +878,52 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Delete My Account & Data")
                             }
+                        }
+                    }
+                }
+            }
+
+            // Section 9: About & Diagnostics (Stability Fix E1)
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "About & Diagnostics",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "MediTrack v1.0.0 (Build ${BuildConfig.VERSION_CODE})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "AI-assisted blister pack adherence verification with on-device YOLOv8Lite & OCR.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val reportText = CrashLogger.exportDiagnosticsText(context)
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "MediTrack Diagnostics & Crash Report")
+                                    putExtra(Intent.EXTRA_TEXT, reportText)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Export Diagnostics via"))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Export Diagnostics")
                         }
                     }
                 }

@@ -52,6 +52,7 @@ import com.meditrack.app.R
 @Composable
 fun DebugToolsScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToModelSelfTest: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: DebugToolsViewModel = hiltViewModel()
 ) {
@@ -302,6 +303,49 @@ fun DebugToolsScreen(
                         enabled = !uiState.isActionInProgress && uiState.datasetCount > 0
                     ) {
                         Text("Export Dataset (.zip)")
+                    }
+                }
+            }
+
+
+            Text(
+                text = "Model Evaluation & Accuracy (Round 5 C7)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Model Self-Test (Assets ML)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Runs TFLite YOLOv8 model on photos in assets/selftest/ with cell counts & confidences",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onNavigateToModelSelfTest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Model Self-Test Screen")
                     }
                 }
             }

@@ -30,9 +30,9 @@ object CrashLogger {
         }
     }
 
-    private fun recordCrash(context: Context, thread: Thread, throwable: Throwable) {
+    internal fun recordCrash(context: Context, thread: Thread, throwable: Throwable) {
         val dir = File(context.filesDir, CRASH_DIR).apply { if (!exists()) mkdirs() }
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
         val crashFile = File(dir, "crash_${timeStamp}.log")
 
         val content = buildString {
@@ -54,6 +54,12 @@ object CrashLogger {
         if (logs.size > MAX_CRASH_LOGS) {
             logs.drop(MAX_CRASH_LOGS).forEach { it.delete() }
         }
+    }
+
+    internal fun clearCrashLogs(context: Context) {
+        val dir = File(context.filesDir, CRASH_DIR)
+        dir.listFiles { _, name -> name.startsWith("crash_") && name.endsWith(".log") }
+            ?.forEach { it.delete() }
     }
 
     fun exportDiagnosticsText(context: Context): String {

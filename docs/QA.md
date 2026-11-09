@@ -75,3 +75,42 @@ This document provides the clinical reliability audit checklist, edge case resil
 - **Release Hardening**:
   - ProGuard / R8 minification and resource shrinking enabled (`isMinifyEnabled = true`, `isShrinkResources = true`).
   - Room database encrypted at rest with SQLCipher for Android (`net.zetetic:sqlcipher-android`) and hardware-backed Android Keystore key wrapping.
+
+
+---
+
+## 5. Low-Memory Stress & Camera Hardening Protocol (Round 5 Stability E2)
+
+### A. Environment Configuration
+- **Hardware Profile**: Android Emulator or Physical Device configured with strictly **1.5 GB RAM** (e.g. `hw.ramSize=1536` in AVD `config.ini`).
+- **Android OS**: Android 14 / API 34+ with Google Play Services.
+- **Build Under Test**: `app-debug.apk` (or signed release build).
+
+### B. Stress Test Sequence (20 Captures & Continuous Rotation)
+1. **Consecutive Captures**:
+   - Open Camera / Verification screen.
+   - Capture 20 blister pack photos consecutively with 1–2 second intervals.
+   - Confirm memory remains stable without triggering `OutOfMemoryError` or unhandled native crashes.
+2. **Feature Interleaving**:
+   - Rapidly switch between:
+     * Add Medicine -> Baseline Strip Photo capture
+     * Dose Verification camera capture
+     * Scan Rx (ML Kit OCR) capture
+     * Viewing active medicines and profile
+3. **Mid-Capture Configuration Changes (Rotation)**:
+   - While camera preview is actively streaming and during photo capture, rotate the device 90 degrees (portrait <-> landscape).
+   - Confirm CameraX rebinds cleanly, preview orientation updates without freezing, and uncommitted frames do not stall `ImageProxy` acquisition.
+4. **Runtime Permission Revocation & Re-grant**:
+   - Send app to background (`HOME` button).
+   - Navigate to Android OS App Info -> Permissions -> Deny **Camera** permission.
+   - Return to app; verify polite permission rationale is displayed.
+   - Re-grant permission; confirm camera initializes gracefully without restart.
+5. **Logcat Capture Commands**:
+   Monitor system crashes and runtime memory allocations:
+   ```bash
+   adb logcat -b crash
+   adb logcat -s MediTrack AndroidRuntime StrictMode
+   ```
+
+### C. Execution Status
+- **Execution Status**: **NOT RUN** (requires physical device or interactive emulator testing session per QA instructions).

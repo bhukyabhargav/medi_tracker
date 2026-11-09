@@ -35,4 +35,5 @@ sealed class Screen(val route: String) {
     data object Scan : Screen("scan")
     data object Settings : Screen("settings")
     data object PrivacyConsent : Screen("privacy_consent")
+    data object ModelSelfTest : Screen("model_self_test")
 }

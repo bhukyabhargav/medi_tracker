@@ -311,3 +311,29 @@ This document details all changes and new files introduced during the Round 4 re
    - Enhanced `PrescriptionParserTest.kt`: Added tests covering fractional doses (1/2, 1/4), multi-medicine prescriptions requiring manual review, PRN / SOS / as-needed medication flags, and empty/whitespace text inputs.
    - Modified `feature/scan/ScanMedicineScreen.kt`: Added "Enter details manually" action to permission denied screen, camera initialization error dialog, bottom scanning bar, and prescription preview card.
    - Modified `feature/medicine/AddEditMedicineScreen.kt`: Updated `LaunchedEffect(medicineId, prefillName)` condition so prefilled fields (dosage, frequency, stock) are populated even when OCR cannot identify the medicine name.
+
+
+---
+
+## Round 5 Stability Fixes (Stage 5: Diagnosability E1, E2 & Model Self-Test C7)
+
+### Fixed Crash Reporting, Low-Memory Protocol, and Model Self-Testing
+1. **E1 (Crash Diagnostics Export in Settings & CrashLogger Test Coverage)**
+   - Modified `core/util/CrashLogger.kt`: Formatted timestamp with millisecond precision (`yyyyMMdd_HHmmss_SSS`) to avoid filename collisions on rapid consecutive errors, and made `recordCrash` internal for testing.
+   - Modified `feature/settings/SettingsScreen.kt`: Added Section 9 "About & Diagnostics" with app build metadata and an "Export Diagnostics" button that invokes `CrashLogger.exportDiagnosticsText(context)` and opens Android's `ACTION_SEND` share sheet.
+   - Added unit test: `core/util/CrashLoggerTest.kt` verifying crash log file creation, stack trace sanitization, rotating purge keeping newest 5 crash logs, and diagnostics text formatting.
+
+2. **E2 (Documented Low-Memory Stress & Camera Hardening Protocol)**
+   - Modified `docs/QA.md`: Added Section 5 detailing the 1.5 GB RAM emulator stress test procedure, 20 consecutive camera captures, mid-capture device rotation, runtime permission revocation/re-grant, and `adb logcat` monitoring commands. Marked as **NOT RUN**.
+
+3. **C7 (Model Hygiene, Asset Discovery & Model Self-Test Screen)**
+   - Created directory `app/src/main/assets/selftest/` with instructions for supplying physical blister photos.
+   - Created `feature/debug/ModelSelfTestViewModel.kt` and `feature/debug/ModelSelfTestScreen.kt`:
+     * Discovers blister photos in `assets/selftest/`.
+     * Runs TFLite YOLOv8 model (`strip_detector.tflite`) with `BitmapLoader.decodeSampled`.
+     * Displays strip confidence, cavity counts (`FULL`, `EMPTY`, `PARTIAL`), average/per-cell confidences, and inference latency.
+     * Includes synthetic blister strip evaluation to verify interpreter execution without native crashes.
+   - Registered `Screen.ModelSelfTest` in `core/navigation/Screen.kt` and `MainActivity.kt`.
+   - Wired navigation button from `feature/debug/DebugToolsScreen.kt`.
+   - Added unit test: `feature/debug/ModelSelfTestViewModelTest.kt`.
+   - Created `app/src/androidTest/assets/selftest/README.md` and instrumented test `feature/verification/RealStripDetectorInstrumentedTest.kt` (marked OPEN for human-supplied photos).

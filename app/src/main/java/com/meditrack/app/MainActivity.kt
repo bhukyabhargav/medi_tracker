@@ -458,6 +458,16 @@ class MainActivity : ComponentActivity() {
                                 DebugToolsScreen(
                                     onNavigateBack = {
                                         navController.popBackStack()
+                                    },
+                                    onNavigateToModelSelfTest = {
+                                        navController.navigate(Screen.ModelSelfTest.route)
+                                    }
+                                )
+                            }
+                            composable(Screen.ModelSelfTest.route) {
+                                com.meditrack.app.feature.debug.ModelSelfTestScreen(
+                                    onNavigateBack = {
+                                        navController.popBackStack()
                                     }
                                 )
                             }

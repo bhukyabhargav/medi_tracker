@@ -872,3 +872,56 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
     5. Tap **Accept & Continue**; confirm medicine prefill is preserved in Add Medicine screen.
     6. Complete photo enrollment, save medicine; confirm medicine appears in current medicines list.
     7. Switch to User B (demo or login); confirm User A's medicine is not visible in User B's list.
+
+
+---
+
+## Round 5 Stability: Stage 5 (Diagnosability E1, E2 & Model Hygiene/Self-Test C7)
+
+### 1. Implementation Summary
+- **E1 (Crash Diagnosability & Export Diagnostics Action in Settings)**:
+  - Enhanced `CrashLogger.kt` with milliseconds precision in filename (`yyyyMMdd_HHmmss_SSS`) and added `clearCrashLogs(context)` for clean testing.
+  - Added Section 9 "About & Diagnostics" in `SettingsScreen.kt` displaying app version, build number, and an "Export Diagnostics" button.
+  - Clicking "Export Diagnostics" retrieves the rotating crash history from `CrashLogger.exportDiagnosticsText(context)` and launches `Intent(Intent.ACTION_SEND)` via Android's share sheet.
+  - Added unit test: `CrashLoggerTest.kt` verifying crash file creation, stack trace sanitization (no PHI or medicine names), rotating retention of last 5 crashes, and formatted diagnostics export.
+- **E2 (Low-Memory Stress & Camera Hardening Documentation in docs/QA.md)**:
+  - Added Section 5 to `docs/QA.md` detailing the manual low-memory stress test protocol:
+    1. 1.5 GB RAM emulator profile.
+    2. 20 consecutive blister captures.
+    3. Rapid interleaving between verification, enrollment, scan Rx, and active medicine views.
+    4. Mid-capture 90-degree device rotation (portrait <-> landscape).
+    5. Runtime camera permission revocation and re-grant.
+    6. Exact logcat commands: `adb logcat -b crash` and `adb logcat -s MediTrack AndroidRuntime StrictMode`.
+  - Listed as **NOT RUN** (requires interactive emulator/physical device session).
+- **C7 (Model Hygiene, Asset Discovery & Model Self-Test Screen)**:
+  - Created directory `app/src/main/assets/selftest/` with documentation for placing real blister pack evaluation photos.
+  - Implemented `ModelSelfTestScreen.kt` and `ModelSelfTestViewModel.kt` accessible from **Debug Tools**:
+    1. Scans `assets/selftest/` for JPEG/PNG blister strip images.
+    2. Runs on-device TFLite YOLOv8 inference (`strip_detector.tflite`) through `BitmapLoader.decodeSampled`.
+    3. Computes and displays strip detection confidence, cavity state breakdown (`FULL`, `EMPTY`, `PARTIAL`), average and per-cell confidence scores, and inference latency (ms).
+    4. Displays an explicit notice that real-world accuracy is unproven in the public dataset without human-provided gold-standard photos.
+    5. Provides a "Run Synthetic Blister Self-Test" button to verify interpreter and LiteRT execution responsiveness on device hardware.
+  - Added unit tests: `ModelSelfTestViewModelTest.kt` verifying unproven accuracy prompt when no photos are present, and synthetic execution.
+  - Created `app/src/androidTest/assets/selftest/README.md` and instrumented test `RealStripDetectorInstrumentedTest.kt` that tests real strip photos when present, or logs the OPEN status and validates synthetic execution.
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **409** (up from 403 in Stage 4, +6 new tests across `CrashLoggerTest` and `ModelSelfTestViewModelTest`)
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 34s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 1m 24s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,597,746 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL in 3m 24s`
+  - **Artifact**: `app-release-unsigned.apk` (48,073,410 bytes, R8 minified)
+
+### 3. Honest Verification Reporting
+- **Host Unit Test Suite**: **VERIFIED** (409 passed, 0 failed).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded, 0 ProGuard/R8 issues).
+- **Physical Device Low-Memory Stress Test (1.5GB RAM, 20 consecutive captures, mid-capture rotation)**: **NOT RUN** (requires interactive emulator/physical device session per `docs/QA.md` Section 5).
+- **Gold-Standard Real Blister Strip Photo Test Set (5+ photos in `androidTest/assets/selftest/`)**: **OPEN / NOT RUN** (held-out photos must be supplied by product owner; synthetic verification passed).
