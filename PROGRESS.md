@@ -816,3 +816,59 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
     6. Take 1 pill out of strip (now 3 empty cavities).
     7. Open verification camera, capture photo.
     8. Confirm verification succeeds with "Dose recorded ✔" (delta = 1).
+
+
+---
+
+## Round 5 Stability: Stage 4 (Patient Side Correctness D1 - D4)
+
+### 1. Implementation Summary
+- **D1 (Missing User Session Guard in AddEditMedicineViewModel)**:
+  - Added user session verification in `AddEditMedicineViewModel.saveMedicine()`: retrieves `userPreferences.currentUserId.firstOrNull()`.
+  - If null, blank, or unauthenticated, blocks save immediately and sets UI error `"No active user session. Please sign in to save medicines."`.
+  - Added unit test: `AddEditMedicineViewModelTest.saveMedicine_whenNoUserSession_blocksSavingWithClearError()`.
+- **D2 (One-Time Legacy Patient Data Claim / Repair)**:
+  - Added Room DAO queries `claimLegacyMedicines(userId)` and `claimLegacyDoseEvents(userId)` targeting legacy rows where `patientId = ''` or `patientId IS NULL`.
+  - Constructed `DoseEvent` with `patientId = medicine.patientId` in `DoseScheduler.kt`.
+  - Created `LegacyDataRepair.kt` (`@Singleton`) to safely claim unowned legacy records on user login (`FakeAuthRepository`, `FirebaseAuthRepository`) and app startup (`MainActivity.kt`).
+  - Added unit tests: `LegacyDataRepairTest.kt` verifying claiming unowned rows while preserving other users' data.
+- **D3 (Patient Medicine Lifecycle Verification Suite)**:
+  - Created `PatientMedicineLifecycleTest.kt` covering complete patient medicine lifecycle:
+    1. `test1_userIsolation_addedMedicineAppearsInMedicinesListForSameUserAndNotDifferentUser`: Multi-user data isolation in Room and ViewModels.
+    2. `test2_editingMedicine_preservesCurrentStockAndBaselineEmptyCellsLedger`: Editing updates fields without clobbering existing inventory or baseline empty cell counts.
+    3. `test3_deletingMedicine_hidesFromActiveLists_removesFuturePendingDoses_preservesPastHistory`: Soft deletion sets `isDeleted = true`, cancels future PENDING doses, and preserves TAKEN history.
+    4. `test4_reminderEnabledFalse_stillCreatesScheduledDoseEvents`: Medicines with reminders disabled still generate scheduled `DoseEvent` records for adherence logging.
+- **D4 (PrescriptionParser Safe Call & Resilient Scan Recovery UI)**:
+  - Fixed unsafe forced unwrap `fractionMatch!!.value` in `PrescriptionParser.kt` with `if (fractionMatch != null)`.
+  - Added test cases in `PrescriptionParserTest.kt`: multi-medicine prescriptions (requires manual review), fractions (1/2, 1/4 tablets), PRN / SOS / as-needed instructions, and empty/whitespace inputs.
+  - Enhanced `ScanMedicineScreen.kt`: Added explicit "Enter details manually" fallback button across all camera and parsing states (permission denied, camera error dialog, scanning progress, and prescription review screen).
+  - Fixed `AddEditMedicineScreen.kt` prefill handling so scanning an Rx without a detected name does not silently drop parsed dosage, stock, and schedule times.
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **403** (up from 392 in Stage 3, +11 new tests)
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 21s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 1m 37s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,350,234 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL in 3m 34s`
+  - **Artifact**: `app-release-unsigned.apk` (48,071,763 bytes, R8 minified)
+
+### 3. Honest Verification Reporting
+- **Host Unit Test Suite**: **VERIFIED** (403 passed, 0 failed).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded).
+- **Physical Device Multi-User Session & Prescription OCR Smoke Test**: **NOT RUN** (requires physical camera hardware and real handwritten/printed prescription paper).
+  - *Steps for Manual Run:*
+    1. `adb install -r app-debug.apk`
+    2. Sign in as User A; tap **Scan Rx**, allow camera permission.
+    3. Aim at a printed prescription ("Amoxicillin 500mg, 1 tablet twice daily for 7 days, 14 tablets").
+    4. Tap **Capture & Scan**; review parsed fields in review dialog.
+    5. Tap **Accept & Continue**; confirm medicine prefill is preserved in Add Medicine screen.
+    6. Complete photo enrollment, save medicine; confirm medicine appears in current medicines list.
+    7. Switch to User B (demo or login); confirm User A's medicine is not visible in User B's list.

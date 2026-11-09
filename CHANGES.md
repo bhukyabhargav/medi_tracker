@@ -281,3 +281,33 @@ This document details all changes and new files introduced during the Round 4 re
    - Implemented `close()` within mutex lock to cleanly release interpreter resources and reset state for clean re-initialization.
    - Wired `onCleared()` in `VerificationViewModel` and `AddEditMedicineViewModel` to close the strip detector when ViewModels are cleared.
    - Added unit tests: `TfliteStripDetectorTest.concurrentDetect_serializedSafelyByMutex()` and `close_canBeCalledSafelyAndCleansUpResources()`.
+
+
+---
+
+## Round 5 Stability Fixes (Stage 4: Patient Side Add/View Medicines, Scan Rx, Dose Scheduling D1 - D4)
+
+### Fixed Patient Medicine Session Guard, Legacy Repair, Lifecycle Scheduling, and Prescription Scanning
+1. **D1 (Missing User Session Guard in AddEditMedicineViewModel)**
+   - Modified `feature/medicine/AddEditMedicineViewModel.kt`: Added session check in `saveMedicine()` querying `userPreferences.currentUserId.firstOrNull()`. If session is missing or blank, save is halted and UI error `"No active user session. Please sign in to save medicines."` is surfaced.
+   - Added unit test: `AddEditMedicineViewModelTest.saveMedicine_whenNoUserSession_blocksSavingWithClearError()`.
+
+2. **D2 (One-Time Legacy Patient Data Claim & Dose Event Ownership)**
+   - Modified `data/db/dao/Daos.kt`: Added `claimLegacyMedicines(userId)` and `countLegacyMedicines()` to `MedicineDao`; added `claimLegacyDoseEvents(userId)` and `countLegacyDoseEvents()` to `DoseEventDao`.
+   - Modified `domain/usecase/DoseScheduler.kt`: Set `patientId = medicine.patientId` when constructing `DoseEvent` instances so scheduled doses always reflect the owning patient.
+   - Created `core/database/LegacyDataRepair.kt`: `@Singleton` service that repairs legacy unowned rows (`patientId = ''` or `NULL`) by assigning them to the active authenticated user.
+   - Integrated into `FakeAuthRepository.kt`, `FirebaseAuthRepository.kt`, and `MainActivity.kt`.
+   - Added unit tests: `core/database/LegacyDataRepairTest.kt` verifying claiming unowned records while preserving other patients' data.
+
+3. **D3 (Patient Medicine Lifecycle Verification Suite)**
+   - Created `feature/medicine/PatientMedicineLifecycleTest.kt` verifying four key patient workflows:
+     1. Multi-user isolation: Medicine saved by User A appears in `MedicinesListViewModel` for User A and never leaks to User B.
+     2. Edit preservation: Updating dosage/instructions preserves current stock count and baseline empty cells ledger.
+     3. Soft deletion: Deleting hides medicine from active queries, cancels future PENDING dose events, and preserves historical TAKEN doses.
+     4. Disabled reminders: Saving with `reminderEnabled = false` still schedules database `DoseEvent` records for adherence logging.
+
+4. **D4 (PrescriptionParser Safe Call & Scan Recovery UI)**
+   - Modified `feature/scan/PrescriptionParser.kt`: Guarded `fractionMatch!!.value` against `NullPointerException` with `if (fractionMatch != null)`.
+   - Enhanced `PrescriptionParserTest.kt`: Added tests covering fractional doses (1/2, 1/4), multi-medicine prescriptions requiring manual review, PRN / SOS / as-needed medication flags, and empty/whitespace text inputs.
+   - Modified `feature/scan/ScanMedicineScreen.kt`: Added "Enter details manually" action to permission denied screen, camera initialization error dialog, bottom scanning bar, and prescription preview card.
+   - Modified `feature/medicine/AddEditMedicineScreen.kt`: Updated `LaunchedEffect(medicineId, prefillName)` condition so prefilled fields (dosage, frequency, stock) are populated even when OCR cannot identify the medicine name.

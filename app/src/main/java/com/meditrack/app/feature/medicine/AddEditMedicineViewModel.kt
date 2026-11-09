@@ -279,12 +279,23 @@ class AddEditMedicineViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
+                val currentUserId = userPreferences.currentUserId.firstOrNull()
+                if (currentUserId.isNullOrBlank()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "No active user session. Please sign in to save medicines."
+                        )
+                    }
+                    return@launch
+                }
+
                 val now = System.currentTimeMillis()
-                val currentUserId = userPreferences.currentUserId.firstOrNull() ?: ""
                 val existing = state.editingMedicineId?.let { medicineRepository.getById(it) }
 
                 val medicine = if (existing != null) {
                     existing.copy(
+                        patientId = if (existing.patientId.isBlank()) currentUserId else existing.patientId,
                         name = state.name.trim(),
                         dosageText = state.dosageText.trim(),
                         pillsPerDose = state.pillsPerDose,

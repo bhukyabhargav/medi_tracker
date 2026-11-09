@@ -104,10 +104,19 @@ fun AddEditMedicineScreen(
         onNavigateToHome()
     }
 
-    LaunchedEffect(medicineId, prefillName) {
+    val hasPrefill = !prefillName.isNullOrBlank() ||
+        !prefillDosage.isNullOrBlank() ||
+        !prefillFrequency.isNullOrBlank() ||
+        !prefillStock.isNullOrBlank() ||
+        !prefillInstructions.isNullOrBlank() ||
+        !prefillTimes.isNullOrEmpty() ||
+        !prefillDaysOfWeek.isNullOrBlank() ||
+        !prefillDurationDays.isNullOrBlank()
+
+    LaunchedEffect(medicineId, hasPrefill) {
         if (!medicineId.isNullOrBlank()) {
             viewModel.loadMedicine(medicineId)
-        } else if (!prefillName.isNullOrBlank()) {
+        } else if (hasPrefill) {
             viewModel.prefillFromScan(
                 name = prefillName,
                 dosage = prefillDosage,

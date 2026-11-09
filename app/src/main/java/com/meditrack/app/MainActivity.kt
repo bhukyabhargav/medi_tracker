@@ -22,6 +22,7 @@ import com.meditrack.app.BuildConfig
 import com.meditrack.app.core.navigation.Screen
 import com.meditrack.app.core.ui.theme.MediTrackTheme
 import com.meditrack.app.data.prefs.UserPreferences
+import kotlinx.coroutines.flow.firstOrNull
 import com.meditrack.app.domain.repository.AuthRepository
 import com.meditrack.app.feature.auth.CreateAccountScreen
 import com.meditrack.app.feature.auth.LoginScreen
@@ -49,6 +50,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var userPreferences: UserPreferences
+
+    @Inject
+    lateinit var legacyDataRepair: com.meditrack.app.core.database.LegacyDataRepair
 
     private val pendingDoseId = mutableStateOf<String?>(null)
 
@@ -98,6 +102,13 @@ class MainActivity : ComponentActivity() {
                         targetDoseId?.let { doseId ->
                             navController.navigate(Screen.Verification.createRoute(doseId))
                             pendingDoseId.value = null
+                        }
+                    }
+
+                    LaunchedEffect(Unit) {
+                        val currentUid = userPreferences.currentUserId.firstOrNull()
+                        if (!currentUid.isNullOrBlank()) {
+                            legacyDataRepair.repairLegacyData(currentUid)
                         }
                     }
 

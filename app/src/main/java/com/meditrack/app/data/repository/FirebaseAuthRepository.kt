@@ -21,7 +21,8 @@ class FirebaseAuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val userDao: UserDao,
     private val userPreferences: UserPreferences,
-    private val fakeAuthRepository: FakeAuthRepository
+    private val fakeAuthRepository: FakeAuthRepository,
+    private val legacyDataRepair: com.meditrack.app.core.database.LegacyDataRepair
 ) : AuthRepository {
 
     private val isFirebaseAvailable: Boolean
@@ -100,6 +101,7 @@ class FirebaseAuthRepository @Inject constructor(
             // Persist user to Room DB (source of truth)
             userDao.insertUser(user)
             userPreferences.setLoggedIn(user.id)
+            legacyDataRepair.repairLegacyData(user.id)
 
             Result.success(user.id)
         } catch (e: Exception) {
@@ -161,6 +163,7 @@ class FirebaseAuthRepository @Inject constructor(
             }
 
             userPreferences.setLoggedIn(user.id)
+            legacyDataRepair.repairLegacyData(user.id)
             Result.success(user)
         } catch (e: Exception) {
             fakeAuthRepository.login(emailOrPhone, password)

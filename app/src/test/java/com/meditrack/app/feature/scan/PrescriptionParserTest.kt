@@ -450,4 +450,72 @@ class PrescriptionParserTest {
         val parsedWeeks = PrescriptionParser.parse(snippetWeeks)
         assertEquals(14, parsedWeeks.durationDays)
     }
+
+    @Test
+    fun d4_emptyAndWhitespaceInputs_neverThrowsAndRequiresManualReview() {
+        val emptyResult = PrescriptionParser.parse("")
+        assertTrue(emptyResult.requiresManualReview)
+        assertNull(emptyResult.medicineName)
+        assertNull(emptyResult.dosageText)
+        assertNull(emptyResult.frequencyType)
+
+        val whitespaceResult = PrescriptionParser.parse("   \n\t  \r\n   ")
+        assertTrue(whitespaceResult.requiresManualReview)
+        assertNull(whitespaceResult.medicineName)
+        assertNull(whitespaceResult.dosageText)
+        assertNull(whitespaceResult.frequencyType)
+    }
+
+    @Test
+    fun d4_fractionalDoses_quarterAndHalf_safelyExtractedAndFlagged() {
+        // Quarter tablet
+        val snippetQuarter = "Take 1/4 tablet daily Atenolol 25mg Qty: 30"
+        val parsedQuarter = PrescriptionParser.parse(snippetQuarter)
+        assertTrue(parsedQuarter.requiresManualReview)
+        assertTrue(parsedQuarter.reviewReasons.any { it.contains("1/4 tablet") })
+        assertTrue(parsedQuarter.instructions.contains("1/4 tablet"))
+
+        // Word 'quarter tab'
+        val snippetQuarterWord = "Atenolol 25mg quarter tablet once daily Qty: 30"
+        val parsedQuarterWord = PrescriptionParser.parse(snippetQuarterWord)
+        assertTrue(parsedQuarterWord.requiresManualReview)
+        assertTrue(parsedQuarterWord.reviewReasons.any { it.contains("1/4 tablet") })
+        assertTrue(parsedQuarterWord.instructions.contains("1/4 tablet"))
+
+        // Half tablet
+        val snippetHalf = "Metformin 500mg half tab twice daily after food Qty: 20"
+        val parsedHalf = PrescriptionParser.parse(snippetHalf)
+        assertTrue(parsedHalf.requiresManualReview)
+        assertTrue(parsedHalf.reviewReasons.any { it.contains("1/2 tablet") })
+        assertTrue(parsedHalf.instructions.contains("1/2 tablet"))
+    }
+
+    @Test
+    fun d4_multiMedicinePrescription_requiresManualReviewAndWarnsUser() {
+        val snippet = """
+            Rx
+            1. Metformin 500mg 1-0-1 Qty: 30
+            2. Atorvastatin 10mg OD bedtime Qty: 30
+        """.trimIndent()
+        val parsed = PrescriptionParser.parse(snippet)
+        assertTrue(parsed.requiresManualReview)
+        assertTrue(parsed.reviewReasons.any { it.contains("Multiple medicines detected") })
+    }
+
+    @Test
+    fun d4_prnAndSos_flagsAsNeededWithoutSilentDailySchedule() {
+        val snippetPrn = "Paracetamol 500mg PRN for headache Qty: 10"
+        val parsedPrn = PrescriptionParser.parse(snippetPrn)
+        assertTrue(parsedPrn.isAsNeeded)
+        assertNull(parsedPrn.frequencyType)
+        assertTrue(parsedPrn.requiresManualReview)
+        assertTrue(parsedPrn.instructions.contains("PRN/SOS"))
+
+        val snippetSos = "Aspirin 300mg SOS severe pain Qty: 5"
+        val parsedSos = PrescriptionParser.parse(snippetSos)
+        assertTrue(parsedSos.isAsNeeded)
+        assertNull(parsedSos.frequencyType)
+        assertTrue(parsedSos.requiresManualReview)
+        assertTrue(parsedSos.instructions.contains("PRN/SOS"))
+    }
 }

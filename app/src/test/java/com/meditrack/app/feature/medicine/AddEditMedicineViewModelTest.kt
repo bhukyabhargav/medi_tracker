@@ -242,4 +242,21 @@ class AddEditMedicineViewModelTest {
         assertEquals("file:///path/to/baseline.jpg", viewModel.uiState.value.baselinePhotoPath)
         assertEquals(2, viewModel.uiState.value.baselineEmptyCells)
     }
+
+    @Test
+    fun saveMedicine_whenNoUserSession_blocksSavingWithClearError() = runTest {
+        every { userPreferences.currentUserId } returns flowOf("")
+        val noUserVm = AddEditMedicineViewModel(medicineRepository, saveMedicineUseCase, userPreferences)
+        noUserVm.onNameChange("Metformin")
+        noUserVm.onDosageChange("500mg")
+        noUserVm.onInitialStockChange("20")
+
+        noUserVm.onSkipPhoto()
+        advanceUntilIdle()
+
+        assertEquals("No active user session. Please sign in to save medicines.", noUserVm.uiState.value.errorMessage)
+        assertFalse(noUserVm.uiState.value.isLoading)
+        assertEquals(AddEditStep.FORM, noUserVm.uiState.value.currentStep)
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any(), any(), any()) }
+    }
 }

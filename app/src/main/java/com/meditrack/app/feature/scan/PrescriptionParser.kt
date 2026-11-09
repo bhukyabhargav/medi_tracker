@@ -111,8 +111,9 @@ object PrescriptionParser {
         // A2: Fractional doses check
         val fractionMatch = Regex("""(?i)\b(?:1/2|half|1/4|quarter)\s*(?:tablet|tab|pill|cap|capsule)?\b""").find(rawText)
         val hasFraction = fractionMatch != null
-        if (hasFraction) {
-            val fractionText = if (fractionMatch!!.value.contains("1/4") || fractionMatch.value.contains("quarter", ignoreCase = true)) "1/4 tablet" else "1/2 tablet"
+        if (fractionMatch != null) {
+            val matchedVal = fractionMatch.value
+            val fractionText = if (matchedVal.contains("1/4") || matchedVal.contains("quarter", ignoreCase = true)) "1/4 tablet" else "1/2 tablet"
             reasons.add("Fractional dose detected ($fractionText): the app counts whole pills; confirm how this should be tracked")
             manualReviewForced = true
         }

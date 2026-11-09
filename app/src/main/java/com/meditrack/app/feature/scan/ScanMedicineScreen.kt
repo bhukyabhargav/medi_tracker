@@ -207,6 +207,12 @@ fun ScanMedicineScreen(
                     )
                 }
             } else if (!hasCameraPermission && uiState.isScanning) {
+                val navigateManualEntry = {
+                    onProceedToAddMedicine(
+                        "", "", FrequencyType.DAILY.name, listOf("08:00"), "6",
+                        emptyList(), "", FoodRelation.ANY.name, "", "", "1"
+                    )
+                }
                 CameraPermissionDeniedContent(
                     onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                     onPickFromGallery = {
@@ -214,9 +220,16 @@ fun ScanMedicineScreen(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    onBackToHome = onNavigateBack
+                    onBackToHome = onNavigateBack,
+                    onEnterManually = navigateManualEntry
                 )
             } else if (uiState.isScanning) {
+                val navigateManualEntry = {
+                    onProceedToAddMedicine(
+                        "", "", FrequencyType.DAILY.name, listOf("08:00"), "6",
+                        emptyList(), "", FoodRelation.ANY.name, "", "", "1"
+                    )
+                }
                 CameraScanContent(
                     context = context,
                     isProcessing = uiState.isProcessing,
@@ -230,7 +243,9 @@ fun ScanMedicineScreen(
                     },
                     onError = { err ->
                         viewModel.onCaptureError(err)
-                    }
+                    },
+                    onEnterManually = navigateManualEntry,
+                    onRetryCamera = { viewModel.rescan() }
                 )
             } else {
                 ReviewPrescriptionContent(
@@ -248,6 +263,24 @@ fun ScanMedicineScreen(
                     onAddTime = viewModel::addTimeOfDay,
                     onRemoveTime = viewModel::removeTimeOfDay,
                     onRescan = viewModel::rescan,
+                    onSkipToManual = {
+                        val timeStrings = uiState.timesOfDay.map {
+                            String.format("%02d:%02d", it.hour, it.minute)
+                        }
+                        onProceedToAddMedicine(
+                            uiState.name,
+                            uiState.dosageText,
+                            uiState.frequencyType?.name ?: FrequencyType.DAILY.name,
+                            timeStrings,
+                            uiState.intervalHoursText,
+                            uiState.daysOfWeek,
+                            uiState.durationDaysText,
+                            uiState.foodRelation.name,
+                            uiState.instructions,
+                            uiState.initialStockText,
+                            uiState.pillsPerDoseText
+                        )
+                    },
                     onConfirm = {
                         val timeStrings = uiState.timesOfDay.map {
                             String.format("%02d:%02d", it.hour, it.minute)
@@ -276,7 +309,8 @@ fun ScanMedicineScreen(
 private fun CameraPermissionDeniedContent(
     onRequestPermission: () -> Unit,
     onPickFromGallery: () -> Unit,
-    onBackToHome: () -> Unit
+    onBackToHome: () -> Unit,
+    onEnterManually: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -346,6 +380,15 @@ private fun CameraPermissionDeniedContent(
             Text("Choose from Gallery instead")
         }
         Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onEnterManually,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Enter details manually")
+        }
+        Spacer(modifier = Modifier.height(12.dp))
         TextButton(
             onClick = onBackToHome,
             modifier = Modifier.fillMaxWidth()
@@ -361,7 +404,9 @@ private fun CameraScanContent(
     isProcessing: Boolean = false,
     onImageCaptured: (Bitmap) -> Unit,
     onPickFromGallery: () -> Unit,
-    onError: (String) -> Unit = {}
+    onError: (String) -> Unit = {},
+    onEnterManually: () -> Unit = {},
+    onRetryCamera: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val imageCapture = remember {
@@ -460,6 +505,24 @@ private fun CameraScanContent(
                     Icon(Icons.Default.Image, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Choose from Gallery")
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onEnterManually,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Enter details manually")
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(
+                    onClick = onRetryCamera,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Retry Camera")
                 }
             }
         } else {
@@ -574,7 +637,19 @@ private fun CameraScanContent(
                     )
                 }
 
-                Spacer(modifier = Modifier.size(52.dp))
+                IconButton(
+                    onClick = onEnterManually,
+                    enabled = !isProcessing,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Enter details manually",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
@@ -611,6 +686,7 @@ private fun ReviewPrescriptionContent(
     onAddTime: (LocalTime) -> Unit,
     onRemoveTime: (LocalTime) -> Unit,
     onRescan: () -> Unit,
+    onSkipToManual: () -> Unit = {},
     onConfirm: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -943,6 +1019,14 @@ private fun ReviewPrescriptionContent(
             Icon(Icons.Default.Refresh, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Scan Again")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        TextButton(
+            onClick = onSkipToManual,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Enter details manually")
         }
 
         Spacer(modifier = Modifier.height(16.dp))

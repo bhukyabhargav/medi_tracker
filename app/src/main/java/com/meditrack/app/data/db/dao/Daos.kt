@@ -86,6 +86,12 @@ interface MedicineDao {
 
     @Query("SELECT * FROM medicines WHERE patientId = :patientId")
     suspend fun getAllByPatientId(patientId: String): List<Medicine>
+
+    @Query("UPDATE medicines SET patientId = :userId WHERE patientId = '' OR patientId IS NULL")
+    suspend fun claimLegacyMedicines(userId: String): Int
+
+    @Query("SELECT COUNT(*) FROM medicines WHERE patientId = '' OR patientId IS NULL")
+    suspend fun countLegacyMedicines(): Int
 }
 
 @Dao
@@ -146,6 +152,12 @@ interface DoseEventDao {
 
     @Query("SELECT * FROM dose_events WHERE patientId = :patientId")
     suspend fun getAllByPatientId(patientId: String): List<DoseEvent>
+
+    @Query("UPDATE dose_events SET patientId = :userId WHERE patientId = '' OR patientId IS NULL")
+    suspend fun claimLegacyDoseEvents(userId: String): Int
+
+    @Query("SELECT COUNT(*) FROM dose_events WHERE patientId = '' OR patientId IS NULL")
+    suspend fun countLegacyDoseEvents(): Int
 }
 
 @Dao

@@ -138,6 +138,7 @@ class FakeAuthRepository @Inject constructor(
         userDao.insertUser(pending.user)
         userPreferences.saveUserPasswordDigest(pending.user.id, pending.passwordDigest)
         userPreferences.setLoggedIn(pending.user.id)
+        repairLegacyPatientData(pending.user.id)
         pendingAccounts.remove(normalizedContact)
 
         return Result.success(pending.user)
@@ -162,6 +163,7 @@ class FakeAuthRepository @Inject constructor(
         }
 
         userPreferences.setLoggedIn(existingUser.id)
+        repairLegacyPatientData(existingUser.id)
         return Result.success(existingUser)
     }
 
@@ -202,6 +204,7 @@ class FakeAuthRepository @Inject constructor(
         )
         userDao.insertUser(user)
         userPreferences.setLoggedIn(demoId)
+        repairLegacyPatientData(demoId)
         userPreferences.setOnboardingCompleted(true)
         userPreferences.setBatteryGuidanceSeen(true)
         return Result.success(user)
@@ -223,4 +226,12 @@ class FakeAuthRepository @Inject constructor(
         val bytes = md.digest((DEMO_SALT + password).toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
     }
+
+    private suspend fun repairLegacyPatientData(userId: String) {
+        try {
+            medicineDao.claimLegacyMedicines(userId)
+            doseEventDao.claimLegacyDoseEvents(userId)
+        } catch (_: Exception) {}
+    }
+
 }

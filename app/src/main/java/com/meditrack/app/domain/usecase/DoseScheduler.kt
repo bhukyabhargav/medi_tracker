@@ -48,6 +48,7 @@ object DoseScheduler {
         return scheduledTimes.sorted().map { scheduledAt ->
             DoseEvent(
                 id = "${medicine.id}_$scheduledAt",
+                patientId = medicine.patientId,
                 medicineId = medicine.id,
                 scheduledAt = scheduledAt,
                 windowEndsAt = scheduledAt + windowDurationMillis,
