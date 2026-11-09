@@ -313,7 +313,8 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
-                val emptyCells = detection.cells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+                val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
+                val emptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
                 val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = emptyCells)
                 medicineRepository.update(updatedMed)
                 _uiState.update {
@@ -421,6 +422,15 @@ class VerificationViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        if (stripDetector is java.io.Closeable) {
+            try {
+                stripDetector.close()
+            } catch (_: Throwable) {}
         }
     }
 }

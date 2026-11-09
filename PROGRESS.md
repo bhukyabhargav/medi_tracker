@@ -760,3 +760,59 @@ Addressed all 7 problem areas (Parts A through G) identified in the fourth remed
 - **Host Unit Test Suite**: **VERIFIED** (373 passed, 0 failed).
 - **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded).
 - **Physical Device Low-Memory Stress Test (1.5GB RAM emulator, 20 consecutive captures, mid-capture rotation)**: **NOT RUN** (requires manual emulator testing session per `docs/QA.md`).
+---
+
+## Round 5 Stability: Stage 3 (Blister Detection Pipeline Correctness C1 - C6)
+
+### 1. Implementation Summary
+- **C1 (Strip Candidate Retention by Confidence)**:
+  - Collected all YOLOv8 strip anchor detections in `rawStrips` and selected `rawStrips.maxByOrNull { it.confidence }`.
+- **C2 (Letterbox Transform & Aspect Ratio Distortion Prevention)**:
+  - Created `LetterboxTransform.kt` applying uniform scale and 114 gray padding (#727272) to 320x320.
+  - Implemented exact forward mapping and inverse mapping back to normalized original image coordinates [0..1].
+  - Added `LetterboxTransformTest.kt` covering wide, tall, and square aspect ratios.
+- **C3 (Model Contract Check on Load)**:
+  - Added `validateModelContract()` asserting input rank 4 NHWC and output rank 3 `[1, channels>=5, anchors>0]`. Fails closed with descriptive `IllegalStateException` on contract violation.
+  - Added contract tests in `TfliteStripDetectorTest.kt`.
+- **C4 (Class-Agnostic NMS for Blister Cells)**:
+  - Suppressed overlapping cell predictions across differing states (FULL vs EMPTY) on the same cavity.
+  - Added NMS test in `TfliteStripDetectorTest.kt`.
+- **C5 (Partly-Used Strip Enrollment & Baseline Ledger Tracking)**:
+  - Updated `EnrollmentPhotoView.kt` to count empty cavities on enrollment and pass `(path, emptyCells)`.
+  - Connected `onPhotoCapturedWithLedger` in `AddEditMedicineScreen.kt`.
+  - Persisted `baselineEmptyCells` in `AddEditMedicineViewModel.kt` and `Medicine` entity.
+  - Created `PartlyUsedStripEnrollmentTest.kt` verifying enrollment of strip with 2 empty blisters and successful first dose verification.
+- **C6 (Interpreter Concurrency & Lifecycle)**:
+  - Serialized `detect()` with `Mutex`.
+  - Loaded model lazily on `Dispatchers.IO`.
+  - Implemented `Closeable` and wired `onCleared()` in `VerificationViewModel` and `AddEditMedicineViewModel`.
+
+### 2. Verification Command Real Outputs
+- **Unit Tests**: `./gradlew.bat testDebugUnitTest`
+  - **Total Tests**: **392**
+  - **Failures**: **0**
+  - **Errors**: **0**
+  - **Skipped**: **0**
+  - **Result**: `BUILD SUCCESSFUL in 1m 3s`
+- **Lint**: `./gradlew.bat lintDebug`
+  - **Result**: `BUILD SUCCESSFUL in 1m 25s` (0 fatal errors)
+- **Debug Assembly**: `./gradlew.bat assembleDebug`
+  - **Result**: `BUILD SUCCESSFUL`
+  - **Artifact**: `app-debug.apk` (73,554,275 bytes)
+- **Release Assembly**: `./gradlew.bat assembleRelease`
+  - **Result**: `BUILD SUCCESSFUL in 3m 7s`
+  - **Artifact**: `app-release-unsigned.apk` (48,068,787 bytes, R8 minified)
+
+### 3. Honest Verification Reporting
+- **Host Unit Test Suite**: **VERIFIED** (392 passed, 0 failed).
+- **Gradle Release Compilation & Minification**: **VERIFIED** (`assembleRelease` succeeded).
+- **Physical Device Blister Verification Smoke Test (Real blister strip detection, partly-used strip baseline enrollment, lighting tolerance)**: **NOT RUN** (requires physical camera hardware and real blister pack).
+  - *Steps for Manual Run:*
+    1. `adb install -r app-debug.apk` (or signed release build).
+    2. Tap **Add Medicine**, enter "Amlodipine 5mg", tap **Continue to Photo**.
+    3. Point camera at a partly-used blister strip with 2 empty cavities. Confirm guide centers strip.
+    4. Capture photo; verify app detects blister cavities and accepts baseline.
+    5. Save medicine; observe scheduled dose.
+    6. Take 1 pill out of strip (now 3 empty cavities).
+    7. Open verification camera, capture photo.
+    8. Confirm verification succeeds with "Dose recorded ✔" (delta = 1).

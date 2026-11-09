@@ -172,7 +172,9 @@ fun AddEditMedicineScreen(
         when (uiState.currentStep) {
             AddEditStep.ENROLLMENT_PHOTO -> {
                 EnrollmentPhotoView(
-                    onPhotoCaptured = viewModel::onPhotoCaptured,
+                    onPhotoCaptured = { photoPath, baselineEmpty ->
+                        viewModel.onPhotoCapturedWithLedger(photoPath, baselineEmpty)
+                    },
                     onSkip = viewModel::onSkipPhoto,
                     onConfirmSave = viewModel::onConfirmPhotoAndSave,
                     modifier = modifier.padding(innerPadding),

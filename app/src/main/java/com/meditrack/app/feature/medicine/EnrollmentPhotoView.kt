@@ -82,7 +82,7 @@ import java.util.Locale
 
 @Composable
 fun EnrollmentPhotoView(
-    onPhotoCaptured: (String) -> Unit,
+    onPhotoCaptured: (path: String, baselineEmptyCells: Int) -> Unit,
     onSkip: () -> Unit,
     onConfirmSave: () -> Unit,
     modifier: Modifier = Modifier,
@@ -157,6 +157,7 @@ fun EnrollmentPhotoView(
                 return@launch
             }
 
+            var detectedEmptyCells = 0
             if (stripDetector != null) {
                 try {
                     val detection = stripDetector.detect(bitmap)
@@ -179,6 +180,10 @@ fun EnrollmentPhotoView(
                         }
                         return@launch
                     }
+
+                    // Count baseline empty cells for ledger tracking (C5)
+                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.AppConfig.DETECTOR_MIN_CONFIDENCE }
+                    detectedEmptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
                 } catch (e: Exception) {
                     Log.w("EnrollmentPhotoView", "Strip detector check during enrollment: ${e.message}")
                 }
@@ -188,7 +193,7 @@ fun EnrollmentPhotoView(
                 capturedPhotoPath = path
                 isCapturing = false
                 qualityError = null
-                onPhotoCaptured(path)
+                onPhotoCaptured(path, detectedEmptyCells)
             }
         }
     }

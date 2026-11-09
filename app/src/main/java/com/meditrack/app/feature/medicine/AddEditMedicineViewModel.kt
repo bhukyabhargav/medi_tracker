@@ -300,7 +300,11 @@ class AddEditMedicineViewModel @Inject constructor(
                         initialStock = state.initialStock,
                         // PRESERVE historical state:
                         currentStock = existing.currentStock,
-                        baselineEmptyCells = existing.baselineEmptyCells,
+                        baselineEmptyCells = if (state.baselinePhotoPath != null && state.baselinePhotoPath != existing.baselinePhotoPath) {
+                            state.baselineEmptyCells
+                        } else {
+                            existing.baselineEmptyCells
+                        },
                         baselinePhotoPath = state.baselinePhotoPath ?: existing.baselinePhotoPath,
                         lowStockNotified = existing.lowStockNotified,
                         updatedAt = now
@@ -353,6 +357,15 @@ class AddEditMedicineViewModel @Inject constructor(
             }
         }
     }
+    override fun onCleared() {
+        super.onCleared()
+        if (stripDetector is java.io.Closeable) {
+            try {
+                stripDetector.close()
+            } catch (_: Throwable) {}
+        }
+    }
+
     fun deleteMedicine(onDeleted: () -> Unit) {
         val medicineId = _uiState.value.editingMedicineId ?: return
         viewModelScope.launch {

@@ -243,3 +243,41 @@ This document details all changes and new files introduced during the Round 4 re
 4. **E1 (Local Crash Diagnosability & StrictMode)**
    - Created `core/util/CrashLogger.kt`: Installed `Thread.setDefaultUncaughtExceptionHandler` in `MediTrackApp.kt` that records sanitized crash stack traces (no PHI) to rotating log files in `filesDir/crashes` (retaining last 5 crashes) before delegating to default handler.
    - Enabled `StrictMode` thread and VM policies in debug builds (`detectDiskReads`, `detectDiskWrites`, `detectLeakedClosableObjects` with `.penaltyLog()`).
+---
+
+## Round 5 Stability Fixes (Stage 3: Blister Detection Pipeline Correctness C1 - C6)
+
+### Fixed Detection Accuracy, Concurrency, and Baseline Ledger Persistence
+1. **C1 (Strip Candidate Retention by Maximum Confidence)**
+   - Modified `feature/verification/pipeline/TfliteStripDetector.kt`: Replaced overwriting `detectedStripBox = box` on each anchor iteration with `rawStrips.add(StripCandidate(box, maxScore))`. Retains the candidate with `rawStrips.maxByOrNull { it.confidence }` so earlier high-confidence strip anchors cannot be clobbered by later weak anchor detections.
+   - Verified via unit test: `TfliteStripDetectorTest.detect_picksHighestConfidenceStripCandidateAcrossAnchors()`.
+
+2. **C2 (Aspect-Ratio Preserving Letterbox Transformation)**
+   - Created `core/util/LetterboxTransform.kt`: Scales source images uniformly to target model input size (320x320) with standard YOLO gray padding (114/255, #727272). Eliminates squishing/stretching distortion on 16:9, 4:3, and portrait photos.
+   - Provides exact forward coordinate mapping (`toLetterboxCenterSize`) and inverse mapping (`toOriginalNormalized`, `toOriginalNormalizedBox`) from model pixel/normalized coordinates back to normalized original image coordinates [0..1].
+   - Integrated into `TfliteStripDetector.kt` for YOLOv8 and SSD input buffering and output box inverse transformation.
+   - Added unit test: `core/util/LetterboxTransformTest.kt` covering wide (16:9), tall (9:16), and square aspect ratios, forward/inverse roundtrips, SSD corner coordinates, boundary clamping, and 114 gray background fill.
+
+3. **C3 (Model Contract Assertion on Load)**
+   - In `feature/verification/pipeline/TfliteStripDetector.kt`: Added `validateModelContract(interpreter: Interpreter): String?`. Verifies input tensor shape rank 4 NHWC and output tensor shape rank 3 [1, channels>=5, anchors>0] for YOLOv8, or 4 tensors for SSD.
+   - Fails closed with `IllegalStateException("Verification unavailable: Model contract mismatch ...")` if model asset does not match expected tensor shapes, preventing runtime `IndexOutOfBoundsException`.
+   - Added unit tests: `TfliteStripDetectorTest.validateModelContract_*` covering valid YOLO shape, invalid input rank, insufficient channels (< 5), and zero anchors.
+
+4. **C4 (Class-Agnostic Non-Maximum Suppression Across Cells)**
+   - In `feature/verification/pipeline/TfliteStripDetector.kt`: Made cell NMS class-agnostic (`computeIoU(cell.box, kept.box) > iouThreshold`). Because a physical blister cavity cannot be both FULL and EMPTY simultaneously, overlapping detections across different classes now suppress lower-confidence duplicates instead of inflating total cell counts.
+   - Added unit test: `TfliteStripDetectorTest.applyNms_classAgnostic_suppressesOverlappingCellsAcrossDifferentClasses()`.
+
+5. **C5 (Partly-Used Strip Enrollment & Baseline Empty Cell Tracking)**
+   - Modified `feature/medicine/EnrollmentPhotoView.kt`: Filtered valid cells by `AppConfig.DETECTOR_MIN_CONFIDENCE`, counted empty blisters at enrollment (`validCells.count { it.state == CellState.EMPTY }`), and passed `(path, emptyCells)` to `onPhotoCaptured`.
+   - Modified `feature/medicine/AddEditMedicineScreen.kt`: Connected `EnrollmentPhotoView` to `viewModel.onPhotoCapturedWithLedger(path, emptyCells)`.
+   - Modified `feature/medicine/AddEditMedicineViewModel.kt`: Persisted `baselineEmptyCells` into the `Medicine` entity upon saving (and updated it if an existing medicine takes a new enrollment photo).
+   - In `VerificationViewModel.kt`: Refined baseline photo enrollment to count empty cells against `validCells`.
+   - Added unit test: `feature/medicine/PartlyUsedStripEnrollmentTest.kt` verifying that enrolling a partly-used strip with 2 empty blisters correctly persists `baselineEmptyCells = 2`, and subsequent first dose verification (1 pill taken, 3 empty blisters detected) passes cleanly (`3 - 2 = 1 == pillsPerDose`).
+
+6. **C6 (Strip Detector Concurrency & Interpreter Lifecycle)**
+   - Modified `feature/verification/pipeline/TfliteStripDetector.kt`: Implemented `StripDetector, java.io.Closeable`.
+   - Protected `detect()` with `private val mutex = Mutex()` to serialize inference calls and prevent native SIGSEGV crashes caused by concurrent accesses to the stateful TFLite interpreter.
+   - Loaded interpreter lazily on `Dispatchers.IO` in `getOrInitInterpreter()`.
+   - Implemented `close()` within mutex lock to cleanly release interpreter resources and reset state for clean re-initialization.
+   - Wired `onCleared()` in `VerificationViewModel` and `AddEditMedicineViewModel` to close the strip detector when ViewModels are cleared.
+   - Added unit tests: `TfliteStripDetectorTest.concurrentDetect_serializedSafelyByMutex()` and `close_canBeCalledSafelyAndCleansUpResources()`.
