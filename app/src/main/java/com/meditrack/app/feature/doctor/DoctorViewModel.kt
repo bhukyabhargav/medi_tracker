@@ -87,9 +87,56 @@ class DoctorViewModel @Inject constructor(
 
             _uiState.update { it.copy(currentUserId = userId, currentUserRole = role) }
 
+            // Ensure demo patient & demo doctor have an accepted link and proposal for out-of-the-box demo testing
+            if (userId.startsWith("demo_") || userId == "doctor_1") {
+                try {
+                    val demoPatientId = "demo_patient_001"
+                    val demoDoctorUid = "demo_doctor_001"
+                    if (doctorRepository.getById("demo_doc_link_001") == null) {
+                        doctorRepository.insert(
+                            DoctorLink(
+                                id = "demo_doc_link_001",
+                                patientId = demoPatientId,
+                                doctorUid = demoDoctorUid,
+                                doctorName = "Dr. Smith (Demo)",
+                                doctorContact = "dr.smith@hospital.org",
+                                status = DoctorLinkStatus.ACCEPTED,
+                                createdAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                    if (proposalRepository.getById("demo_prop_001") == null) {
+                        proposalRepository.insert(
+                            MedicineProposal(
+                                id = "demo_prop_001",
+                                patientId = demoPatientId,
+                                doctorUid = demoDoctorUid,
+                                                                type = ProposalType.ADD,
+                                payloadJson = PrescriptionPayload(
+                                    medicineName = "Amoxicillin 500mg",
+                                    dosageText = "500mg capsule",
+                                    pillsPerDose = 1,
+                                    times = listOf("09:00"),
+                                    startDate = LocalDate.now().toString(),
+                                    additionalInstructions = "Take with water after breakfast"
+                                ).toJson(),
+                                status = ProposalStatus.PENDING,
+                                createdAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+
             // Observe accepted patients for doctor
-            doctorRepository.observeAcceptedForDoctor(userId).collect { links ->
-                _uiState.update { it.copy(acceptedPatients = links) }
+            val linksFlow = if (role == UserRole.DOCTOR) {
+                doctorRepository.observeAcceptedForDoctor(userId)
+            } else {
+                doctorRepository.observeAll()
+            }
+            linksFlow.collect { links ->
+                val accepted = links.filter { it.status == DoctorLinkStatus.ACCEPTED }
+                _uiState.update { it.copy(acceptedPatients = accepted) }
             }
         }
 
