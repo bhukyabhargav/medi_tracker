@@ -2,6 +2,7 @@ package com.meditrack.app.feature.verification.pipeline
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import com.meditrack.app.BuildConfig
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,12 +19,22 @@ enum class ForceDetectorBehavior {
 class FakeStripDetector @Inject constructor() : StripDetector {
 
     var behavior: ForceDetectorBehavior = ForceDetectorBehavior.DEFAULT
+        set(value) {
+            if (BuildConfig.DEBUG) {
+                field = value
+            }
+        }
+
     var mockEmptyCellsCount: Int = 1
     var mockPreviousEmptyCellsCount: Int = 0
     var mockTotalCellsCount: Int = 10
     var mockStripFullyInFrame: Boolean = true
 
     override suspend fun detect(bitmap: Bitmap): Detection {
+        if (!BuildConfig.DEBUG) {
+            throw IllegalStateException("FakeStripDetector cannot be used in release builds.")
+        }
+
         val stripInFrame = when (behavior) {
             ForceDetectorBehavior.FORCE_STRIP_NOT_FULLY_VISIBLE -> false
             else -> mockStripFullyInFrame
@@ -68,7 +79,15 @@ class FakeStripDetector @Inject constructor() : StripDetector {
     }
 
     companion object {
+        private var _forcedBehavior: ForceDetectorBehavior = ForceDetectorBehavior.DEFAULT
+
         // Global debug toggle accessible from DebugToolsScreen
-        var debugForcedBehavior: ForceDetectorBehavior = ForceDetectorBehavior.DEFAULT
+        var debugForcedBehavior: ForceDetectorBehavior
+            get() = _forcedBehavior
+            set(value) {
+                if (BuildConfig.DEBUG) {
+                    _forcedBehavior = value
+                }
+            }
     }
 }

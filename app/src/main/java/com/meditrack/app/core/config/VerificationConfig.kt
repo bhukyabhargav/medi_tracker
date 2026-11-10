@@ -9,6 +9,9 @@ package com.meditrack.app.core.config
 object VerificationConfig {
     var modelVersion: String = "v1.0.0-tflite"
     var isTfliteEnabled: Boolean = true
+    var isRoboflowWorkflowEnabled: Boolean = true
+    var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-ytykf/workflows/blister-pack-missing-tablet-counter-1794253615843"
+    var roboflowApiKey: String = "jZmdnU1kp8FytFibdLat"
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
@@ -37,9 +40,10 @@ object VerificationConfig {
     // the layout of the detected cells has to look like a blister (a regular grid of equal-sized cavities
     // that fill a good part of the strip box).
     var minBlisterCells: Int = 4 // a physical blister strip has at least this many cavities
-    var minConsistentCellFraction: Float = 0.8f // share of cells whose width AND height are close to the median
-    var cellSizeToleranceLow: Float = 0.7f
-    var cellSizeToleranceHigh: Float = 1.45f
+    var maxCellClusterDistance: Float = 2.35f // max normalized distance between adjacent cavities in blister cluster
+    var minConsistentCellFraction: Float = 0.75f // share of cells whose width AND height are close to the median
+    var cellSizeToleranceLow: Float = 0.60f
+    var cellSizeToleranceHigh: Float = 1.65f
     var minMeanCellConfidence: Float = 0.55f
     var minAlignedCellFraction: Float = 0.8f // share of cells lying on a regular row or column
     var minStripCoverage: Float = 0.10f // total cell area / strip box area (real strips: ~0.3-0.45; rotated/single-row: ~0.12)

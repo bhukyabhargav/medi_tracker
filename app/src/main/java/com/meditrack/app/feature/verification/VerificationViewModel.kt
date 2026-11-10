@@ -4,6 +4,8 @@ import android.graphics.BitmapFactory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meditrack.app.BuildConfig
+import java.io.File
 import com.meditrack.app.core.config.AppConfig
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.DoseStatus
@@ -21,6 +23,7 @@ import com.meditrack.app.feature.verification.pipeline.CoordinatorResult
 import com.meditrack.app.feature.verification.pipeline.FakeStripDetector
 import com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior
 import com.meditrack.app.feature.verification.pipeline.VerificationCoordinator
+import com.meditrack.app.feature.verification.pipeline.VerificationFailureReason
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +52,8 @@ data class VerificationUiState(
     val doubleDoseConfirmed: Boolean = false,
     val isManualUnverified: Boolean = false,
     val rejectReason: RejectReason? = null,
+    val failureReason: VerificationFailureReason? = null,
+    val retryHint: String? = null,
     /** Photo of the last rejected attempt; lets the person choose "Use Photo Anyway". */
     val lastRejectedPhotoPath: String? = null,
     val attemptsRemaining: Int = AppConfig.MAX_VERIFICATION_ATTEMPTS,
@@ -170,6 +175,7 @@ class VerificationViewModel @Inject constructor(
     }
 
     fun setForcedDetectorBehavior(behavior: ForceDetectorBehavior) {
+        if (!BuildConfig.DEBUG) return
         fakeStripDetector.behavior = behavior
         FakeStripDetector.debugForcedBehavior = behavior
         _uiState.update { it.copy(forcedBehavior = behavior) }
@@ -230,6 +236,8 @@ class VerificationViewModel @Inject constructor(
                             isAnalyzing = false,
                             isFailed = true,
                             rejectReason = result.reason,
+                            failureReason = result.failureReason,
+                            retryHint = result.retryHint,
                             // Never offer "use anyway" for TOO_EARLY: it would bypass the early-intake guard.
                             lastRejectedPhotoPath = if (result.reason == RejectReason.TOO_EARLY) null else photoPath,
                             attemptsRemaining = result.attemptsRemaining,
@@ -245,6 +253,8 @@ class VerificationViewModel @Inject constructor(
                             isFailed = true,
                             isExhausted = true,
                             rejectReason = result.reason,
+                            failureReason = result.failureReason,
+                            retryHint = result.retryHint,
                             attemptsRemaining = 0,
                             dose = updatedDose,
                             errorMessage = result.friendlyMessage
@@ -297,7 +307,16 @@ class VerificationViewModel @Inject constructor(
                 } catch (e: Exception) {
                     null
                 }
-                val presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
+                val presence = if (detection?.isRoboflowWorkflow == true) {
+                    val accepted = detection.roboflowPackStatus.equals("accepted", ignoreCase = true)
+                    com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.Result(
+                        present = accepted,
+                        validCells = detection.cells,
+                        message = if (accepted) null else com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.MSG_NOT_FOUND
+                    )
+                } else {
+                    com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
+                }
 
                 if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                     _uiState.update {
@@ -323,10 +342,22 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
-                val emptyCells = presence.validCells.count {
-                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                val emptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+                    detection.roboflowMissingCount
+                } else {
+                    presence.validCells.count {
+                        it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                    }
                 }
-                val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = emptyCells)
+                val geometrySig = if (!detection.isRoboflowWorkflow) {
+                    com.meditrack.app.domain.model.BaselineGeometrySignature.extract(presence.validCells, stripBox)
+                } else null
+                val updatedMed = med.copy(
+                    baselinePhotoPath = photoPath,
+                    baselineEmptyCells = emptyCells
+                ).let {
+                    if (geometrySig != null) it.withBaselineSignature(geometrySig) else it
+                }
                 medicineRepository.update(updatedMed)
                 _uiState.update {
                     it.copy(
@@ -351,7 +382,17 @@ class VerificationViewModel @Inject constructor(
      */
     fun useRejectedPhotoAnyway() {
         if (_uiState.value.isSimulating || _uiState.value.isAnalyzing) return // ignore double taps
-        val photoPath = _uiState.value.lastRejectedPhotoPath ?: return
+        val photoPath = _uiState.value.lastRejectedPhotoPath
+        if (photoPath.isNullOrBlank()) return
+
+        val photoFile = File(photoPath)
+        if (!photoFile.exists() || photoFile.length() == 0L) {
+            _uiState.update {
+                it.copy(errorMessage = "Verification photo is missing. Please take a photo first.")
+            }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
             val dose = doseRepository.getById(doseId)
@@ -360,6 +401,28 @@ class VerificationViewModel @Inject constructor(
                 _uiState.update { it.copy(isSimulating = false, errorMessage = "Dose not found.") }
                 return@launch
             }
+
+            // Early verification guard: block "Use Photo Anyway" when too early
+            val earlyToleranceMillis = AppConfig.EARLY_VERIFY_TOLERANCE_MINUTES * 60_000L
+            val now = System.currentTimeMillis()
+            if (now < dose.scheduledAt - earlyToleranceMillis) {
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        errorMessage = "It is too early to take this dose. Please wait until your scheduled time."
+                    )
+                }
+                return@launch
+            }
+
+            // Guard against closed/skipped dose transition bypass
+            if (dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.TAKEN_LATE || dose.status == DoseStatus.SKIPPED) {
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = "Dose has already been recorded.")
+                }
+                return@launch
+            }
+
             val lastRefillAt = medicine.lastRefillAt ?: 0L
             val latest = if (lastRefillAt > 0L) {
                 doseRepository.getLatestVerifiedDoseAfter(medicine.id, lastRefillAt)
@@ -371,7 +434,8 @@ class VerificationViewModel @Inject constructor(
             recordVerifiedDoseUseCase(
                 doseId = doseId,
                 photoPath = photoPath,
-                emptyCellsAfter = emptyCells
+                emptyCellsAfter = emptyCells,
+                takenAt = now
             ).onSuccess {
                 val updatedDose = doseRepository.getById(doseId)
                 val updatedMed = updatedDose?.let { medicineRepository.getById(it.medicineId) }
@@ -394,6 +458,7 @@ class VerificationViewModel @Inject constructor(
     }
 
     fun simulateVerifiedTake() {
+        if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
             val result = recordVerifiedDoseUseCase(

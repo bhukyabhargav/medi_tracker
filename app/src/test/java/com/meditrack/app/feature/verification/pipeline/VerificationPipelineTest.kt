@@ -12,6 +12,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -590,6 +591,172 @@ class VerificationPipelineTest {
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
         assertTrue("Rotated strip within bounds must be accepted: ${result.friendlyMessage}", result.passed)
+        assertEquals(1, result.emptyCellsAfter)
+    }
+
+    @Test
+    fun allStructuredFailureReasons_haveNonEmptyCodeMessageAndHint() {
+        for (reason in VerificationFailureReason.values()) {
+            assertTrue("Code must not be blank for ${reason.name}", reason.code.isNotBlank())
+            assertTrue("Message must not be blank for ${reason.name}", reason.userMessage.isNotBlank())
+            assertTrue("Retry hint must not be blank for ${reason.name}", reason.retryHint.isNotBlank())
+            assertNotNull("Must map to a valid RejectReason", reason.mappedRejectReason)
+        }
+    }
+
+    @Test
+    fun partiallyVisibleStrip_returnsStructuredBlisterPartiallyVisible() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = emptyList(),
+            stripFullyInFrame = false,
+            stripConfidence = 0.85f
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+        assertEquals(VerificationFailureReason.BLISTER_PARTIALLY_VISIBLE, result.failureReason)
+        assertEquals("BLISTER_PARTIALLY_VISIBLE", result.failureReason?.code)
+        assertNotNull(result.retryHint)
+        assertTrue(result.retryHint!!.contains("frame", ignoreCase = true) || result.retryHint!!.contains("edges", ignoreCase = true))
+    }
+
+    @Test
+    fun presenceValidationFails_returnsStructuredBlisterNotFound() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = emptyList(),
+            stripFullyInFrame = true,
+            stripConfidence = 0.20f
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+        assertEquals(VerificationFailureReason.BLISTER_NOT_FOUND, result.failureReason)
+        assertEquals("BLISTER_NOT_FOUND", result.failureReason?.code)
+        assertNotNull(result.retryHint)
+    }
+
+    @Test
+    fun partialCells_returnsStructuredAmbiguousCellDetection() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.PARTIAL, confidence = 0.90f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
+        ), stripConfidence = 0.90f)
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertEquals(VerificationFailureReason.AMBIGUOUS_CELL_DETECTION, result.failureReason)
+        assertEquals("AMBIGUOUS_CELL_DETECTION", result.failureReason?.code)
+        assertNotNull(result.retryHint)
+    }
+
+    @Test
+    fun baselineSignature_cellCountMismatch_rejectsWithDifferentStrip() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Current scan has 4 cells
+        val cells = listOf(
+            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+        )
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.95f,
+            stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f)
+        )
+
+        // Baseline had 10 cells
+        val baselineSig = com.meditrack.app.domain.model.BaselineGeometrySignature(
+            totalCellCount = 10,
+            normalizedCenters = emptyList(),
+            relativeCellSize = 0.05f,
+            estimatedRows = 2,
+            estimatedColumns = 5,
+            stripAspectRatio = 2.5f
+        )
+        val medWithSignature = sampleMedicine.withBaselineSignature(baselineSig)
+
+        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertTrue(result.friendlyMessage!!.contains("different strip", ignoreCase = true) ||
+                   result.friendlyMessage!!.contains("does not match enrolled baseline", ignoreCase = true))
+    }
+
+    @Test
+    fun baselineSignature_aspectRatioMismatch_rejectsWithDifferentStrip() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Current scan has 4 cells in a square strip (aspect ratio ~1.0)
+        val cells = listOf(
+            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+        )
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.95f,
+            stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f) // square
+        )
+
+        // Baseline had 4 cells in an elongated 1x4 strip (aspect ratio 4.0)
+        val baselineSig = com.meditrack.app.domain.model.BaselineGeometrySignature(
+            totalCellCount = 4,
+            normalizedCenters = emptyList(),
+            relativeCellSize = 0.20f,
+            estimatedRows = 1,
+            estimatedColumns = 4,
+            stripAspectRatio = 4.0f
+        )
+        val medWithSignature = sampleMedicine.withBaselineSignature(baselineSig)
+
+        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertTrue(result.friendlyMessage!!.contains("different strip", ignoreCase = true) ||
+                   result.friendlyMessage!!.contains("does not match enrolled baseline", ignoreCase = true))
+    }
+
+    @Test
+    fun baselineSignature_matchingRotatedStrip_passesVerification() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Strip rotated 90 degrees: 2x2 grid, 1 empty, 3 full
+        val cells = listOf(
+            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+        )
+        val stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f)
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.95f,
+            stripBox = stripBox
+        )
+
+        // Baseline extracted with same geometry
+        val currentSig = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(cells, stripBox)!!
+        val medWithSignature = sampleMedicine.withBaselineSignature(currentSig)
+
+        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
+
+        assertTrue("Matching rotated strip must pass: ${result.friendlyMessage}", result.passed)
         assertEquals(1, result.emptyCellsAfter)
     }
 }

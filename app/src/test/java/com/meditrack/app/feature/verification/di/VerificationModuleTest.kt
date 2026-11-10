@@ -1,6 +1,8 @@
 package com.meditrack.app.feature.verification.di
 
+import com.meditrack.app.core.config.VerificationConfig
 import com.meditrack.app.feature.verification.pipeline.FakeStripDetector
+import com.meditrack.app.feature.verification.pipeline.RoboflowWorkflowStripDetector
 import com.meditrack.app.feature.verification.pipeline.TfliteStripDetector
 import io.mockk.mockk
 import org.junit.Assert.assertFalse
@@ -11,13 +13,24 @@ class VerificationModuleTest {
 
     private val fakeDetector: FakeStripDetector = mockk(relaxed = true)
     private val tfliteDetector: TfliteStripDetector = mockk(relaxed = true)
+    private val roboflowDetector: RoboflowWorkflowStripDetector = mockk(relaxed = true)
 
     @Test
-    fun provideStripDetector_default_usesTfliteDetector() {
-        com.meditrack.app.feature.verification.pipeline.FakeStripDetector.debugForcedBehavior =
+    fun provideStripDetector_roboflowEnabled_usesRoboflowDetector() {
+        FakeStripDetector.debugForcedBehavior =
             com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior.DEFAULT
-        val detector = VerificationModule.provideStripDetector(fakeDetector, tfliteDetector)
-        assertTrue("Detector must be TfliteStripDetector by default", detector is TfliteStripDetector)
+        VerificationConfig.isRoboflowWorkflowEnabled = true
+        val detector = VerificationModule.provideStripDetector(fakeDetector, tfliteDetector, roboflowDetector)
+        assertTrue("Detector must be RoboflowWorkflowStripDetector when enabled", detector is RoboflowWorkflowStripDetector)
+    }
+
+    @Test
+    fun provideStripDetector_roboflowDisabled_usesTfliteDetector() {
+        FakeStripDetector.debugForcedBehavior =
+            com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior.DEFAULT
+        VerificationConfig.isRoboflowWorkflowEnabled = false
+        val detector = VerificationModule.provideStripDetector(fakeDetector, tfliteDetector, roboflowDetector)
+        assertTrue("Detector must be TfliteStripDetector when roboflow is disabled", detector is TfliteStripDetector)
     }
 
     @Test

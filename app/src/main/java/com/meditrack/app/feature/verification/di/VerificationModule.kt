@@ -1,8 +1,10 @@
 package com.meditrack.app.feature.verification.di
 
 import com.meditrack.app.BuildConfig
+import com.meditrack.app.core.config.VerificationConfig
 import com.meditrack.app.feature.verification.pipeline.FakeStripDetector
 import com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior
+import com.meditrack.app.feature.verification.pipeline.RoboflowWorkflowStripDetector
 import com.meditrack.app.feature.verification.pipeline.StripDetector
 import com.meditrack.app.feature.verification.pipeline.TfliteStripDetector
 import dagger.Module
@@ -19,12 +21,14 @@ object VerificationModule {
     @Singleton
     fun provideStripDetector(
         fakeStripDetector: FakeStripDetector,
-        tfliteStripDetector: TfliteStripDetector
+        tfliteStripDetector: TfliteStripDetector,
+        roboflowDetector: RoboflowWorkflowStripDetector
     ): StripDetector {
-        // In both debug and release, use real TfliteStripDetector so ML model evaluation works on device.
-        // Allow FakeStripDetector in debug only if a non-default forced behavior was chosen in debug tools.
-        return if (BuildConfig.DEBUG && FakeStripDetector.debugForcedBehavior != ForceDetectorBehavior.DEFAULT) {
-            fakeStripDetector
+        if (BuildConfig.DEBUG && FakeStripDetector.debugForcedBehavior != ForceDetectorBehavior.DEFAULT) {
+            return fakeStripDetector
+        }
+        return if (VerificationConfig.isRoboflowWorkflowEnabled) {
+            roboflowDetector
         } else {
             tfliteStripDetector
         }

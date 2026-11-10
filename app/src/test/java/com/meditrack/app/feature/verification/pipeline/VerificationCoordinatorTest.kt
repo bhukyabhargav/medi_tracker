@@ -382,6 +382,29 @@ class VerificationCoordinatorTest {
     }
 
     @Test
+    fun verify_structuredFailureReason_carriesFailureReasonAndRetryHint() = runTest {
+        coEvery {
+            verificationPipeline.verify(any(), any(), any(), any(), any())
+        } returns VerificationResult(
+            passed = false,
+            rejectReason = RejectReason.BLURRY,
+            failureReason = VerificationFailureReason.IMAGE_BLURRY,
+            friendlyMessage = "The blister pack is blurry.",
+            retryHint = "Hold phone steady and tap to focus."
+        )
+
+        val result = coordinator.verify("dose_abc", "/path/photo.jpg", dummyBitmap, now = now)
+
+        assertTrue(result is CoordinatorResult.Failed)
+        val failed = result as CoordinatorResult.Failed
+        assertEquals(RejectReason.BLURRY, failed.reason)
+        assertEquals(VerificationFailureReason.IMAGE_BLURRY, failed.failureReason)
+        assertEquals("IMAGE_BLURRY", failed.failureReason?.code)
+        assertEquals("Hold phone steady and tap to focus.", failed.retryHint)
+        assertEquals(3, failed.attemptsRemaining) // Quality gate: strikes preserved!
+    }
+
+    @Test
     fun verify_modelMissingException_returnsCoordinatorError_neverPasses() = runTest {
         coEvery { doseRepository.getById("dose_abc") } returns sampleDose
         coEvery { medicineRepository.getById("med_123") } returns sampleMedicine

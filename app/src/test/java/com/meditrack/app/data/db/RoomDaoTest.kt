@@ -424,4 +424,17 @@ class RoomDaoTest {
         undelivered = notificationOutboxDao.getUndelivered()
         assertTrue(undelivered.isEmpty())
     }
+
+    // --- TYPE CONVERTERS TESTS ---
+
+    @Test
+    fun converters_rejectReasonRoundTrip_andUnknownValuesHandledSafely() {
+        val converters = Converters()
+        for (reason in RejectReason.values()) {
+            val stringVal = converters.fromRejectReason(reason)
+            assertEquals(reason, converters.toRejectReason(stringVal))
+        }
+        assertNull(converters.toRejectReason(null))
+        assertNull(converters.toRejectReason("FUTURE_UNKNOWN_REASON"))
+    }
 }

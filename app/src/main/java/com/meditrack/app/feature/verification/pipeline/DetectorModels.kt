@@ -21,7 +21,10 @@ data class Detection(
     val stripFullyInFrame: Boolean,
     val stripConfidence: Float? = null,
     /** Strip box in normalized coordinates of the ORIGINAL image (null when no strip could be located). */
-    val stripBox: RectF? = null
+    val stripBox: RectF? = null,
+    val isRoboflowWorkflow: Boolean = false,
+    val roboflowMissingCount: Int? = null,
+    val roboflowPackStatus: String? = null
 )
 
 interface StripDetector {
@@ -31,6 +34,8 @@ interface StripDetector {
 data class VerificationResult(
     val passed: Boolean,
     val rejectReason: RejectReason? = null,
+    val failureReason: VerificationFailureReason? = null,
     val emptyCellsAfter: Int? = null,
-    val friendlyMessage: String? = null
+    val friendlyMessage: String? = null,
+    val retryHint: String? = null
 )

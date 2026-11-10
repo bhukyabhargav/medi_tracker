@@ -38,10 +38,13 @@ class VerificationPipeline @Inject constructor(
         // Step 1: Level-1 Quality Gate (light check on original image: decode, min size, not near-black/near-white)
         val level1Quality = ImageQualityGate.analyzeLevel1(bitmap)
         if (!level1Quality.passed) {
+            val fail = level1Quality.failureReason ?: VerificationFailureReason.fromQualityReason(level1Quality.reason)
             return VerificationResult(
                 passed = false,
-                rejectReason = level1Quality.reason ?: RejectReason.BLURRY,
-                friendlyMessage = level1Quality.friendlyMessage
+                rejectReason = level1Quality.reason ?: fail?.mappedRejectReason ?: RejectReason.BLURRY,
+                failureReason = fail,
+                friendlyMessage = level1Quality.friendlyMessage ?: fail?.userMessage,
+                retryHint = level1Quality.retryHint ?: fail?.retryHint
             )
         }
 
@@ -54,7 +57,8 @@ class VerificationPipeline @Inject constructor(
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.DUPLICATE_PHOTO,
-                friendlyMessage = "Duplicate photo detected. Please take a new photo of your blister strip."
+                friendlyMessage = "Duplicate photo detected. Please take a new photo of your blister strip.",
+                retryHint = "Take a fresh photo of your current blister pack."
             )
         }
 
@@ -63,21 +67,37 @@ class VerificationPipeline @Inject constructor(
 
         // Step 3a: Real stripFullyInFrame geometric check (Task 2)
         if (!detection.stripFullyInFrame) {
+            val fail = VerificationFailureReason.BLISTER_PARTIALLY_VISIBLE
             return VerificationResult(
                 passed = false,
-                rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
+                rejectReason = fail.mappedRejectReason,
+                failureReason = fail,
+                friendlyMessage = "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake.",
+                retryHint = fail.retryHint
             )
         }
 
         // Step 3b: Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
         // Stray cells without strip evidence (normal photo) are rejected here.
-        val presence = BlisterPresenceValidator.evaluate(detection)
-        if (detection.cells.isEmpty() || !presence.present) {
+        val presence = if (detection.isRoboflowWorkflow) {
+            val accepted = detection.roboflowPackStatus.equals("accepted", ignoreCase = true)
+            BlisterPresenceValidator.Result(
+                present = accepted,
+                validCells = detection.cells,
+                message = if (accepted) null else BlisterPresenceValidator.MSG_NOT_FOUND
+            )
+        } else {
+            BlisterPresenceValidator.evaluate(detection)
+        }
+
+        if (!presence.present) {
+            val fail = VerificationFailureReason.BLISTER_NOT_FOUND
             return VerificationResult(
                 passed = false,
-                rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = presence.message ?: "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
+                rejectReason = fail.mappedRejectReason,
+                failureReason = fail,
+                friendlyMessage = presence.message ?: fail.userMessage,
+                retryHint = fail.retryHint
             )
         }
 
@@ -85,19 +105,25 @@ class VerificationPipeline @Inject constructor(
         val stripBox = ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
         val level2Quality = ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
         if (!level2Quality.passed) {
+            val fail = level2Quality.failureReason ?: VerificationFailureReason.fromQualityReason(level2Quality.reason)
             return VerificationResult(
                 passed = false,
-                rejectReason = level2Quality.reason ?: RejectReason.BLURRY,
-                friendlyMessage = level2Quality.friendlyMessage
+                rejectReason = level2Quality.reason ?: fail?.mappedRejectReason ?: RejectReason.BLURRY,
+                failureReason = fail,
+                friendlyMessage = level2Quality.friendlyMessage ?: fail?.userMessage,
+                retryHint = level2Quality.retryHint ?: fail?.retryHint
             )
         }
 
         // Conservative Guard: Strip detection confidence check
         if (detection.stripConfidence != null && detection.stripConfidence < VerificationConfig.confidenceThreshold) {
+            val fail = VerificationFailureReason.BLISTER_NOT_FOUND
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = "Strip detection confidence too low. Please center the blister pack within the frame."
+                failureReason = fail,
+                friendlyMessage = "Strip detection confidence too low. Please center the blister pack within the frame.",
+                retryHint = fail.retryHint
             )
         }
 
@@ -108,39 +134,71 @@ class VerificationPipeline @Inject constructor(
         val unreliableFraction = unreliableCells.toFloat() / detection.cells.size
         val hasLowConfidenceCell = unreliableFraction > VerificationConfig.maxUnreliableCellFraction
         if (hasLowConfidenceCell) {
+            val fail = VerificationFailureReason.IMAGE_BLURRY
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.BLURRY,
-                friendlyMessage = "Some blister cells could not be identified with high confidence. Please retake the photo with better lighting."
+                failureReason = fail,
+                friendlyMessage = "Some blister cells could not be identified with high confidence. Please retake the photo with better lighting.",
+                retryHint = fail.retryHint
             )
         }
 
         // Conservative Guard: Ambiguous partial cell check (A1: cell_partial not trained; treat as unknown/needs retake)
         val hasPartial = detection.cells.any { it.state == CellState.PARTIAL }
         if (hasPartial) {
+            val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.WRONG_PILL_COUNT,
-                friendlyMessage = "A damaged or partially pushed pill was detected. Please retake the photo with a clear view or verify manually."
+                failureReason = fail,
+                friendlyMessage = "A damaged or partially pushed pill was detected. Please retake the photo with a clear view or verify manually.",
+                retryHint = fail.retryHint
             )
         }
 
         val validCells = detection.cells.filter { it.confidence >= VerificationConfig.minCellConfidence }
 
         // Conservative Guard: Cell count tolerance check against previous capture of the same strip (A6)
-        if (previousTotalCells != null && abs(validCells.size - previousTotalCells) > VerificationConfig.maxCellCountTolerance) {
+        if (!detection.isRoboflowWorkflow && previousTotalCells != null && abs(validCells.size - previousTotalCells) > VerificationConfig.maxCellCountTolerance) {
+            val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.WRONG_PILL_COUNT,
-                friendlyMessage = "Detected ${validCells.size} cavities, but previous scans showed $previousTotalCells. Please ensure the full blister pack is visible."
+                failureReason = fail,
+                friendlyMessage = "Detected ${validCells.size} cavities, but previous scans showed $previousTotalCells. Please ensure the full blister pack is visible.",
+                retryHint = fail.retryHint
             )
+        }
+
+        // Task 5: Baseline geometry signature check (rotation-invariant count, aspect ratio, arrangement)
+        val baselineSignature = medicine.getBaselineSignature()
+        if (!detection.isRoboflowWorkflow && baselineSignature != null && validCells.size >= 4) {
+            val currentSignature = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(validCells, stripBox)
+            if (currentSignature != null) {
+                val comparison = com.meditrack.app.domain.model.BaselineGeometrySignature.compare(currentSignature, baselineSignature)
+                if (!comparison.matches) {
+                    val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
+                    return VerificationResult(
+                        passed = false,
+                        rejectReason = RejectReason.WRONG_PILL_COUNT,
+                        failureReason = fail,
+                        friendlyMessage = "Blister layout does not match enrolled baseline (${comparison.reason ?: "different strip"}). Please re-enroll this strip or confirm in Medicines.",
+                        retryHint = "If using a new brand or pack, re-enroll your strip baseline in Medicines."
+                    )
+                }
+            }
         }
 
         // Step 5: Baseline compare (Ledger rule)
         // previousEmpty = emptyCellsAfter of the last verified dose for this medicine, or baselineEmptyCells if none
         val previousEmpty = lastVerifiedEmptyCells ?: medicine.baselineEmptyCells
 
-        val newEmpty = validCells.count { it.state == CellState.EMPTY }
+        val newEmpty = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+            detection.roboflowMissingCount
+        } else {
+            validCells.count { it.state == CellState.EMPTY }
+        }
         val delta = newEmpty - previousEmpty
 
         return when {

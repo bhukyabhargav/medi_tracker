@@ -39,6 +39,13 @@ data class Medicine(
     val currentStock: Int,
     val baselineEmptyCells: Int = 0,
     val baselinePhotoPath: String? = null,
+    val baselineCellCount: Int? = null,
+    val baselineCentersJson: String? = null,
+    val baselineCellSizeRatio: Float? = null,
+    val baselineRows: Int? = null,
+    val baselineCols: Int? = null,
+    val baselineAspectRatio: Float? = null,
+    val baselineVersion: Int = 1,
     val lastRefillAt: Long? = null,
     val prescribedByDoctorUid: String? = null,
     val prescribedByDoctorName: String? = null,
@@ -47,7 +54,33 @@ data class Medicine(
     val lowStockNotified: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt
-)
+) {
+    fun getBaselineSignature(): BaselineGeometrySignature? {
+        val count = baselineCellCount ?: return null
+        val centers = BaselineGeometrySignature.fromCentersJson(baselineCentersJson)
+        return BaselineGeometrySignature(
+            totalCellCount = count,
+            normalizedCenters = centers,
+            relativeCellSize = baselineCellSizeRatio ?: 0f,
+            estimatedRows = baselineRows ?: 1,
+            estimatedColumns = baselineCols ?: count,
+            stripAspectRatio = baselineAspectRatio ?: 1f,
+            baselineVersion = baselineVersion
+        )
+    }
+
+    fun withBaselineSignature(sig: BaselineGeometrySignature): Medicine {
+        return copy(
+            baselineCellCount = sig.totalCellCount,
+            baselineCentersJson = sig.toCentersJson(),
+            baselineCellSizeRatio = sig.relativeCellSize,
+            baselineRows = sig.estimatedRows,
+            baselineCols = sig.estimatedColumns,
+            baselineAspectRatio = sig.stripAspectRatio,
+            baselineVersion = sig.baselineVersion
+        )
+    }
+}
 
 @Entity(
     tableName = "dose_events",
