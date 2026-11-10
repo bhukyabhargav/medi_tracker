@@ -1,36 +1,60 @@
 package com.meditrack.app.feature.verification.pipeline
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.util.Base64
 import android.util.Log
 import com.meditrack.app.core.config.VerificationConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
 import kotlin.math.min
 
 /**
+ * Typed exception thrown when Roboflow workflow execution fails.
+ */
+class RoboflowInferenceException(
+    message: String,
+    cause: Throwable? = null,
+    val statusCode: Int? = null,
+    val isRetryable: Boolean = false
+) : Exception(message, cause)
+
+/**
  * Cloud-based StripDetector powered by Roboflow Serverless Workflows.
  *
- * Integrates with the "Blister Pack Missing Tablet Counter" workflow:
- * - Detects blister packs using foundation vision models.
- * - Detects and counts empty pill cavities.
- * - Provides verified missing tablet counts directly.
- * - Gracefully falls back to local [TfliteStripDetector] if offline or when API limits are reached.
+ * Integrates the "Android Blister Presence and Empty Count" workflow:
+ * - Workspace: varshiths-workspace-y38an
+ * - Workflow ID: android-blister-presence-and-empty-count-1794338462016
+ * - Endpoint: https://serverless.roboflow.com/varshiths-workspace-y38an/workflows/android-blister-presence-and-empty-count-1794338462016
+ *
+ * Implements:
+ * - Authorization: Bearer <key> header authentication (inference v1.5.0+)
+ * - Exponential backoff retry with timeout
+ * - Defensive JSON parsing supporting multiple output key variants
+ * - Disk writing for image/visualization blobs (prevents memory leaks/excessive logging)
+ * - Seamless fallback to on-device [TfliteStripDetector] if offline or when quota/API fails
  */
 @Singleton
 class RoboflowWorkflowStripDetector @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val fallbackDetector: TfliteStripDetector
 ) : StripDetector {
 
@@ -40,6 +64,8 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         private const val JPEG_QUALITY = 80
         private const val CONNECT_TIMEOUT_MS = 10000
         private const val READ_TIMEOUT_MS = 25000
+        private const val MAX_RETRIES = 2
+        private const val INITIAL_BACKOFF_MS = 500L
     }
 
     override suspend fun detect(bitmap: Bitmap): Detection = withContext(Dispatchers.IO) {
@@ -48,70 +74,105 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         }
 
         try {
-            val endpoint = VerificationConfig.roboflowWorkflowEndpoint
-            val apiKey = VerificationConfig.roboflowApiKey
+            val responseJson = runWorkflowInference(bitmap)
+            parseWorkflowResponse(responseJson)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Roboflow inference failed: ${e.message}. Falling back to local detector.", e)
+            fallbackDetector.detect(bitmap)
+        }
+    }
 
-            if (endpoint.isBlank() || apiKey.isBlank()) {
-                Log.w(TAG, "Roboflow endpoint or API key not configured; falling back to TFLite")
-                return@withContext fallbackDetector.detect(bitmap)
-            }
+    /**
+     * Executes Roboflow inference with request timeouts and exponential backoff retry.
+     */
+    suspend fun runWorkflowInference(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        val endpoint = VerificationConfig.roboflowWorkflowEndpoint
+        val apiKey = System.getenv("ROBOFLOW_API_KEY") ?: VerificationConfig.roboflowApiKey
 
-            // Encode scaled bitmap to Base64 JPEG
-            val base64Image = prepareBase64Image(bitmap)
+        if (endpoint.isBlank() || apiKey.isBlank()) {
+            throw RoboflowInferenceException("Roboflow endpoint or API key not configured", isRetryable = false)
+        }
 
-            val requestUrl = if (endpoint.contains("?")) {
-                "$endpoint&api_key=$apiKey"
-            } else {
-                "$endpoint?api_key=$apiKey"
-            }
-
-            val payload = JSONObject().apply {
-                put("api_key", apiKey)
-                put("inputs", JSONObject().apply {
-                    put("image", JSONObject().apply {
-                        put("type", "base64")
-                        put("value", base64Image)
-                    })
+        val base64Image = prepareBase64Image(bitmap)
+        val payload = JSONObject().apply {
+            put("inputs", JSONObject().apply {
+                put("image", JSONObject().apply {
+                    put("type", "base64")
+                    put("value", base64Image)
                 })
+            })
+        }
+
+        var lastException: RoboflowInferenceException? = null
+
+        for (attempt in 0..MAX_RETRIES) {
+            if (attempt > 0) {
+                val backoff = INITIAL_BACKOFF_MS * (1L shl (attempt - 1))
+                Log.d(TAG, "Retrying Roboflow inference (attempt $attempt/$MAX_RETRIES) after ${backoff}ms...")
+                delay(backoff)
             }
 
-            val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = CONNECT_TIMEOUT_MS
-                readTimeout = READ_TIMEOUT_MS
-                doInput = true
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
+            try {
+                return@withContext executeHttpRequest(endpoint, apiKey, payload.toString())
+            } catch (e: RoboflowInferenceException) {
+                lastException = e
+                if (!e.isRetryable || attempt == MAX_RETRIES) {
+                    throw e
+                }
             }
+        }
 
+        throw lastException ?: RoboflowInferenceException("Workflow inference failed after $MAX_RETRIES retries", isRetryable = false)
+    }
+
+    private fun executeHttpRequest(endpointUrl: String, apiKey: String, jsonPayload: String): String {
+        val connection = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            doInput = true
+            doOutput = true
+            // Strict Bearer header authentication (never in URL or body)
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+
+        try {
             connection.outputStream.use { os ->
                 OutputStreamWriter(os, Charsets.UTF_8).use { writer ->
-                    writer.write(payload.toString())
+                    writer.write(jsonPayload)
                     writer.flush()
                 }
             }
 
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val responseText = connection.inputStream.use { stream ->
+                return connection.inputStream.use { stream ->
                     BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                 }
-                parseWorkflowResponse(responseText)
-            } else {
-                val errorText = try {
-                    connection.errorStream?.use { stream ->
-                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
-                    } ?: "HTTP $responseCode"
-                } catch (_: Throwable) {
-                    "HTTP $responseCode"
-                }
-                Log.w(TAG, "Roboflow workflow returned HTTP $responseCode: $errorText. Falling back to local detector.")
-                fallbackDetector.detect(bitmap)
             }
-        } catch (e: Throwable) {
-            Log.w(TAG, "Roboflow inference failed: ${e.message}. Falling back to local detector.", e)
-            fallbackDetector.detect(bitmap)
+
+            val errorText = try {
+                connection.errorStream?.use { stream ->
+                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+                } ?: "HTTP $responseCode"
+            } catch (_: Throwable) {
+                "HTTP $responseCode"
+            }
+
+            val isRetryable = responseCode >= 500 || responseCode == 429
+            throw RoboflowInferenceException(
+                message = "Roboflow returned HTTP $responseCode: $errorText",
+                statusCode = responseCode,
+                isRetryable = isRetryable
+            )
+        } catch (e: SocketTimeoutException) {
+            throw RoboflowInferenceException("Connection timed out communicating with Roboflow", cause = e, isRetryable = true)
+        } catch (e: IOException) {
+            throw RoboflowInferenceException("I/O error communicating with Roboflow: ${e.message}", cause = e, isRetryable = true)
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -135,99 +196,30 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         return Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
 
-    private fun parseWorkflowResponse(jsonString: String): Detection {
-        val root = if (jsonString.trim().startsWith("[")) {
-            val array = JSONArray(jsonString)
-            if (array.length() > 0) array.getJSONObject(0) else JSONObject()
-        } else {
-            val obj = JSONObject(jsonString)
-            if (obj.has("outputs")) {
-                val outputs = obj.getJSONArray("outputs")
-                if (outputs.length() > 0) outputs.getJSONObject(0) else obj
-            } else {
-                obj
-            }
-        }
+    /**
+     * Defensively parses workflow outputs into standard [Detection] model.
+     * Supports various naming conventions from "Android Blister Presence and Empty Count" workflow.
+     */
+    fun parseWorkflowResponse(jsonString: String): Detection {
+        val root = extractRootOutput(jsonString)
 
-        val packStatus = root.optString("pack_status", "accepted")
-        val isPackAccepted = packStatus.equals("accepted", ignoreCase = true)
+        // 1. Offload any heavy image/visualization outputs to disk immediately
+        persistImageOutputsIfPresent(root)
 
-        val missingCountRaw = root.opt("missing_count")
-        val missingCount = when (missingCountRaw) {
-            is Number -> missingCountRaw.toInt()
-            is String -> missingCountRaw.toIntOrNull()
-            else -> null
-        }
+        // 2. Determine presence / pack acceptance
+        val isPackAccepted = parseBlisterPresence(root)
+        val packStatus = if (isPackAccepted) "accepted" else "rejected"
 
-        // Parse blister pack bounding box
-        var stripBox: RectF? = null
-        if (root.has("pack_predictions")) {
-            val packPredObj = root.optJSONObject("pack_predictions")
-            if (packPredObj != null) {
-                val imgObj = packPredObj.optJSONObject("image")
-                val imgW = imgObj?.optDouble("width", 1.0)?.toFloat() ?: 1.0f
-                val imgH = imgObj?.optDouble("height", 1.0)?.toFloat() ?: 1.0f
+        // 3. Extract missing / empty tablet count
+        val missingCount = parseMissingCount(root)
 
-                val preds = packPredObj.optJSONArray("predictions")
-                if (preds != null && preds.length() > 0) {
-                    val firstPack = preds.getJSONObject(0)
-                    val px = firstPack.optDouble("x", 0.0).toFloat()
-                    val py = firstPack.optDouble("y", 0.0).toFloat()
-                    val pw = firstPack.optDouble("width", 0.0).toFloat()
-                    val ph = firstPack.optDouble("height", 0.0).toFloat()
+        // 4. Extract blister pack bounding box
+        val stripBox = parseStripBox(root)
 
-                    val normXc = px / imgW
-                    val normYc = py / imgH
-                    val normW = pw / imgW
-                    val normH = ph / imgH
+        // 5. Extract empty cavity detections
+        val cells = parseEmptyCells(root)
 
-                    stripBox = RectF(
-                        max(0f, normXc - normW / 2f),
-                        max(0f, normYc - normH / 2f),
-                        min(1f, normXc + normW / 2f),
-                        min(1f, normYc + normH / 2f)
-                    )
-                }
-            }
-        }
-
-        // Parse empty cavities
-        val cells = mutableListOf<Cell>()
-        if (root.has("empty_cavity_predictions")) {
-            val emptyPredObj = root.optJSONObject("empty_cavity_predictions")
-            if (emptyPredObj != null) {
-                val imgObj = emptyPredObj.optJSONObject("image")
-                val imgW = imgObj?.optDouble("width", 1.0)?.toFloat() ?: 1.0f
-                val imgH = imgObj?.optDouble("height", 1.0)?.toFloat() ?: 1.0f
-
-                val preds = emptyPredObj.optJSONArray("predictions")
-                if (preds != null) {
-                    for (i in 0 until preds.length()) {
-                        val pred = preds.getJSONObject(i)
-                        val cx = pred.optDouble("x", 0.0).toFloat()
-                        val cy = pred.optDouble("y", 0.0).toFloat()
-                        val cw = pred.optDouble("width", 0.0).toFloat()
-                        val ch = pred.optDouble("height", 0.0).toFloat()
-                        val conf = pred.optDouble("confidence", 1.0).toFloat()
-
-                        val normXc = cx / imgW
-                        val normYc = cy / imgH
-                        val normW = cw / imgW
-                        val normH = ch / imgH
-
-                        val box = RectF(
-                            max(0f, normXc - normW / 2f),
-                            max(0f, normYc - normH / 2f),
-                            min(1f, normXc + normW / 2f),
-                            min(1f, normYc + normH / 2f)
-                        )
-                        cells.add(Cell(box = box, state = CellState.EMPTY, confidence = conf))
-                    }
-                }
-            }
-        }
-
-        // Check if strip is fully in frame geometrically
+        // 6. Geometric frame containment check
         val fullyInFrame = if (!isPackAccepted) {
             false
         } else if (stripBox != null) {
@@ -246,5 +238,164 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             roboflowMissingCount = missingCount ?: cells.size,
             roboflowPackStatus = packStatus
         )
+    }
+
+    private fun extractRootOutput(jsonString: String): JSONObject {
+        val trimmed = jsonString.trim()
+        if (trimmed.startsWith("[")) {
+            val array = JSONArray(trimmed)
+            return if (array.length() > 0) array.getJSONObject(0) else JSONObject()
+        }
+        val obj = JSONObject(trimmed)
+        if (obj.has("outputs")) {
+            val outputs = obj.optJSONArray("outputs")
+            if (outputs != null && outputs.length() > 0) {
+                return outputs.getJSONObject(0)
+            }
+            val outputObj = obj.optJSONObject("outputs")
+            if (outputObj != null) return outputObj
+        }
+        return obj
+    }
+
+    private fun parseBlisterPresence(root: JSONObject): Boolean {
+        // Direct status strings
+        val status = root.optString("pack_status", "").ifBlank {
+            root.optString("status", "")
+        }
+        if (status.isNotBlank()) {
+            return status.equals("accepted", ignoreCase = true) || status.equals("present", ignoreCase = true)
+        }
+
+        // Boolean indicators
+        val boolPresence = root.optBoolean("is_blister_present", true)
+        if (root.has("is_blister_present")) return boolPresence
+
+        val presence = root.optBoolean("presence", true)
+        if (root.has("presence")) return presence
+
+        // Check predictions for blister pack
+        val packObj = root.optJSONObject("pack_predictions")
+            ?: root.optJSONObject("blister_presence")
+            ?: root.optJSONObject("blister_pack")
+        if (packObj != null) {
+            val preds = packObj.optJSONArray("predictions")
+            if (preds != null) {
+                return preds.length() > 0
+            }
+        }
+
+        return true
+    }
+
+    private fun parseMissingCount(root: JSONObject): Int? {
+        val keys = listOf("missing_count", "empty_count", "count", "missing_tablets", "empty_cavities_count")
+        for (key in keys) {
+            if (root.has(key)) {
+                val raw = root.opt(key)
+                when (raw) {
+                    is Number -> return raw.toInt()
+                    is String -> raw.toIntOrNull()?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun parseStripBox(root: JSONObject): RectF? {
+        val packPredObj = root.optJSONObject("pack_predictions")
+            ?: root.optJSONObject("blister_pack")
+            ?: root.optJSONObject("strip_predictions")
+            ?: return null
+
+        val imgObj = packPredObj.optJSONObject("image")
+        val imgW = imgObj?.optDouble("width", 1.0)?.toFloat() ?: 1.0f
+        val imgH = imgObj?.optDouble("height", 1.0)?.toFloat() ?: 1.0f
+
+        val preds = packPredObj.optJSONArray("predictions") ?: return null
+        if (preds.length() == 0) return null
+
+        val firstPack = preds.getJSONObject(0)
+        val px = firstPack.optDouble("x", 0.0).toFloat()
+        val py = firstPack.optDouble("y", 0.0).toFloat()
+        val pw = firstPack.optDouble("width", 0.0).toFloat()
+        val ph = firstPack.optDouble("height", 0.0).toFloat()
+
+        val normXc = px / imgW
+        val normYc = py / imgH
+        val normW = pw / imgW
+        val normH = ph / imgH
+
+        return RectF(
+            max(0f, normXc - normW / 2f),
+            max(0f, normYc - normH / 2f),
+            min(1f, normXc + normW / 2f),
+            min(1f, normYc + normH / 2f)
+        )
+    }
+
+    private fun parseEmptyCells(root: JSONObject): List<Cell> {
+        val cells = mutableListOf<Cell>()
+        val emptyPredObj = root.optJSONObject("empty_cavity_predictions")
+            ?: root.optJSONObject("empty_cavities")
+            ?: root.optJSONObject("predictions")
+            ?: return cells
+
+        val imgObj = emptyPredObj.optJSONObject("image")
+        val imgW = imgObj?.optDouble("width", 1.0)?.toFloat() ?: 1.0f
+        val imgH = imgObj?.optDouble("height", 1.0)?.toFloat() ?: 1.0f
+
+        val preds = emptyPredObj.optJSONArray("predictions") ?: return cells
+        for (i in 0 until preds.length()) {
+            val pred = preds.getJSONObject(i)
+            // Discard heavy polygon "points" to keep memory small
+            val cx = pred.optDouble("x", 0.0).toFloat()
+            val cy = pred.optDouble("y", 0.0).toFloat()
+            val cw = pred.optDouble("width", 0.0).toFloat()
+            val ch = pred.optDouble("height", 0.0).toFloat()
+            val conf = pred.optDouble("confidence", 1.0).toFloat()
+
+            val normXc = cx / imgW
+            val normYc = cy / imgH
+            val normW = cw / imgW
+            val normH = ch / imgH
+
+            val box = RectF(
+                max(0f, normXc - normW / 2f),
+                max(0f, normYc - normH / 2f),
+                min(1f, normXc + normW / 2f),
+                min(1f, normYc + normH / 2f)
+            )
+            cells.add(Cell(box = box, state = CellState.EMPTY, confidence = conf))
+        }
+        return cells
+    }
+
+    /**
+     * Decodes and writes any base64 image-shaped outputs to disk, preventing
+     * memory accumulation and log pollution.
+     */
+    private fun persistImageOutputsIfPresent(root: JSONObject) {
+        val keys = root.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (key.contains("image", ignoreCase = true) || key.contains("visualization", ignoreCase = true)) {
+                val value = root.opt(key)
+                if (value is String && (value.startsWith("/9j/") || value.startsWith("iVBORw0") || value.startsWith("data:image"))) {
+                    try {
+                        val cleanBase64 = if (value.contains(",")) value.substringAfter(",") else value
+                        val bytes = Base64.decode(cleanBase64, Base64.DEFAULT)
+                        val outputFile = File(context.cacheDir, "roboflow_${key}_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(outputFile).use { fos ->
+                            fos.write(bytes)
+                            fos.flush()
+                        }
+                        Log.d(TAG, "Cached workflow image output ($key) to disk: ${outputFile.name}")
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Failed to persist image output $key to disk", e)
+                    }
+                }
+            }
+        }
     }
 }

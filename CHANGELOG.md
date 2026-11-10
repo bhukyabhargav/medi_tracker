@@ -1,6 +1,28 @@
 # Changelog - MedTracker Blister Verification Hardening
 
-All notable changes implemented as part of the blister verification hardening tasks (Tasks 1 through 5).
+All notable changes implemented as part of the blister verification hardening tasks (Tasks 1 through 5) and model integrations.
+
+---
+
+## [Roboflow Workflow Integration] - 2026-11-11
+### Android Blister Presence and Empty Count Integration (Varshith-4)
+- **`app/src/main/java/com/meditrack/app/feature/verification/pipeline/RoboflowWorkflowStripDetector.kt`**:
+  - Grounded integration on Roboflow Serverless Workflow endpoint:
+    `https://serverless.roboflow.com/varshiths-workspace-y38an/workflows/android-blister-presence-and-empty-count-1794338462016`
+  - Integrated `Authorization: Bearer <key>` header authentication (inference v1.5.0+), strictly removing API key from query strings or request body.
+  - Wrapped inference in `runWorkflowInference` with request timeouts (10s connect, 25s read) and exponential backoff retry (up to 2 retries, 500ms initial backoff).
+  - Defined typed `RoboflowInferenceException` capturing HTTP status code and retryability flag.
+  - Implemented defensive parsing for workflow output keys (`pack_status`, `presence`, `missing_count`, `empty_count`, `pack_predictions`, `empty_cavity_predictions`).
+  - Implemented disk offloading for image/visualization blobs to app cache directory (`context.cacheDir`) to prevent memory leaks and log pollution.
+  - Kept bounding box payloads lightweight by discarding raw polygon `points`.
+  - Maintained seamless fallback to local on-device `TfliteStripDetector` during network, quota, or API failures.
+- **`app/src/main/java/com/meditrack/app/core/config/VerificationConfig.kt`**:
+  - Updated `modelVersion = "v1.3.0-roboflow-android-blister-presence-empty-count"`.
+  - Enabled Roboflow workflow: `isRoboflowWorkflowEnabled = true`.
+  - Configured workspace slug `varshiths-workspace-y38an` and workflow ID `android-blister-presence-and-empty-count-1794338462016`.
+  - Added dynamic API key resolution prioritizing `System.getenv("ROBOFLOW_API_KEY")`.
+- **`app/src/test/java/com/meditrack/app/feature/verification/pipeline/RoboflowWorkflowStripDetectorSmokeTest.kt`**:
+  - Added automated smoke test verifying output parsing, presence checks, missing count extraction, disk offloading of base64 images, and graceful fallback on connection failure.
 
 ---
 

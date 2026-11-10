@@ -7,11 +7,14 @@ package com.meditrack.app.core.config
  * blister strip detection, inference latency targets, confidence guards, and model auditing.
  */
 object VerificationConfig {
-    var modelVersion: String = "v1.2.0-pill-blister-classifier"
+    var modelVersion: String = "v1.3.0-roboflow-android-blister-presence-empty-count"
     var isTfliteEnabled: Boolean = true
-    var isRoboflowWorkflowEnabled: Boolean = false
-    var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-ytykf/workflows/blister-pack-missing-tablet-counter-1794253615843"
-    var roboflowApiKey: String = "jZmdnU1kp8FytFibdLat"
+    var isRoboflowWorkflowEnabled: Boolean = true
+    var roboflowWorkspaceSlug: String = "varshiths-workspace-y38an"
+    var roboflowWorkflowId: String = "android-blister-presence-and-empty-count-1794338462016"
+    var roboflowWorkflowName: String = "Android Blister Presence and Empty Count"
+    var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-y38an/workflows/android-blister-presence-and-empty-count-1794338462016"
+    var roboflowApiKey: String = System.getenv("ROBOFLOW_API_KEY") ?: "jZmdnU1kp8FytFibdLat"
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
