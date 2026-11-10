@@ -147,7 +147,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.FULL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -167,7 +168,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -187,7 +189,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.PARTIAL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -207,7 +210,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.30f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -229,7 +233,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, medWithBaseline, lastVerifiedEmptyCells = null)
@@ -247,7 +252,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -267,7 +273,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.90f),
                 Cell(state = CellState.FULL, confidence = 0.90f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         // The pipeline does not inspect or require printed text
@@ -284,7 +291,8 @@ class VerificationPipelineTest {
             cells = listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         // Medicine name could be anything; scheduled medicine identity comes from DB record
@@ -320,7 +328,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.40f) // Below minCellConfidence (0.60f)
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -336,7 +345,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.PARTIAL, confidence = 0.90f) // Ambiguous partial/damaged pill
             ),
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -352,7 +362,8 @@ class VerificationPipelineTest {
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
             ), // Total 2 cavities
-            stripFullyInFrame = true
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
         )
 
         // Previous scan had 10 cavities. Difference = 8 > tolerance (1)

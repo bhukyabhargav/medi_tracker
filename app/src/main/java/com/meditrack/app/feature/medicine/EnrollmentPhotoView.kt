@@ -150,41 +150,46 @@ fun EnrollmentPhotoView(
                 return@launch
             }
 
-            val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
-            if (!quality.passed) {
+            // 1) Is there a blister strip anywhere in the photo? This is mandatory and can never be bypassed:
+            //    if the detector is missing or fails we cannot confirm a strip, so the photo is NOT accepted.
+            var presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.Result(
+                present = false,
+                message = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.MSG_NOT_FOUND
+            )
+            if (stripDetector == null) {
+                presence = presence.copy(message = "Blister check is unavailable right now. Please try again.")
+            } else {
+                try {
+                    presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator
+                        .evaluate(stripDetector.detect(bitmap))
+                } catch (e: Exception) {
+                    Log.w("EnrollmentPhotoView", "Strip detector failed during enrollment: ${e.message}")
+                    presence = presence.copy(message = "Could not check the photo for a blister strip. Please retake.")
+                }
+            }
+            if (!presence.present) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = path
+                    pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip
                     pendingEmptyCells = 0
-                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
+                    qualityError = presence.message
                     isCapturing = false
                 }
                 return@launch
             }
+            val detectedEmptyCells = presence.validCells.count {
+                it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+            }
 
-            var detectedEmptyCells = 0
-            if (stripDetector != null) {
-                try {
-                    val detection = stripDetector.detect(bitmap)
-                    // A valid medicine blister pack must contain pill cavities (cells).
-                    // This prevents sharp background lines (like table edges) from falsely passing as blister strips.
-                    val hasBlisterPack = detection.cells.isNotEmpty()
-
-                    // Count baseline empty cells for ledger tracking (C5)
-                    val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.VerificationConfig.minCellConfidence }
-                    detectedEmptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
-
-                    if (!hasBlisterPack) {
-                        withContext(Dispatchers.Main) {
-                            pendingPhotoPath = path
-                            pendingEmptyCells = 0
-                            qualityError = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
-                            isCapturing = false
-                        }
-                        return@launch
-                    }
-                } catch (e: Exception) {
-                    Log.w("EnrollmentPhotoView", "Strip detector check during enrollment: ${e.message}")
+            // 2) Photo quality. A real strip with a mediocre photo may still be used if the person insists.
+            val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
+            if (!quality.passed) {
+                withContext(Dispatchers.Main) {
+                    pendingPhotoPath = path
+                    pendingEmptyCells = detectedEmptyCells
+                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
+                    isCapturing = false
                 }
+                return@launch
             }
 
             withContext(Dispatchers.Main) {
@@ -443,7 +448,7 @@ fun EnrollmentPhotoView(
                     )
                 },
                 title = {
-                    Text("Baseline Photo Quality Issue")
+                    Text(if (pendingPhotoPath != null) "Baseline Photo Quality Issue" else "No Blister Strip Found")
                 },
                 text = {
                     Text(qualityError ?: "The captured image did not pass quality checks.")

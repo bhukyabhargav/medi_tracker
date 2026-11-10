@@ -58,8 +58,9 @@ class VerificationPipeline @Inject constructor(
         // Step 3: Strip cell detection
         val detection = stripDetector.detect(bitmap)
 
-        // Confirm blister cells or strip were detected
-        if (detection.cells.isEmpty()) {
+        // Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
+        // Stray cells without strip evidence (normal photo) are rejected here.
+        if (detection.cells.isEmpty() || !BlisterPresenceValidator.evaluate(detection).present) {
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,

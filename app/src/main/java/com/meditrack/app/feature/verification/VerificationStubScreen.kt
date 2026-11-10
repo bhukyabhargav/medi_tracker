@@ -76,6 +76,7 @@ fun VerificationStubScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showManualUnverifiedDialog by remember { mutableStateOf(false) }
+    var showUseAnywayDialog by remember { mutableStateOf(false) }
 
     if (uiState.showDoubleDoseWarning) {
         AlertDialog(
@@ -102,6 +103,23 @@ fun VerificationStubScreen(
                 TextButton(onClick = { viewModel.dismissDoubleDoseWarning() }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    if (showUseAnywayDialog) {
+        AlertDialog(
+            onDismissRequest = { showUseAnywayDialog = false },
+            title = { Text("Use this photo anyway?") },
+            text = { Text("The photo could not be verified automatically. Confirm only if you really took this dose. It will be recorded as taken.") },
+            confirmButton = {
+                Button(onClick = {
+                    showUseAnywayDialog = false
+                    viewModel.useRejectedPhotoAnyway()
+                }) { Text("Yes, I took it") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUseAnywayDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -456,6 +474,14 @@ fun VerificationStubScreen(
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Retake Photo")
+                    }
+                    if (uiState.lastRejectedPhotoPath != null) {
+                        OutlinedButton(
+                            onClick = { showUseAnywayDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Use Photo Anyway & Mark as Taken")
+                        }
                     }
                 } else if (uiState.isLocked) {
                     Card(

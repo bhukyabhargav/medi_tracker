@@ -49,6 +49,8 @@ data class VerificationUiState(
     val doubleDoseConfirmed: Boolean = false,
     val isManualUnverified: Boolean = false,
     val rejectReason: RejectReason? = null,
+    /** Photo of the last rejected attempt; lets the person choose "Use Photo Anyway". */
+    val lastRejectedPhotoPath: String? = null,
     val attemptsRemaining: Int = AppConfig.MAX_VERIFICATION_ATTEMPTS,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
@@ -228,6 +230,7 @@ class VerificationViewModel @Inject constructor(
                             isAnalyzing = false,
                             isFailed = true,
                             rejectReason = result.reason,
+                            lastRejectedPhotoPath = photoPath,
                             attemptsRemaining = result.attemptsRemaining,
                             dose = updatedDose,
                             errorMessage = result.friendlyMessage ?: "Verification rejected: ${result.reason}"
@@ -293,19 +296,18 @@ class VerificationViewModel @Inject constructor(
                 } catch (e: Exception) {
                     null
                 }
-                val hasBlisterPack = detection != null && detection.cells.isNotEmpty()
+                val presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
 
-                if (!hasBlisterPack) {
+                if (!presence.present) {
                     _uiState.update {
-                        it.copy(
-                            errorMessage = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
-                        )
+                        it.copy(errorMessage = presence.message)
                     }
                     return@launch
                 }
 
-                val validCells = detection.cells.filter { it.confidence >= com.meditrack.app.core.config.VerificationConfig.minCellConfidence }
-                val emptyCells = validCells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+                val emptyCells = presence.validCells.count {
+                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                }
                 val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = emptyCells)
                 medicineRepository.update(updatedMed)
                 _uiState.update {
@@ -317,15 +319,56 @@ class VerificationViewModel @Inject constructor(
                     )
                 }
             } else {
-                val updatedMed = med.copy(baselinePhotoPath = photoPath, baselineEmptyCells = 0)
-                medicineRepository.update(updatedMed)
+                _uiState.update {
+                    it.copy(errorMessage = "Could not read the baseline photo. Please retake it.")
+                }
+            }
+        }
+    }
+
+    /**
+     * "Use Photo Anyway": the person confirms the dose was taken although automatic verification rejected the photo.
+     * Records the dose as TAKEN (or TAKEN_LATE) with the rejected photo as proof, keeping the empty-cell ledger moving
+     * by the prescribed pills-per-dose so later verifications still compare correctly.
+     */
+    fun useRejectedPhotoAnyway() {
+        val photoPath = _uiState.value.lastRejectedPhotoPath ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
+            val dose = doseRepository.getById(doseId)
+            val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
+            if (dose == null || medicine == null) {
+                _uiState.update { it.copy(isSimulating = false, errorMessage = "Dose not found.") }
+                return@launch
+            }
+            val lastRefillAt = medicine.lastRefillAt ?: 0L
+            val latest = if (lastRefillAt > 0L) {
+                doseRepository.getLatestVerifiedDoseAfter(medicine.id, lastRefillAt)
+            } else {
+                doseRepository.getLatestVerifiedDose(medicine.id)
+            }
+            val emptyCells = (latest?.emptyCellsAfter ?: medicine.baselineEmptyCells) + medicine.pillsPerDose
+
+            recordVerifiedDoseUseCase(
+                doseId = doseId,
+                photoPath = photoPath,
+                emptyCellsAfter = emptyCells
+            ).onSuccess {
+                val updatedDose = doseRepository.getById(doseId)
+                val updatedMed = updatedDose?.let { medicineRepository.getById(it.medicineId) }
                 _uiState.update {
                     it.copy(
+                        isSimulating = false,
+                        isSuccess = true,
+                        isFailed = false,
+                        dose = updatedDose,
                         medicine = updatedMed,
-                        needsBaselinePhoto = false,
-                        errorMessage = null,
-                        infoMessage = "Baseline strip enrolled successfully."
+                        infoMessage = "Dose marked as taken."
                     )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = error.message ?: "Failed to record dose")
                 }
             }
         }
