@@ -95,6 +95,7 @@ class TfliteStripDetector @Inject constructor(
 
     private val mutex = Mutex()
     private var interpreter: Interpreter? = null
+    private var rfdetrDetector: RfdetrStripDetector? = null
     private var initAttempted = false
     private var modelContractError: String? = null
 
@@ -169,15 +170,34 @@ class TfliteStripDetector @Inject constructor(
      * The in-frame check and strip boundaries are evaluated geometrically against image borders.
      */
     override suspend fun detect(bitmap: Bitmap): Detection = mutex.withLock {
+        // If a test interpreter was injected, run the TFLite flow directly
+        if (interpreter != null) {
+            return@withLock detectTfliteMultiPass(bitmap)
+        }
+
+        // Try offline RF-DETR model first (exported from weights.pt)
+        try {
+            if (rfdetrDetector == null) {
+                rfdetrDetector = RfdetrStripDetector(context)
+            }
+            return@withLock rfdetrDetector!!.detect(bitmap)
+        } catch (_: Throwable) {
+            // Graceful fallback to TFLite (e.g. host Robolectric unit tests without native ONNX library)
+        }
+
+        detectTfliteMultiPass(bitmap)
+    }
+
+    private suspend fun detectTfliteMultiPass(bitmap: Bitmap): Detection {
         val first = detectUnlocked(bitmap)
         val box = if (first.cells.size >= VerificationConfig.minBlisterCells) {
             deriveStripBox(first.cells, VerificationConfig.stripCropMarginFraction) ?: first.stripBox
         } else {
             first.stripBox
-        } ?: return@withLock first
+        } ?: return first
 
         val area = StripCropPlanner.areaFraction(box.left, box.top, box.right, box.bottom)
-        if (area >= VerificationConfig.stripZoomAreaThreshold) return@withLock first
+        if (area >= VerificationConfig.stripZoomAreaThreshold) return first
 
         val pooled = first.cells.toMutableList()
         for (margin in VerificationConfig.stripCropMargins) {
@@ -206,7 +226,7 @@ class TfliteStripDetector @Inject constructor(
 
         val merged = filterOutlierCells(applyNms(pooled, VerificationConfig.iouThreshold))
         // Never return fewer cells than the plain whole-photo pass.
-        if (merged.size < first.cells.size) return@withLock first
+        if (merged.size < first.cells.size) return first
 
         val finalStripBox = if (merged.isNotEmpty()) {
             deriveStripBox(merged) ?: first.stripBox
@@ -221,7 +241,7 @@ class TfliteStripDetector @Inject constructor(
             cellCutoffTolerance = VerificationConfig.cellCutoffToleranceFraction
         )
 
-        first.copy(
+        return first.copy(
             cells = merged,
             stripBox = finalStripBox,
             stripFullyInFrame = finalInFrame
@@ -685,6 +705,10 @@ class TfliteStripDetector @Inject constructor(
                     interpreter?.close()
                 } catch (_: Throwable) {}
                 interpreter = null
+                try {
+                    rfdetrDetector?.close()
+                } catch (_: Throwable) {}
+                rfdetrDetector = null
                 initAttempted = false
                 modelContractError = null
             }
