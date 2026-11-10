@@ -41,4 +41,18 @@ object VerificationConfig {
     var minMeanCellConfidence: Float = 0.55f
     var minAlignedCellFraction: Float = 0.8f // share of cells lying on a regular row or column
     var minStripCoverage: Float = 0.10f // total cell area / strip box area (real strips: ~0.3-0.45; rotated/single-row: ~0.12)
+
+    // Level-1 Global image quality checks (light check: minimum resolution, not near-black/near-white)
+    var globalMinDimensionPx: Int = 100 // minimum width and height of original photo
+    var globalBrightnessMin: Double = 15.0 // near-black overall (lens blocked/covered)
+    var globalBrightnessMax: Double = 245.0 // near-white overall (direct harsh light/saturation)
+
+    // Level-2 Blister crop quality checks (evaluated on the tightly cropped blister strip)
+    var stripCropQualityPadding: Float = 0.0f // padding around strip box for crop quality check (isolated to blister, avoids leaking sharp/blurry background)
+    var minBlisterResolutionPx: Int = 24 // crop width and height must each be at least this (supports unit test fixtures and small real strips)
+    var blisterBlurVarianceMin: Double = 100.0 // Laplacian variance threshold on blister crop
+    var blisterBrightnessMin: Double = 40.0 // min mean brightness of blister crop
+    var blisterBrightnessMax: Double = 220.0 // max mean brightness of blister crop
+    var blisterContrastMin: Double = 15.0 // min RMS contrast (standard deviation of luminance)
+    var blisterGlareFractionMax: Double = 0.08 // max fraction of saturated near-white pixels (>= 250)
 }

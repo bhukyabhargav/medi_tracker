@@ -77,20 +77,100 @@ class VerificationPipelineTest {
     }
 
     @Test
-    fun blurryImage_failsQualityGate_andDoesNotCallDetector() = runTest {
-        // Uniform gray image is blurry
-        val blurryBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        for (y in 0 until 100) {
-            for (x in 0 until 100) {
-                blurryBitmap.setPixel(x, y, Color.rgb(128, 128, 128))
-            }
-        }
-
-        val result = pipeline.verify(blurryBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+    fun insufficientResolution_failsLevel1QualityGate_andDoesNotCallDetector() = runTest {
+        // Image smaller than globalMinDimensionPx (100) fails Level 1 immediately
+        val tinyBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+        val result = pipeline.verify(tinyBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
         assertFalse(result.passed)
         assertEquals(RejectReason.BLURRY, result.rejectReason)
         coVerify(exactly = 0) { stripDetector.detect(any()) }
+    }
+
+    @Test
+    fun blurryStripWithSharpBackground_failsLevel2QualityGate_afterDetection() = runTest {
+        val width = 300
+        val height = 300
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        // Background is sharp checkerboard
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val isEven = ((x / 4) + (y / 4)) % 2 == 0
+                bitmap.setPixel(x, y, if (isEven) Color.rgb(30, 30, 30) else Color.rgb(200, 200, 200))
+            }
+        }
+
+        // Center blister area [75, 75, 225, 225] is solid gray (perfectly blurry)
+        for (y in 75 until 225) {
+            for (x in 75 until 225) {
+                bitmap.setPixel(x, y, Color.rgb(128, 128, 128))
+            }
+        }
+
+        // Detector locates the strip in the center
+        val centerCells = listOf(
+            Cell(box = android.graphics.RectF(0.30f, 0.30f, 0.40f, 0.42f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.45f, 0.30f, 0.55f, 0.42f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.60f, 0.30f, 0.70f, 0.42f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.30f, 0.50f, 0.40f, 0.62f), state = CellState.FULL, confidence = 0.95f)
+        )
+        val detection = Detection(
+            cells = centerCells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f,
+            stripBox = android.graphics.RectF(0.25f, 0.25f, 0.75f, 0.75f)
+        )
+        coEvery { stripDetector.detect(any()) } returns detection
+
+        val result = pipeline.verify(bitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        // Must reject as BLURRY despite the sharp background!
+        assertFalse("Sharp background must never rescue a blurry blister strip", result.passed)
+        assertEquals(RejectReason.BLURRY, result.rejectReason)
+        coVerify(exactly = 1) { stripDetector.detect(any()) }
+    }
+
+    @Test
+    fun sharpStripWithDarkBackground_passesLevel2QualityGate() = runTest {
+        val width = 300
+        val height = 300
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        // Background is dark (table cloth, RGB 22)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                bitmap.setPixel(x, y, Color.rgb(22, 22, 22))
+            }
+        }
+
+        // Center blister area [75, 75, 225, 225] is sharp and well-lit checkerboard
+        for (y in 75 until 225) {
+            for (x in 75 until 225) {
+                val isEven = ((x / 4) + (y / 4)) % 2 == 0
+                bitmap.setPixel(x, y, if (isEven) Color.rgb(35, 35, 35) else Color.rgb(200, 200, 200))
+            }
+        }
+
+        val centerCells = listOf(
+            Cell(box = android.graphics.RectF(0.30f, 0.30f, 0.40f, 0.42f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.45f, 0.30f, 0.55f, 0.42f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.60f, 0.30f, 0.70f, 0.42f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.30f, 0.50f, 0.40f, 0.62f), state = CellState.FULL, confidence = 0.95f)
+        )
+        val detection = Detection(
+            cells = centerCells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f,
+            stripBox = android.graphics.RectF(0.25f, 0.25f, 0.75f, 0.75f)
+        )
+        coEvery { stripDetector.detect(any()) } returns detection
+
+        val result = pipeline.verify(bitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        // Must pass! Dark background does not fail when strip is sharp and well-lit
+        assertTrue("Good strip must not be rejected for a dark background", result.passed)
+        assertEquals(1, result.emptyCellsAfter)
     }
 
     @Test

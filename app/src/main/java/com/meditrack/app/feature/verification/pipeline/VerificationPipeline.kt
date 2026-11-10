@@ -32,13 +32,13 @@ class VerificationPipeline @Inject constructor(
         previousTotalCells: Int? = null
     ): VerificationResult {
 
-        // Step 1: Quality Gate
-        val quality = ImageQualityGate.analyze(bitmap)
-        if (!quality.passed) {
+        // Step 1: Level-1 Quality Gate (light check on original image: decode, min size, not near-black/near-white)
+        val level1Quality = ImageQualityGate.analyzeLevel1(bitmap)
+        if (!level1Quality.passed) {
             return VerificationResult(
                 passed = false,
-                rejectReason = quality.reason ?: RejectReason.BLURRY,
-                friendlyMessage = quality.friendlyMessage
+                rejectReason = level1Quality.reason ?: RejectReason.BLURRY,
+                friendlyMessage = level1Quality.friendlyMessage
             )
         }
 
@@ -60,11 +60,23 @@ class VerificationPipeline @Inject constructor(
 
         // Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
         // Stray cells without strip evidence (normal photo) are rejected here.
-        if (detection.cells.isEmpty() || !BlisterPresenceValidator.evaluate(detection).present) {
+        val presence = BlisterPresenceValidator.evaluate(detection)
+        if (detection.cells.isEmpty() || !presence.present) {
             return VerificationResult(
                 passed = false,
                 rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
-                friendlyMessage = "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
+                friendlyMessage = presence.message ?: "No blister pack detected. Please place the blister strip flat and ensure it is clearly visible."
+            )
+        }
+
+        // Step 4: Level-2 Quality Gate on the Blister Crop (blur, brightness, contrast, glare, resolution)
+        val stripBox = ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
+        val level2Quality = ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
+        if (!level2Quality.passed) {
+            return VerificationResult(
+                passed = false,
+                rejectReason = level2Quality.reason ?: RejectReason.BLURRY,
+                friendlyMessage = level2Quality.friendlyMessage
             )
         }
 

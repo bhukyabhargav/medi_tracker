@@ -150,24 +150,38 @@ fun EnrollmentPhotoView(
                 return@launch
             }
 
-            // 1) Is there a blister strip anywhere in the photo? This is mandatory and can never be bypassed:
+            // 1) Level-1 quality check on whole image (decode, min size, not near-black/near-white)
+            val level1 = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeLevel1(bitmap)
+            if (!level1.passed) {
+                withContext(Dispatchers.Main) {
+                    pendingPhotoPath = null
+                    pendingEmptyCells = 0
+                    qualityError = level1.friendlyMessage ?: "Photo quality check failed"
+                    isCapturing = false
+                }
+                return@launch
+            }
+
+            // 2) Is there a blister strip anywhere in the photo? This is mandatory and can never be bypassed:
             //    if the detector is missing or fails we cannot confirm a strip, so the photo is NOT accepted.
             var presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.Result(
                 present = false,
                 message = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.MSG_NOT_FOUND
             )
+            var detection: com.meditrack.app.feature.verification.pipeline.Detection? = null
             if (stripDetector == null) {
                 presence = presence.copy(message = "Blister check is unavailable right now. Please try again.")
             } else {
                 try {
-                    presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator
-                        .evaluate(stripDetector.detect(bitmap))
+                    val d = stripDetector.detect(bitmap)
+                    detection = d
+                    presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(d)
                 } catch (e: Exception) {
                     Log.w("EnrollmentPhotoView", "Strip detector failed during enrollment: ${e.message}")
                     presence = presence.copy(message = "Could not check the photo for a blister strip. Please retake.")
                 }
             }
-            if (!presence.present) {
+            if (!presence.present || detection == null) {
                 withContext(Dispatchers.Main) {
                     pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip
                     pendingEmptyCells = 0
@@ -180,13 +194,14 @@ fun EnrollmentPhotoView(
                 it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
             }
 
-            // 2) Photo quality. A real strip with a mediocre photo may still be used if the person insists.
-            val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
-            if (!quality.passed) {
+            // 3) Level-2 quality check on blister crop. A real strip with a mediocre photo may still be used if the person insists.
+            val stripBox = com.meditrack.app.feature.verification.quality.ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
+            val level2Quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
+            if (!level2Quality.passed) {
                 withContext(Dispatchers.Main) {
                     pendingPhotoPath = path
                     pendingEmptyCells = detectedEmptyCells
-                    qualityError = quality.friendlyMessage ?: "Photo quality check failed"
+                    qualityError = level2Quality.friendlyMessage ?: "Blister photo quality check failed"
                     isCapturing = false
                 }
                 return@launch

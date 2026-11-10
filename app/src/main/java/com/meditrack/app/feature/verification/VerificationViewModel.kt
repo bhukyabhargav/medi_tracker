@@ -282,11 +282,11 @@ class VerificationViewModel @Inject constructor(
                 null
             }
             if (bitmap != null) {
-                val quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyze(bitmap)
-                if (!quality.passed) {
+                val level1 = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeLevel1(bitmap)
+                if (!level1.passed) {
                     _uiState.update {
                         it.copy(
-                            errorMessage = quality.friendlyMessage ?: "Baseline photo quality check failed. Please retake in good lighting."
+                            errorMessage = level1.friendlyMessage ?: "Baseline photo quality check failed. Please retake in good lighting."
                         )
                     }
                     return@launch
@@ -299,9 +299,20 @@ class VerificationViewModel @Inject constructor(
                 }
                 val presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
 
-                if (!presence.present) {
+                if (!presence.present || detection == null) {
                     _uiState.update {
-                        it.copy(errorMessage = presence.message)
+                        it.copy(errorMessage = presence.message ?: "No blister pack detected.")
+                    }
+                    return@launch
+                }
+
+                val stripBox = com.meditrack.app.feature.verification.quality.ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
+                val level2Quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
+                if (!level2Quality.passed) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = level2Quality.friendlyMessage ?: "Blister photo quality check failed. Please retake with better lighting."
+                        )
                     }
                     return@launch
                 }
