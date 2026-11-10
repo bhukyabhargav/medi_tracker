@@ -177,7 +177,7 @@ class VerificationViewModel @Inject constructor(
 
     fun processCapturedPhoto(photoPath: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null) }
+            _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null, lastRejectedPhotoPath = null) }
             val bitmap = try {
                 com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
             } catch (t: Throwable) {
@@ -230,7 +230,8 @@ class VerificationViewModel @Inject constructor(
                             isAnalyzing = false,
                             isFailed = true,
                             rejectReason = result.reason,
-                            lastRejectedPhotoPath = photoPath,
+                            // Never offer "use anyway" for TOO_EARLY: it would bypass the early-intake guard.
+                            lastRejectedPhotoPath = if (result.reason == RejectReason.TOO_EARLY) null else photoPath,
                             attemptsRemaining = result.attemptsRemaining,
                             dose = updatedDose,
                             errorMessage = result.friendlyMessage ?: "Verification rejected: ${result.reason}"
@@ -332,6 +333,7 @@ class VerificationViewModel @Inject constructor(
      * by the prescribed pills-per-dose so later verifications still compare correctly.
      */
     fun useRejectedPhotoAnyway() {
+        if (_uiState.value.isSimulating || _uiState.value.isAnalyzing) return // ignore double taps
         val photoPath = _uiState.value.lastRejectedPhotoPath ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }

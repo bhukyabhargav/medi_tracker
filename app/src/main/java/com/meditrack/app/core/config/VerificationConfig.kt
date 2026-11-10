@@ -30,7 +30,15 @@ object VerificationConfig {
     var maxUnreliableCellFraction: Float = 0.30f
 
     // Blister-presence evidence (shared by enrollment and dose verification).
-    var minBlisterCells: Int = 1 // with a confident strip box, a nearly finished strip may show only 1 cavity
-    var minCellsWithoutStrip: Int = 4 // cell-only evidence (no strip box) needs at least this many cells
-    var minConsistentCellFraction: Float = 0.8f // share of cells with a similar size
+    // The bundled model was trained without "no blister" photos, so it reports a strip/cells with 0.5-0.9 confidence
+    // on ordinary photos (people, animals, coins, plain walls). Confidence alone therefore cannot prove a blister;
+    // the layout of the detected cells has to look like a blister (a regular grid of equal-sized cavities
+    // that fill a good part of the strip box).
+    var minBlisterCells: Int = 4 // a physical blister strip has at least this many cavities
+    var minConsistentCellFraction: Float = 0.8f // share of cells whose width AND height are close to the median
+    var cellSizeToleranceLow: Float = 0.7f
+    var cellSizeToleranceHigh: Float = 1.45f
+    var minMeanCellConfidence: Float = 0.55f
+    var minAlignedCellFraction: Float = 0.8f // share of cells lying on a regular row or column
+    var minStripCoverage: Float = 0.10f // total cell area / strip box area (real strips: ~0.3-0.45; rotated/single-row: ~0.12)
 }

@@ -30,7 +30,7 @@ class FakeStripDetector @Inject constructor() : StripDetector {
         }
 
         val confidence = when (behavior) {
-            ForceDetectorBehavior.FORCE_LOW_CONFIDENCE -> 0.35f // < DETECTOR_MIN_CONFIDENCE (0.5f)
+            ForceDetectorBehavior.FORCE_LOW_CONFIDENCE -> 0.56f // passes the presence check but is below reliableCellConfidence (0.60) -> BLURRY
             else -> 0.96f
         }
 
@@ -57,7 +57,8 @@ class FakeStripDetector @Inject constructor() : StripDetector {
 
         return Detection(
             cells = cells,
-            stripFullyInFrame = stripInFrame
+            stripFullyInFrame = stripInFrame,
+            stripConfidence = 0.9f // debug fake always "finds" a strip, so debug behaviours stay as before
         )
     }
 

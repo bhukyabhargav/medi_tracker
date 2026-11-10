@@ -47,6 +47,22 @@ class VerificationPipelineTest {
         pipeline = VerificationPipeline(stripDetector)
     }
 
+
+    /**
+     * Builds a Detection whose cells sit on a regular 5-column grid with equal-sized boxes (like a real strip),
+     * keeping the given states and confidences. Presence checks need realistic geometry.
+     */
+    private fun detectionOf(cells: List<Cell>, stripConfidence: Float? = 0.90f): Detection {
+        val placed = cells.mapIndexed { i, c ->
+            val col = i % 5
+            val row = i / 5
+            val left = 0.10f + col * 0.16f
+            val top = 0.20f + row * 0.22f
+            c.copy(box = android.graphics.RectF(left, top, left + 0.11f, top + 0.15f))
+        }
+        return Detection(cells = placed, stripFullyInFrame = true, stripConfidence = stripConfidence)
+    }
+
     private fun createSharpBitmap(): Bitmap {
         val width = 200
         val height = 200
@@ -142,14 +158,12 @@ class VerificationPipelineTest {
     fun zeroPillsRemoved_failsPillsNotRemoved() = runTest {
         val sharpBitmap = createSharpBitmap()
         // lastVerified was 0 empty cells, current has 0 empty cells -> delta = 0
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
+                Cell(state = CellState.FULL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -161,16 +175,12 @@ class VerificationPipelineTest {
     fun wrongPillCount_deltaDoesNotMatchPillsPerDose_failsWrongPillCount() = runTest {
         val sharpBitmap = createSharpBitmap()
         // lastVerified = 0, pillsPerDose = 1, but newEmpty = 3 -> delta = 3 != 1
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -183,15 +193,12 @@ class VerificationPipelineTest {
         // Rewritten per Stage 13 Problem A1: cell_partial was never trained/verified in model.
         // Ambiguous PARTIAL detection must trigger retake (WRONG_PILL_COUNT), not silently count as FULL.
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.PARTIAL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -204,15 +211,12 @@ class VerificationPipelineTest {
         // Rewritten per Stage 13 Problem A6: any cell confidence below VerificationConfig threshold
         // must conservatively reject with a retake message (RejectReason.BLURRY) instead of passing.
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.EMPTY, confidence = 0.30f),
+                Cell(state = CellState.FULL, confidence = 0.30f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -226,16 +230,12 @@ class VerificationPipelineTest {
         val medWithBaseline = sampleMedicine.copy(baselineEmptyCells = 2)
 
         // newEmpty = 3, delta = 3 - 2 = 1 == pillsPerDose (1) -> PASS
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, medWithBaseline, lastVerifiedEmptyCells = null)
 
@@ -247,14 +247,12 @@ class VerificationPipelineTest {
     fun photograph_passesVerification_withoutAnyMedicineNameOcr() = runTest {
         val sharpBitmap = createSharpBitmap()
         // Standard valid strip detection: 1 empty, 1 full. Delta = 1 == pillsPerDose
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
@@ -268,14 +266,12 @@ class VerificationPipelineTest {
     fun hiddenOrCroppedOrUnreadableMedicineName_cannotCauseRejection() = runTest {
         val sharpBitmap = createSharpBitmap()
         // Blister strip with no visible text / cropped text
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.90f),
+                Cell(state = CellState.FULL, confidence = 0.90f),
+                Cell(state = CellState.FULL, confidence = 0.90f),
                 Cell(state = CellState.FULL, confidence = 0.90f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+            ), stripConfidence = 0.90f)
 
         // The pipeline does not inspect or require printed text
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
@@ -287,13 +283,12 @@ class VerificationPipelineTest {
     @Test
     fun noMedicineNameComparison_isExecutedDuringDoseVerification() = runTest {
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
-                Cell(state = CellState.EMPTY, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
+                Cell(state = CellState.EMPTY, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f)
+            ), stripConfidence = 0.90f)
 
         // Medicine name could be anything; scheduled medicine identity comes from DB record
         val medicineWithUnusualName = sampleMedicine.copy(name = "X99 Special Formula Complex")
@@ -306,14 +301,10 @@ class VerificationPipelineTest {
     @Test
     fun lowStripConfidence_rejectsWithStripNotFullyVisible() = runTest {
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
                 Cell(state = CellState.FULL, confidence = 0.95f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.30f // Below VerificationConfig.confidenceThreshold (0.50f)
-        )
+            ), stripConfidence = 0.30f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
         assertFalse(result.passed)
@@ -323,14 +314,12 @@ class VerificationPipelineTest {
     @Test
     fun lowCellConfidence_rejectsWithBlurry() = runTest {
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.FULL, confidence = 0.40f) // Below minCellConfidence (0.60f)
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+                Cell(state = CellState.FULL, confidence = 0.40f), // Below reliableCellConfidence
+                Cell(state = CellState.FULL, confidence = 0.40f),
+                Cell(state = CellState.EMPTY, confidence = 0.95f)
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
         assertFalse(result.passed)
@@ -340,14 +329,12 @@ class VerificationPipelineTest {
     @Test
     fun partialCellDetected_rejectsWithWrongPillCount() = runTest {
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
                 Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.PARTIAL, confidence = 0.90f) // Ambiguous partial/damaged pill
-            ),
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+                Cell(state = CellState.PARTIAL, confidence = 0.90f), // Ambiguous partial/damaged pill
+                Cell(state = CellState.FULL, confidence = 0.95f),
+                Cell(state = CellState.FULL, confidence = 0.95f)
+            ), stripConfidence = 0.90f)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
         assertFalse(result.passed)
@@ -357,16 +344,14 @@ class VerificationPipelineTest {
     @Test
     fun cellCountDeviation_exceedsTolerance_rejectsWithWrongPillCount() = runTest {
         val sharpBitmap = createSharpBitmap()
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = listOf(
-                Cell(state = CellState.EMPTY, confidence = 0.95f),
-                Cell(state = CellState.FULL, confidence = 0.95f)
-            ), // Total 2 cavities
-            stripFullyInFrame = true,
-            stripConfidence = 0.90f
-        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(listOf(
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
+        ), stripConfidence = 0.90f) // Total 4 cavities
 
-        // Previous scan had 10 cavities. Difference = 8 > tolerance (1)
+        // Previous scan had 10 cavities. Difference = 6 > tolerance (1)
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0, previousTotalCells = 10)
         assertFalse(result.passed)
         assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
@@ -398,7 +383,7 @@ class VerificationPipelineTest {
             add(Cell(state = CellState.EMPTY, confidence = 0.80f))
             repeat(8) { add(Cell(state = CellState.FULL, confidence = 0.85f)) }
         }
-        coEvery { stripDetector.detect(any()) } returns Detection(cells = cells, stripFullyInFrame = true)
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
 
         val medicine = sampleMedicine.copy(baselineEmptyCells = 1)
         val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = 1)
@@ -414,11 +399,51 @@ class VerificationPipelineTest {
             repeat(6) { add(Cell(state = CellState.FULL, confidence = 0.50f)) }
             repeat(4) { add(Cell(state = CellState.FULL, confidence = 0.90f)) }
         }
-        coEvery { stripDetector.detect(any()) } returns Detection(cells = cells, stripFullyInFrame = true)
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
 
         val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
 
         assertFalse(result.passed)
         assertEquals(RejectReason.BLURRY, result.rejectReason)
+    }
+
+    // ----- Blister presence: ordinary photos must never be accepted as a blister strip -----
+
+    private fun scatteredFalseDetection(): Detection {
+        // What the model produces on a normal photo: a "strip" with decent confidence plus a few cells of
+        // different sizes at irregular places.
+        val boxes = listOf(
+            android.graphics.RectF(0.10f, 0.10f, 0.22f, 0.25f),
+            android.graphics.RectF(0.55f, 0.20f, 0.60f, 0.24f),
+            android.graphics.RectF(0.30f, 0.62f, 0.52f, 0.90f),
+            android.graphics.RectF(0.80f, 0.70f, 0.86f, 0.74f),
+            android.graphics.RectF(0.40f, 0.05f, 0.47f, 0.13f)
+        )
+        return Detection(
+            cells = boxes.map { Cell(box = it, state = CellState.FULL, confidence = 0.70f) },
+            stripFullyInFrame = true,
+            stripConfidence = 0.85f,
+            stripBox = android.graphics.RectF(0f, 0f, 1f, 1f)
+        )
+    }
+
+    @Test
+    fun scatteredFalseCellsOnOrdinaryPhoto_areRejectedAsNoBlister() = runTest {
+        coEvery { stripDetector.detect(any()) } returns scatteredFalseDetection()
+        val result = pipeline.verify(createSharpBitmap(), sampleMedicine, lastVerifiedEmptyCells = 0)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+    }
+
+    @Test
+    fun cellsWithoutGeometry_areRejectedAsNoBlister() = runTest {
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = List(6) { Cell(state = CellState.FULL, confidence = 0.95f) }, // all RectF() = no geometry
+            stripFullyInFrame = true,
+            stripConfidence = 0.90f
+        )
+        val result = pipeline.verify(createSharpBitmap(), sampleMedicine, lastVerifiedEmptyCells = 0)
+        assertFalse(result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
     }
 }
