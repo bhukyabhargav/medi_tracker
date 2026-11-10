@@ -307,7 +307,16 @@ class VerificationViewModel @Inject constructor(
                 } catch (e: Exception) {
                     null
                 }
-                val presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
+                val presence = if (detection?.isRoboflowWorkflow == true) {
+                    val accepted = detection.roboflowPackStatus.equals("accepted", ignoreCase = true)
+                    com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.Result(
+                        present = accepted,
+                        validCells = detection.cells,
+                        message = if (accepted) null else com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.MSG_NOT_FOUND
+                    )
+                } else {
+                    com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
+                }
 
                 if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                     _uiState.update {
@@ -333,10 +342,16 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
-                val emptyCells = presence.validCells.count {
-                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                val emptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+                    detection.roboflowMissingCount
+                } else {
+                    presence.validCells.count {
+                        it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                    }
                 }
-                val geometrySig = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(presence.validCells, stripBox)
+                val geometrySig = if (!detection.isRoboflowWorkflow) {
+                    com.meditrack.app.domain.model.BaselineGeometrySignature.extract(presence.validCells, stripBox)
+                } else null
                 val updatedMed = med.copy(
                     baselinePhotoPath = photoPath,
                     baselineEmptyCells = emptyCells

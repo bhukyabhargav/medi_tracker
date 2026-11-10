@@ -79,8 +79,18 @@ class VerificationPipeline @Inject constructor(
 
         // Step 3b: Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
         // Stray cells without strip evidence (normal photo) are rejected here.
-        val presence = BlisterPresenceValidator.evaluate(detection)
-        if (detection.cells.isEmpty() || !presence.present) {
+        val presence = if (detection.isRoboflowWorkflow) {
+            val accepted = detection.roboflowPackStatus.equals("accepted", ignoreCase = true)
+            BlisterPresenceValidator.Result(
+                present = accepted,
+                validCells = detection.cells,
+                message = if (accepted) null else BlisterPresenceValidator.MSG_NOT_FOUND
+            )
+        } else {
+            BlisterPresenceValidator.evaluate(detection)
+        }
+
+        if (!presence.present) {
             val fail = VerificationFailureReason.BLISTER_NOT_FOUND
             return VerificationResult(
                 passed = false,
@@ -150,7 +160,7 @@ class VerificationPipeline @Inject constructor(
         val validCells = detection.cells.filter { it.confidence >= VerificationConfig.minCellConfidence }
 
         // Conservative Guard: Cell count tolerance check against previous capture of the same strip (A6)
-        if (previousTotalCells != null && abs(validCells.size - previousTotalCells) > VerificationConfig.maxCellCountTolerance) {
+        if (!detection.isRoboflowWorkflow && previousTotalCells != null && abs(validCells.size - previousTotalCells) > VerificationConfig.maxCellCountTolerance) {
             val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
             return VerificationResult(
                 passed = false,
@@ -163,7 +173,7 @@ class VerificationPipeline @Inject constructor(
 
         // Task 5: Baseline geometry signature check (rotation-invariant count, aspect ratio, arrangement)
         val baselineSignature = medicine.getBaselineSignature()
-        if (baselineSignature != null && validCells.size >= 4) {
+        if (!detection.isRoboflowWorkflow && baselineSignature != null && validCells.size >= 4) {
             val currentSignature = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(validCells, stripBox)
             if (currentSignature != null) {
                 val comparison = com.meditrack.app.domain.model.BaselineGeometrySignature.compare(currentSignature, baselineSignature)
@@ -184,7 +194,11 @@ class VerificationPipeline @Inject constructor(
         // previousEmpty = emptyCellsAfter of the last verified dose for this medicine, or baselineEmptyCells if none
         val previousEmpty = lastVerifiedEmptyCells ?: medicine.baselineEmptyCells
 
-        val newEmpty = validCells.count { it.state == CellState.EMPTY }
+        val newEmpty = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+            detection.roboflowMissingCount
+        } else {
+            validCells.count { it.state == CellState.EMPTY }
+        }
         val delta = newEmpty - previousEmpty
 
         return when {

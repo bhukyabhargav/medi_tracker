@@ -175,7 +175,16 @@ fun EnrollmentPhotoView(
                 try {
                     val d = stripDetector.detect(bitmap)
                     detection = d
-                    presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(d)
+                    presence = if (d.isRoboflowWorkflow) {
+                        val accepted = d.roboflowPackStatus.equals("accepted", ignoreCase = true)
+                        com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.Result(
+                            present = accepted,
+                            validCells = d.cells,
+                            message = if (accepted) null else com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.MSG_NOT_FOUND
+                        )
+                    } else {
+                        com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(d)
+                    }
                 } catch (e: Exception) {
                     Log.w("EnrollmentPhotoView", "Strip detector failed during enrollment: ${e.message}")
                     presence = presence.copy(message = "Could not check the photo for a blister strip. Please retake.")
@@ -194,8 +203,12 @@ fun EnrollmentPhotoView(
                 }
                 return@launch
             }
-            val detectedEmptyCells = presence.validCells.count {
-                it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+            val detectedEmptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+                detection.roboflowMissingCount
+            } else {
+                presence.validCells.count {
+                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                }
             }
 
             // 3) Level-2 quality check on blister crop. A real strip with a mediocre photo may still be used if the person insists.

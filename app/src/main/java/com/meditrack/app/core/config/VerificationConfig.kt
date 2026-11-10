@@ -9,6 +9,9 @@ package com.meditrack.app.core.config
 object VerificationConfig {
     var modelVersion: String = "v1.0.0-tflite"
     var isTfliteEnabled: Boolean = true
+    var isRoboflowWorkflowEnabled: Boolean = true
+    var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-ytykf/workflows/blister-pack-missing-tablet-counter-1794253615843"
+    var roboflowApiKey: String = "jZmdnU1kp8FytFibdLat"
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
