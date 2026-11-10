@@ -128,28 +128,41 @@ fun DoctorScreen(
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Person, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = if (uiState.currentUserRole == UserRole.DOCTOR) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (uiState.currentUserRole == UserRole.DOCTOR) {
                                 "Active Role: Doctor (Monitoring & Proposals)"
                             } else {
                                 "Active Role: Patient (Prescription Decision Authority)"
                             },
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (uiState.currentUserRole == UserRole.DOCTOR) {
-                            Text(
-                                text = "MediTrack does not verify medical licenses. Doctor proposals require explicit patient acceptance.",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
                             )
+                            if (uiState.currentUserRole == UserRole.DOCTOR) {
+                                Text(
+                                    text = "MediTrack does not verify medical licenses. Doctor proposals require explicit patient acceptance.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.toggleRole() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (uiState.currentUserRole == UserRole.DOCTOR) "Switch to Patient View" else "Switch to Doctor View"
+                        )
                     }
                 }
             }
