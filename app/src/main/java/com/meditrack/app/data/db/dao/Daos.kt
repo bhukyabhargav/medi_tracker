@@ -132,7 +132,7 @@ interface DoseEventDao {
     @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND status IN ('TAKEN', 'TAKEN_LATE') ORDER BY CASE WHEN takenAt IS NOT NULL THEN takenAt ELSE scheduledAt END DESC LIMIT 1")
     suspend fun getLatestVerifiedDose(medicineId: String): DoseEvent?
 
-    @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND status IN ('TAKEN', 'TAKEN_LATE') AND (takenAt >= :afterMillis OR scheduledAt >= :afterMillis) ORDER BY CASE WHEN takenAt IS NOT NULL THEN takenAt ELSE scheduledAt END DESC LIMIT 1")
+    @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId AND status IN ('TAKEN', 'TAKEN_LATE') AND (CASE WHEN takenAt IS NOT NULL THEN takenAt ELSE updatedAt END) >= :afterMillis ORDER BY CASE WHEN takenAt IS NOT NULL THEN takenAt ELSE scheduledAt END DESC LIMIT 1")
     suspend fun getLatestVerifiedDoseAfter(medicineId: String, afterMillis: Long): DoseEvent?
 
     @Query("SELECT MAX(scheduledAt) FROM dose_events WHERE medicineId = :medicineId")

@@ -121,19 +121,13 @@ class RfdetrStripDetector @Inject constructor(
 
             val results = session.run(mapOf("input" to inputTensor))
             try {
+                val detsVal = results.get("dets").orElseGet { results.get(0) }
+                val labelsVal = results.get("labels").orElseGet { results.get(1) }
                 @Suppress("UNCHECKED_CAST")
-                val out0 = (results.get(0).value as Array<Array<FloatArray>>)[0]
+                val detsArr = (detsVal.value as Array<Array<FloatArray>>)[0]
                 @Suppress("UNCHECKED_CAST")
-                val out1 = (results.get(1).value as Array<Array<FloatArray>>)[0]
-
-                val outputNames = session.outputNames.toList()
-                val (detsArr, labelsArr) = if (outputNames.getOrNull(0) == "dets") {
-                    Pair(out0, out1)
-                } else if (outputNames.getOrNull(1) == "dets") {
-                    Pair(out1, out0)
-                } else {
-                    Pair(out0, out1)
-                }
+                val labelsArr = (labelsVal.value as Array<Array<FloatArray>>)[0]
+                val cavityConfThreshold = min(confThreshold, 0.30f)
 
                 for (i in 0 until min(detsArr.size, NUM_DETECTIONS)) {
                     val logits = labelsArr[i]
@@ -142,7 +136,7 @@ class RfdetrStripDetector @Inject constructor(
                     val fullScore: Float
 
                     if (logits.size >= 5) {
-                        // 5-class schema: [bg0, bg1/cat0, blister_pack, empty_cavity, full_cavity]
+                        // 5-class schema: [bg0, blister_pack, dummy/unannotated, empty_cavity, full_cavity]
                         val s1 = logits.getOrElse(1) { -10f }
                         val s2 = logits.getOrElse(2) { -10f }
                         stripScore = sigmoid(max(s1, s2))
@@ -171,7 +165,7 @@ class RfdetrStripDetector @Inject constructor(
                     }
 
                     val maxCavityScore = max(emptyScore, fullScore)
-                    if (maxCavityScore >= confThreshold) {
+                    if (maxCavityScore >= cavityConfThreshold) {
                         val state = if (emptyScore > fullScore) CellState.EMPTY else CellState.FULL
                         rawCells.add(Cell(box = box, state = state, confidence = maxCavityScore))
                     }
@@ -305,7 +299,7 @@ class RfdetrStripDetector @Inject constructor(
         }
     }
 
-    internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.08f): RectF? {
+    internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.0f): RectF? {
         if (cells.isEmpty()) return null
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE

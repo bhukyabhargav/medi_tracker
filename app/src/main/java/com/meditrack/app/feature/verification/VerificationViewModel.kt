@@ -457,6 +457,59 @@ class VerificationViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Resets the strip ledger when a patient confirms they started a new or different blister pack,
+     * recording the dose directly with the new strip baseline without forcing navigation to Refill.
+     */
+    fun confirmNewStripAndVerify() {
+        if (_uiState.value.isSimulating || _uiState.value.isAnalyzing) return
+        val photoPath = _uiState.value.lastRejectedPhotoPath
+        if (photoPath.isNullOrBlank()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
+            val dose = doseRepository.getById(doseId)
+            val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
+            if (dose == null || medicine == null) {
+                _uiState.update { it.copy(isSimulating = false, errorMessage = "Dose not found.") }
+                return@launch
+            }
+
+            val now = System.currentTimeMillis()
+            val updatedMed = medicine.copy(
+                baselineEmptyCells = 0,
+                lastRefillAt = now,
+                updatedAt = now
+            )
+            medicineRepository.update(updatedMed)
+
+            val emptyCells = medicine.pillsPerDose
+            recordVerifiedDoseUseCase(
+                doseId = doseId,
+                photoPath = photoPath,
+                emptyCellsAfter = emptyCells,
+                takenAt = now
+            ).onSuccess {
+                val updatedDose = doseRepository.getById(doseId)
+                val refreshedMed = medicineRepository.getById(medicine.id)
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        isSuccess = true,
+                        isFailed = false,
+                        dose = updatedDose,
+                        medicine = refreshedMed,
+                        infoMessage = "New strip confirmed. Dose verified as taken."
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = error.message ?: "Failed to record dose with new strip")
+                }
+            }
+        }
+    }
+
     fun simulateVerifiedTake() {
         if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
