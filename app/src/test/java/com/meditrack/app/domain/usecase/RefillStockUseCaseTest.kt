@@ -73,6 +73,19 @@ class RefillStockUseCaseTest {
     }
 
     @Test
+    fun refill_startedNewStrip_requiresMeasuredBaselineCount() = runTest {
+        coEvery { medicineRepository.getById("med_refill") } returns sampleMedicine
+        val result = useCase(
+            medicineId = "med_refill",
+            additionalPills = 10,
+            newBaselineEmptyCells = null,
+            startedNewStrip = true
+        )
+        assertTrue("Starting a new strip without a measured baseline count must fail", result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test
     fun refill_rejectsNonPositivePillCounts() = runTest {
         val resultZero = useCase("med_refill", additionalPills = 0)
         assertTrue(resultZero.isFailure)

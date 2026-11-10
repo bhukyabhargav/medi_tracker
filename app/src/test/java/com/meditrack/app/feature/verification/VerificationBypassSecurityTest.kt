@@ -275,4 +275,61 @@ class VerificationBypassSecurityTest {
         coVerify(exactly = 0) { medicineRepository.update(any()) }
         photoFile.delete()
     }
+
+    @Test
+    fun confirmNewStripAndVerify_usesMeasuredEmptyCount_andResetsBaselineLedger() = runTest(testDispatcher) {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val photoFile = File(context.filesDir, "new_strip_test.jpg").apply {
+            val bmp = android.graphics.Bitmap.createBitmap(120, 120, android.graphics.Bitmap.Config.ARGB_8888)
+            outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        }
+
+        coEvery { verificationCoordinator.verify(any(), any(), any(), any()) } returns CoordinatorResult.Failed(
+            reason = RejectReason.WRONG_PILL_COUNT,
+            attemptsRemaining = 1,
+            friendlyMessage = "This looks like a different or new strip."
+        )
+
+        val cells = listOf(
+            com.meditrack.app.feature.verification.pipeline.Cell(state = com.meditrack.app.feature.verification.pipeline.CellState.EMPTY, confidence = 0.9f),
+            com.meditrack.app.feature.verification.pipeline.Cell(state = com.meditrack.app.feature.verification.pipeline.CellState.EMPTY, confidence = 0.9f),
+            com.meditrack.app.feature.verification.pipeline.Cell(state = com.meditrack.app.feature.verification.pipeline.CellState.EMPTY, confidence = 0.9f),
+            com.meditrack.app.feature.verification.pipeline.Cell(state = com.meditrack.app.feature.verification.pipeline.CellState.FULL, confidence = 0.9f)
+        )
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.95f
+        )
+        coEvery { recordVerifiedDoseUseCase(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+        // Capture photo to trigger rejection and populate lastRejectedPhotoPath
+        vm.processCapturedPhoto(photoFile.absolutePath)
+        advanceUntilIdle()
+
+        // Confirm new strip
+        vm.confirmNewStripAndVerify()
+        advanceUntilIdle()
+
+        val medSlot = io.mockk.slot<Medicine>()
+        coVerify { medicineRepository.update(capture(medSlot)) }
+        // Measured empty = 3, pillsPerDose = 1 => baseline empty = 3 - 1 = 2
+        assertEquals(2, medSlot.captured.baselineEmptyCells)
+        assertEquals(photoFile.absolutePath, medSlot.captured.baselinePhotoPath)
+        assertNotNull(medSlot.captured.lastRefillAt)
+
+        coVerify {
+            recordVerifiedDoseUseCase(
+                doseId = "dose_1",
+                photoPath = photoFile.absolutePath,
+                emptyCellsAfter = 3,
+                takenAt = any()
+            )
+        }
+
+        photoFile.delete()
+    }
 }

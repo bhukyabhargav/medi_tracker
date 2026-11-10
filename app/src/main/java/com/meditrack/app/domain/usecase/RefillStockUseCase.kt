@@ -12,7 +12,7 @@ class RefillStockUseCase @Inject constructor(
     suspend operator fun invoke(
         medicineId: String,
         additionalPills: Int,
-        newBaselineEmptyCells: Int = 0,
+        newBaselineEmptyCells: Int? = null,
         newBaselinePhotoPath: String? = null,
         startedNewStrip: Boolean = false,
         now: Long = System.currentTimeMillis()
@@ -23,12 +23,16 @@ class RefillStockUseCase @Inject constructor(
         val medicine = medicineRepository.getById(medicineId)
             ?: return Result.failure(IllegalArgumentException("Medicine not found: $medicineId"))
 
+        if (startedNewStrip && newBaselineEmptyCells == null) {
+            return Result.failure(IllegalArgumentException("Starting a new strip requires a measured baseline empty cavity count."))
+        }
+
         val newStock = medicine.currentStock + additionalPills
         val updated = if (startedNewStrip) {
             // README 3.6: a NEW strip resets the pill-count ledger (new baseline + lastRefillAt marker).
             medicine.copy(
                 currentStock = newStock,
-                baselineEmptyCells = newBaselineEmptyCells,
+                baselineEmptyCells = newBaselineEmptyCells ?: 0,
                 baselinePhotoPath = newBaselinePhotoPath ?: medicine.baselinePhotoPath,
                 lastRefillAt = now,
                 lowStockNotified = false,

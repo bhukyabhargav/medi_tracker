@@ -661,102 +661,101 @@ class VerificationPipelineTest {
     }
 
     @Test
-    fun baselineSignature_cellCountMismatch_rejectsWithDifferentStrip() = runTest {
+    fun firstDoseAfterEnrollment_withOneCellTolerance_passesVerification() = runTest {
         val sharpBitmap = createSharpBitmap()
-        // Current scan has 4 cells
+        // N = 2 baseline empty cells, pillsPerDose = 2
+        // Detection has N + pillsPerDose - 1 = 2 + 2 - 1 = 3 empty cells (delta = 1)
+        val medicine = sampleMedicine.copy(
+            baselineEmptyCells = 2,
+            pillsPerDose = 2
+        )
+        // 5 cells: 3 EMPTY, 2 FULL
         val cells = listOf(
-            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
         )
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = cells,
-            stripFullyInFrame = true,
-            stripConfidence = 0.95f,
-            stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f)
-        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
 
-        // Baseline had 10 cells
-        val baselineSig = com.meditrack.app.domain.model.BaselineGeometrySignature(
-            totalCellCount = 10,
-            normalizedCenters = emptyList(),
-            relativeCellSize = 0.05f,
-            estimatedRows = 2,
-            estimatedColumns = 5,
-            stripAspectRatio = 2.5f
-        )
-        val medWithSignature = sampleMedicine.withBaselineSignature(baselineSig)
+        // On first dose after enrollment, lastVerifiedEmptyCells is null
+        val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = null)
 
-        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
-
-        assertFalse(result.passed)
-        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
-        assertTrue(result.friendlyMessage!!.contains("different strip", ignoreCase = true) ||
-                   result.friendlyMessage!!.contains("does not match enrolled baseline", ignoreCase = true))
+        assertTrue("First dose with 1-cell tolerance must pass: ${result.friendlyMessage}", result.passed)
+        assertEquals(3, result.emptyCellsAfter)
     }
 
     @Test
-    fun baselineSignature_aspectRatioMismatch_rejectsWithDifferentStrip() = runTest {
+    fun firstDoseAfterEnrollment_noNewPillsRemoved_returnsPillsNotRemoved() = runTest {
         val sharpBitmap = createSharpBitmap()
-        // Current scan has 4 cells in a square strip (aspect ratio ~1.0)
+        // Baseline has 2 empty cells, photo also has 2 empty cells (delta = 0)
+        val medicine = sampleMedicine.copy(
+            baselineEmptyCells = 2,
+            pillsPerDose = 1
+        )
         val cells = listOf(
-            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
         )
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = cells,
-            stripFullyInFrame = true,
-            stripConfidence = 0.95f,
-            stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f) // square
-        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
 
-        // Baseline had 4 cells in an elongated 1x4 strip (aspect ratio 4.0)
-        val baselineSig = com.meditrack.app.domain.model.BaselineGeometrySignature(
-            totalCellCount = 4,
-            normalizedCenters = emptyList(),
-            relativeCellSize = 0.20f,
-            estimatedRows = 1,
-            estimatedColumns = 4,
-            stripAspectRatio = 4.0f
-        )
-        val medWithSignature = sampleMedicine.withBaselineSignature(baselineSig)
-
-        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
+        val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = null)
 
         assertFalse(result.passed)
-        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
-        assertTrue(result.friendlyMessage!!.contains("different strip", ignoreCase = true) ||
-                   result.friendlyMessage!!.contains("does not match enrolled baseline", ignoreCase = true))
+        assertEquals(RejectReason.PILLS_NOT_REMOVED, result.rejectReason)
+        assertEquals(2, result.emptyCellsAfter)
     }
 
     @Test
-    fun baselineSignature_matchingRotatedStrip_passesVerification() = runTest {
+    fun firstDoseAfterEnrollment_belowBaselineBeyondTolerance_returnsDifferentStrip() = runTest {
         val sharpBitmap = createSharpBitmap()
-        // Strip rotated 90 degrees: 2x2 grid, 1 empty, 3 full
+        // Baseline has 4 empty cells, photo has only 1 empty cell (delta = -3 < -1)
+        val medicine = sampleMedicine.copy(
+            baselineEmptyCells = 4,
+            pillsPerDose = 1
+        )
         val cells = listOf(
-            Cell(box = android.graphics.RectF(0.2f, 0.2f, 0.3f, 0.3f), state = CellState.EMPTY, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.2f, 0.5f, 0.3f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.2f, 0.4f, 0.3f, 0.5f), state = CellState.FULL, confidence = 0.95f),
-            Cell(box = android.graphics.RectF(0.4f, 0.4f, 0.5f, 0.5f), state = CellState.FULL, confidence = 0.95f)
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
         )
-        val stripBox = android.graphics.RectF(0.18f, 0.18f, 0.52f, 0.52f)
-        coEvery { stripDetector.detect(any()) } returns Detection(
-            cells = cells,
-            stripFullyInFrame = true,
-            stripConfidence = 0.95f,
-            stripBox = stripBox
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
+
+        val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = null)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertTrue(result.friendlyMessage!!.contains("different or new strip", ignoreCase = true))
+    }
+
+    @Test
+    fun laterDose_requiresStrictDelta_rejectsVariance() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // pillsPerDose = 2, previousEmpty = 2. Photo has 3 empty cells (delta = 1 != 2)
+        val medicine = sampleMedicine.copy(
+            baselineEmptyCells = 2,
+            pillsPerDose = 2
         )
+        val cells = listOf(
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
+        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
 
-        // Baseline extracted with same geometry
-        val currentSig = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(cells, stripBox)!!
-        val medWithSignature = sampleMedicine.withBaselineSignature(currentSig)
+        // For a later dose, lastVerifiedEmptyCells is NOT null
+        val result = pipeline.verify(sharpBitmap, medicine, lastVerifiedEmptyCells = 2)
 
-        val result = pipeline.verify(sharpBitmap, medWithSignature, lastVerifiedEmptyCells = 0)
-
-        assertTrue("Matching rotated strip must pass: ${result.friendlyMessage}", result.passed)
-        assertEquals(1, result.emptyCellsAfter)
+        assertFalse("Later dose must strictly require delta == pillsPerDose", result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertEquals("Expected 2 pill(s) removed, but counted 1.", result.friendlyMessage)
     }
 }

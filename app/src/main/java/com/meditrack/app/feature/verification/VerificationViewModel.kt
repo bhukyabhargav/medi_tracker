@@ -342,6 +342,14 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
+                val cellGuard = com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.evaluate(detection.cells)
+                if (cellGuard is com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.GuardResult.Rejected) {
+                    _uiState.update {
+                        it.copy(errorMessage = cellGuard.message)
+                    }
+                    return@launch
+                }
+
                 val emptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
                     detection.roboflowMissingCount
                 } else {
@@ -349,15 +357,10 @@ class VerificationViewModel @Inject constructor(
                         it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
                     }
                 }
-                val geometrySig = if (!detection.isRoboflowWorkflow) {
-                    com.meditrack.app.domain.model.BaselineGeometrySignature.extract(presence.validCells, stripBox)
-                } else null
                 val updatedMed = med.copy(
                     baselinePhotoPath = photoPath,
                     baselineEmptyCells = emptyCells
-                ).let {
-                    if (geometrySig != null) it.withBaselineSignature(geometrySig) else it
-                }
+                )
                 medicineRepository.update(updatedMed)
                 _uiState.update {
                     it.copy(
@@ -475,15 +478,50 @@ class VerificationViewModel @Inject constructor(
                 return@launch
             }
 
+            val bitmap = try {
+                com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
+            } catch (t: Throwable) {
+                null
+            }
+            if (bitmap == null) {
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = "Could not decode verification photo. Please retake.")
+                }
+                return@launch
+            }
+
+            val detection = try {
+                stripDetector.detect(bitmap)
+            } catch (e: Exception) {
+                null
+            }
+            if (detection == null || !detection.stripFullyInFrame) {
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        errorMessage = "Could not clearly detect the new blister strip in this photo. Please retake."
+                    )
+                }
+                return@launch
+            }
+
+            val measuredEmpty = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+                detection.roboflowMissingCount
+            } else {
+                detection.cells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+            }
+
             val now = System.currentTimeMillis()
+            val newBaselineEmpty = kotlin.math.max(0, measuredEmpty - medicine.pillsPerDose)
             val updatedMed = medicine.copy(
-                baselineEmptyCells = 0,
+                baselineEmptyCells = newBaselineEmpty,
+                baselinePhotoPath = photoPath,
                 lastRefillAt = now,
                 updatedAt = now
             )
             medicineRepository.update(updatedMed)
 
-            val emptyCells = medicine.pillsPerDose
+            val emptyCells = measuredEmpty
             recordVerifiedDoseUseCase(
                 doseId = doseId,
                 photoPath = photoPath,

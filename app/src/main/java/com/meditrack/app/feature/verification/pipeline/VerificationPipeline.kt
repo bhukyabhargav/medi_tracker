@@ -10,6 +10,7 @@ import com.meditrack.app.feature.verification.quality.PerceptualHasher
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlin.math.max
 
 @Singleton
 class VerificationPipeline @Inject constructor(
@@ -127,34 +128,18 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
-        // Conservative Guard: Cell confidence check (A6).
-        // A single weaker cell is normal on a reflective foil strip (real photos regularly have one or two cells
-        // at 0.45-0.60), so only reject when a large share of the detected cells is unreliable.
-        val unreliableCells = detection.cells.count { it.confidence < VerificationConfig.reliableCellConfidence }
-        val unreliableFraction = unreliableCells.toFloat() / detection.cells.size
-        val hasLowConfidenceCell = unreliableFraction > VerificationConfig.maxUnreliableCellFraction
-        if (hasLowConfidenceCell) {
-            val fail = VerificationFailureReason.IMAGE_BLURRY
-            return VerificationResult(
-                passed = false,
-                rejectReason = RejectReason.BLURRY,
-                failureReason = fail,
-                friendlyMessage = "Some blister cells could not be identified with high confidence. Please retake the photo with better lighting.",
-                retryHint = fail.retryHint
-            )
-        }
-
-        // Conservative Guard: Ambiguous partial cell check (A1: cell_partial not trained; treat as unknown/needs retake)
-        val hasPartial = detection.cells.any { it.state == CellState.PARTIAL }
-        if (hasPartial) {
-            val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
-            return VerificationResult(
-                passed = false,
-                rejectReason = RejectReason.WRONG_PILL_COUNT,
-                failureReason = fail,
-                friendlyMessage = "A damaged or partially pushed pill was detected. Please retake the photo with a clear view or verify manually.",
-                retryHint = fail.retryHint
-            )
+        // Conservative Guard: Shared cell confidence & partial-cell check
+        when (val cellGuard = BlisterCellGuards.evaluate(detection.cells)) {
+            is BlisterCellGuards.GuardResult.Rejected -> {
+                return VerificationResult(
+                    passed = false,
+                    rejectReason = cellGuard.failureReason.mappedRejectReason,
+                    failureReason = cellGuard.failureReason,
+                    friendlyMessage = cellGuard.message,
+                    retryHint = cellGuard.retryHint
+                )
+            }
+            is BlisterCellGuards.GuardResult.Passed -> { /* passed */ }
         }
 
         val validCells = detection.cells.filter { it.confidence >= VerificationConfig.minCellConfidence }
@@ -171,27 +156,9 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
-        // Task 5: Baseline geometry signature check (rotation-invariant count, aspect ratio, arrangement)
-        val baselineSignature = medicine.getBaselineSignature()
-        if (!detection.isRoboflowWorkflow && baselineSignature != null && validCells.size >= 4) {
-            val currentSignature = com.meditrack.app.domain.model.BaselineGeometrySignature.extract(validCells, stripBox)
-            if (currentSignature != null) {
-                val comparison = com.meditrack.app.domain.model.BaselineGeometrySignature.compare(currentSignature, baselineSignature)
-                if (!comparison.matches) {
-                    val fail = VerificationFailureReason.AMBIGUOUS_CELL_DETECTION
-                    return VerificationResult(
-                        passed = false,
-                        rejectReason = RejectReason.WRONG_PILL_COUNT,
-                        failureReason = fail,
-                        friendlyMessage = "Blister layout does not match enrolled baseline (${comparison.reason ?: "different strip"}). Please re-enroll this strip or confirm in Medicines.",
-                        retryHint = "If using a new brand or pack, re-enroll your strip baseline in Medicines."
-                    )
-                }
-            }
-        }
-
         // Step 5: Baseline compare (Ledger rule)
         // previousEmpty = emptyCellsAfter of the last verified dose for this medicine, or baselineEmptyCells if none
+        val isFirstDose = (lastVerifiedEmptyCells == null)
         val previousEmpty = lastVerifiedEmptyCells ?: medicine.baselineEmptyCells
 
         val newEmpty = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
@@ -202,19 +169,50 @@ class VerificationPipeline @Inject constructor(
         val delta = newEmpty - previousEmpty
 
         return when {
-            delta == medicine.pillsPerDose -> {
-                VerificationResult(
-                    passed = true,
-                    emptyCellsAfter = newEmpty,
-                    friendlyMessage = "Dose verified successfully."
-                )
-            }
             delta == 0 -> {
                 VerificationResult(
                     passed = false,
                     rejectReason = RejectReason.PILLS_NOT_REMOVED,
                     emptyCellsAfter = newEmpty,
                     friendlyMessage = "No new pills removed. Please push out your dose."
+                )
+            }
+            isFirstDose -> {
+                // First dose after enrollment or after a new strip reset:
+                // Accept newEmpty if delta is between max(1, pillsPerDose - firstDoseCountTolerance) and pillsPerDose + firstDoseCountTolerance.
+                // Always require at least one newly empty cell (delta >= 1).
+                val minAllowedDelta = max(1, medicine.pillsPerDose - VerificationConfig.firstDoseCountTolerance)
+                val maxAllowedDelta = medicine.pillsPerDose + VerificationConfig.firstDoseCountTolerance
+
+                if (delta in minAllowedDelta..maxAllowedDelta) {
+                    VerificationResult(
+                        passed = true,
+                        emptyCellsAfter = newEmpty,
+                        friendlyMessage = "Dose verified successfully."
+                    )
+                } else if (delta < -VerificationConfig.firstDoseCountTolerance) {
+                    // Count is below baseline by more than the tolerance: different strip.
+                    VerificationResult(
+                        passed = false,
+                        rejectReason = RejectReason.WRONG_PILL_COUNT,
+                        emptyCellsAfter = newEmpty,
+                        friendlyMessage = "This looks like a different or new strip. If you started a new strip, " +
+                            "open Medicines > Refill and switch on \"I started a new strip\"."
+                    )
+                } else {
+                    VerificationResult(
+                        passed = false,
+                        rejectReason = RejectReason.WRONG_PILL_COUNT,
+                        emptyCellsAfter = newEmpty,
+                        friendlyMessage = "Expected ${medicine.pillsPerDose} pill(s) removed, but counted $delta."
+                    )
+                }
+            }
+            delta == medicine.pillsPerDose -> {
+                VerificationResult(
+                    passed = true,
+                    emptyCellsAfter = newEmpty,
+                    friendlyMessage = "Dose verified successfully."
                 )
             }
             delta < 0 -> {

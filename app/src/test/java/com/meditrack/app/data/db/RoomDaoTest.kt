@@ -275,6 +275,25 @@ class RoomDaoTest {
     }
 
     @Test
+    fun doseEventDao_getLatestVerifiedDoseAfter_matchesWhenTakenAtIsSlightlyEarlierThanRefill() = runTest {
+        medicineDao.insert(createSampleMedicine("med_1"))
+
+        val refillAt = 2000L
+
+        // A verified dose whose photo was taken at t = 1995 (slightly earlier due to camera/EXIF timestamp),
+        // but whose write/updatedAt happened at t = 2005 (after refill marker)
+        val dose = createSampleDose("dose_refill_test", "med_1", scheduledAt = 1900L, status = DoseStatus.TAKEN).copy(
+            takenAt = 1995L,
+            updatedAt = 2005L
+        )
+        doseEventDao.insertAll(listOf(dose))
+
+        val result = doseEventDao.getLatestVerifiedDoseAfter("med_1", afterMillis = refillAt)
+        assertNotNull("Dose must be found even when takenAt is slightly earlier than lastRefillAt", result)
+        assertEquals("dose_refill_test", result?.id)
+    }
+
+    @Test
     fun doseEventDao_deleteFuturePendingDoses() = runTest {
         medicineDao.insert(createSampleMedicine("med_1"))
 
