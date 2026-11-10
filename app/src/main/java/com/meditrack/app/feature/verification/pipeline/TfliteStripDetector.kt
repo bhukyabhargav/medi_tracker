@@ -95,7 +95,7 @@ class TfliteStripDetector @Inject constructor(
 
     private val mutex = Mutex()
     private var interpreter: Interpreter? = null
-    private var rfdetrDetector: RfdetrStripDetector? = null
+    private var pillBlisterDetector: PillBlisterClassifierDetector? = null
     private var initAttempted = false
     private var modelContractError: String? = null
 
@@ -175,14 +175,17 @@ class TfliteStripDetector @Inject constructor(
             return@withLock detectTfliteMultiPass(bitmap)
         }
 
-        // Try offline RF-DETR model first (exported from weights.pt)
+        // Try offline PillBlisterClassifier detector first (ported from aziz-hizem/pill-blister-classifier)
         try {
-            if (rfdetrDetector == null) {
-                rfdetrDetector = RfdetrStripDetector(context)
+            if (pillBlisterDetector == null) {
+                pillBlisterDetector = PillBlisterClassifierDetector(context)
             }
-            return@withLock rfdetrDetector!!.detect(bitmap)
+            val cvResult = pillBlisterDetector!!.detect(bitmap)
+            if (cvResult.cells.isNotEmpty()) {
+                return@withLock cvResult
+            }
         } catch (_: Throwable) {
-            // Graceful fallback to TFLite (e.g. host Robolectric unit tests without native ONNX library)
+            // Graceful fallback to TFLite (e.g. host Robolectric unit tests)
         }
 
         detectTfliteMultiPass(bitmap)
@@ -706,9 +709,9 @@ class TfliteStripDetector @Inject constructor(
                 } catch (_: Throwable) {}
                 interpreter = null
                 try {
-                    rfdetrDetector?.close()
+                    pillBlisterDetector?.close()
                 } catch (_: Throwable) {}
-                rfdetrDetector = null
+                pillBlisterDetector = null
                 initAttempted = false
                 modelContractError = null
             }
