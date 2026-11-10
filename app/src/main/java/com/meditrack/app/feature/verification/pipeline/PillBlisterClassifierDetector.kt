@@ -45,7 +45,7 @@ class PillBlisterClassifierDetector @Inject constructor(
 
     companion object {
         const val MAX_PROCESS_DIMENSION = 800
-        const val BRIGHTNESS_FLOOR_WHITE = 205
+        const val BRIGHTNESS_FLOOR_WHITE = 90
         const val FOIL_SATURATION_MAX = 75
         const val FOIL_VALUE_MIN = 45
         const val FOIL_VALUE_MAX = 225
@@ -260,7 +260,8 @@ class PillBlisterClassifierDetector @Inject constructor(
         var sumB = 0.0
         var wB = 0
         var maxVariance = 0.0
-        var otsuThresh = BRIGHTNESS_FLOOR_WHITE
+        var bestT1 = BRIGHTNESS_FLOOR_WHITE
+        var bestT2 = BRIGHTNESS_FLOOR_WHITE
 
         for (t in 0..255) {
             wB += hist[t]
@@ -275,10 +276,14 @@ class PillBlisterClassifierDetector @Inject constructor(
 
             if (variance > maxVariance) {
                 maxVariance = variance
-                otsuThresh = t
+                bestT1 = t
+                bestT2 = t
+            } else if (variance == maxVariance && maxVariance > 0.0) {
+                bestT2 = t
             }
         }
 
+        val otsuThresh = (bestT1 + bestT2) / 2
         val thresh = max(otsuThresh, BRIGHTNESS_FLOOR_WHITE)
         val binary = BooleanArray(total) { gray[it] >= thresh }
 
@@ -785,7 +790,7 @@ class PillBlisterClassifierDetector @Inject constructor(
         return out
     }
 
-    internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.08f): RectF? {
+    internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.0f): RectF? {
         if (cells.isEmpty()) return null
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
@@ -817,22 +822,22 @@ class PillBlisterClassifierDetector @Inject constructor(
     ): Boolean {
         if (stripBox == null && cells.isEmpty()) return false
 
+        if (stripBox != null) {
+            if (stripBox.left <= tolerance ||
+                stripBox.top <= tolerance ||
+                stripBox.right >= (1.0f - tolerance) ||
+                stripBox.bottom >= (1.0f - tolerance)
+            ) {
+                return false
+            }
+        }
+
         for (cell in cells) {
             val b = cell.box
             if (b.left <= cellCutoffTolerance ||
                 b.top <= cellCutoffTolerance ||
                 b.right >= (1.0f - cellCutoffTolerance) ||
                 b.bottom >= (1.0f - cellCutoffTolerance)
-            ) {
-                return false
-            }
-        }
-
-        if (stripBox != null) {
-            if (stripBox.left <= tolerance ||
-                stripBox.top <= tolerance ||
-                stripBox.right >= (1.0f - tolerance) ||
-                stripBox.bottom >= (1.0f - tolerance)
             ) {
                 return false
             }

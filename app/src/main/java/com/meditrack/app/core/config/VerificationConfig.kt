@@ -7,7 +7,7 @@ package com.meditrack.app.core.config
  * blister strip detection, inference latency targets, confidence guards, and model auditing.
  */
 object VerificationConfig {
-    var modelVersion: String = "v1.2.0-pill-blister-classifier"
+    var modelVersion: String = "v1.4.0-rfdetr-nano-offline"
     var isTfliteEnabled: Boolean = true
     var isRoboflowWorkflowEnabled: Boolean = false
     var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-ytykf/workflows/blister-pack-missing-tablet-counter-1794253615843"
