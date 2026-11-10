@@ -4,6 +4,30 @@ All notable changes implemented as part of the blister verification hardening ta
 
 ---
 
+## [Offline RF-DETR Model Integration] - 2026-11-11
+### On-Device RF-DETR Nano Blister & Empty Count Detector (Varshith-4)
+- **Offline Model (`weights (1).pt` -> `rfdetr_blister.onnx`)**:
+  - Exported user's trained `weights (1).pt` (`tablet-blister-rhrec-obsaa-1-rfdetr-nano-t1`) to ONNX.
+  - Dynamically quantized weights to INT8 (`35.7 MB`) for low-latency mobile inference with ONNX Runtime.
+  - Deployed model asset to `app/src/main/assets/rfdetr_blister.onnx`.
+- **`app/src/main/java/com/meditrack/app/feature/verification/pipeline/RfdetrStripDetector.kt`**:
+  - On-device blister pack and cavity detector executing via Microsoft ONNX Runtime Mobile (`1.17.0`).
+  - Preprocesses input bitmap with ImageNet channel normalization (`means=[0.485, 0.456, 0.406]`, `stds=[0.229, 0.224, 0.225]`).
+  - Implements adaptive 4-class and 5-class logit parsing for blister strips, empty cavities, and full cavities.
+  - Performs class-agnostic NMS, spatial clustering / outlier filtering, and in-frame geometric verification.
+- **`app/src/main/java/com/meditrack/app/core/config/VerificationConfig.kt`**:
+  - Configured `isRoboflowWorkflowEnabled = false` so inference runs 100% on-device offline.
+  - Set `modelVersion = "v1.4.0-rfdetr-nano-offline"`.
+- **`app/src/main/java/com/meditrack/app/feature/verification/pipeline/TfliteStripDetector.kt`**:
+  - Integrated `RfdetrStripDetector` as primary on-device offline detector with fallback to `PillBlisterClassifierDetector` and TFLite.
+- **`app/build.gradle.kts`**:
+  - Added `com.microsoft.onnxruntime:onnxruntime-android:1.17.0`.
+  - Configured `androidResources { noCompress += listOf("tflite", "onnx") }`.
+- **`app/src/test/java/com/meditrack/app/feature/verification/pipeline/RfdetrStripDetectorTest.kt`**:
+  - Unit tests covering geometry calculations, IoU, class-agnostic NMS, and boundary guards.
+
+---
+
 ## [Roboflow Workflow Integration] - 2026-11-11
 ### Android Blister Presence and Empty Count Integration (Varshith-4)
 - **`app/src/main/java/com/meditrack/app/feature/verification/pipeline/RoboflowWorkflowStripDetector.kt`**:
