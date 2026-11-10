@@ -526,4 +526,70 @@ class VerificationPipelineTest {
         assertFalse(result.passed)
         assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
     }
+
+    @Test
+    fun stripCutByBorder_withPopulatedCells_failsCheck() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        val detection = detectionOf(listOf(
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
+        )).copy(stripFullyInFrame = false) // Cut off by the border!
+
+        coEvery { stripDetector.detect(any()) } returns detection
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertFalse("Strip cut by border must fail even when cells were found", result.passed)
+        assertEquals(RejectReason.STRIP_NOT_FULLY_VISIBLE, result.rejectReason)
+    }
+
+    @Test
+    fun smallOffCentreStrip_passesVerification() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Small 20% strip in bottom-right corner, well inside borders
+        val cells = listOf(
+            Cell(box = android.graphics.RectF(0.60f, 0.60f, 0.68f, 0.68f), state = CellState.EMPTY, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.72f, 0.60f, 0.80f, 0.68f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.60f, 0.72f, 0.68f, 0.80f), state = CellState.FULL, confidence = 0.95f),
+            Cell(box = android.graphics.RectF(0.72f, 0.72f, 0.80f, 0.80f), state = CellState.FULL, confidence = 0.95f)
+        )
+        val stripBox = android.graphics.RectF(0.58f, 0.58f, 0.82f, 0.82f)
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.92f,
+            stripBox = stripBox
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertTrue("Small off-centre strip within bounds must be accepted: ${result.friendlyMessage}", result.passed)
+        assertEquals(1, result.emptyCellsAfter)
+    }
+
+    @Test
+    fun rotatedStrip_passesVerification() = runTest {
+        val sharpBitmap = createSharpBitmap()
+        // Diagonal cells (rotated strip)
+        val cells = (0 until 4).map { i ->
+            val l = 0.20f + i * 0.12f
+            val t = 0.20f + i * 0.12f
+            val state = if (i == 0) CellState.EMPTY else CellState.FULL
+            Cell(box = android.graphics.RectF(l, t, l + 0.08f, t + 0.08f), state = state, confidence = 0.92f)
+        }
+        val stripBox = android.graphics.RectF(0.18f, 0.18f, 0.60f, 0.60f)
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = cells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.92f,
+            stripBox = stripBox
+        )
+
+        val result = pipeline.verify(sharpBitmap, sampleMedicine, lastVerifiedEmptyCells = 0)
+
+        assertTrue("Rotated strip within bounds must be accepted: ${result.friendlyMessage}", result.passed)
+        assertEquals(1, result.emptyCellsAfter)
+    }
 }

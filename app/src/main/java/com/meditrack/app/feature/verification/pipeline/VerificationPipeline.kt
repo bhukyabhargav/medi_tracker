@@ -20,8 +20,11 @@ class VerificationPipeline @Inject constructor(
      * Executes the verification pipeline in the exact specified order:
      * 1. Quality gate (BLURRY / TOO_DARK / TOO_BRIGHT / GLARE)
      * 2. Duplicate check (DUPLICATE_PHOTO)
-     * 3. Strip cell detection & confidence guards (STRIP_NOT_FULLY_VISIBLE / BLURRY / WRONG_PILL_COUNT)
-     * 4. Baseline compare ledger rule (PILLS_NOT_REMOVED / WRONG_PILL_COUNT / PASS)
+     * 3. Strip cell detection & in-frame check (STRIP_NOT_FULLY_VISIBLE)
+     * 4. Blister presence layout check (STRIP_NOT_FULLY_VISIBLE)
+     * 5. Level-2 Quality Gate on the blister crop (BLURRY / TOO_DARK / TOO_BRIGHT / GLARE / LOW_RESOLUTION)
+     * 6. Confidence & tolerance guards (STRIP_NOT_FULLY_VISIBLE / BLURRY / WRONG_PILL_COUNT)
+     * 7. Baseline compare ledger rule (PILLS_NOT_REMOVED / WRONG_PILL_COUNT / PASS)
      */
     suspend fun verify(
         bitmap: Bitmap,
@@ -58,7 +61,16 @@ class VerificationPipeline @Inject constructor(
         // Step 3: Strip cell detection
         val detection = stripDetector.detect(bitmap)
 
-        // Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
+        // Step 3a: Real stripFullyInFrame geometric check (Task 2)
+        if (!detection.stripFullyInFrame) {
+            return VerificationResult(
+                passed = false,
+                rejectReason = RejectReason.STRIP_NOT_FULLY_VISIBLE,
+                friendlyMessage = "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
+            )
+        }
+
+        // Step 3b: Confirm a real blister strip is present anywhere in the photo (shared with enrollment).
         // Stray cells without strip evidence (normal photo) are rejected here.
         val presence = BlisterPresenceValidator.evaluate(detection)
         if (detection.cells.isEmpty() || !presence.present) {
@@ -124,7 +136,7 @@ class VerificationPipeline @Inject constructor(
             )
         }
 
-        // Step 4: Baseline compare (Ledger rule)
+        // Step 5: Baseline compare (Ledger rule)
         // previousEmpty = emptyCellsAfter of the last verified dose for this medicine, or baselineEmptyCells if none
         val previousEmpty = lastVerifiedEmptyCells ?: medicine.baselineEmptyCells
 

@@ -12,7 +12,9 @@ object VerificationConfig {
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
-    var edgeMarginFraction: Float = 0.05f // 5% border margin for strip bounds
+    var edgeMarginFraction: Float = 0.05f // 5% border margin for strip bounds (legacy target)
+    var borderToleranceFraction: Float = 0.015f // 1.5% margin within which strip/cell bounds touch the border
+    var cellCutoffToleranceFraction: Float = 0.012f // 1.2% margin within which a cell is cut off by the frame edge
     var maxInferenceLatencyMs: Long = 400L // Target <= 400 ms on mid-range devices
     var maxCellCountTolerance: Int = 1 // Max allowable discrepancy in total cavities detected
 

@@ -299,9 +299,15 @@ class VerificationViewModel @Inject constructor(
                 }
                 val presence = com.meditrack.app.feature.verification.pipeline.BlisterPresenceValidator.evaluate(detection)
 
-                if (!presence.present || detection == null) {
+                if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                     _uiState.update {
-                        it.copy(errorMessage = presence.message ?: "No blister pack detected.")
+                        it.copy(
+                            errorMessage = if (detection?.stripFullyInFrame == false) {
+                                "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
+                            } else {
+                                presence.message ?: "No blister pack detected."
+                            }
+                        )
                     }
                     return@launch
                 }

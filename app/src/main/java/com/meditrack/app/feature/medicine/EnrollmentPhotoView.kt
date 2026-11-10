@@ -181,11 +181,15 @@ fun EnrollmentPhotoView(
                     presence = presence.copy(message = "Could not check the photo for a blister strip. Please retake.")
                 }
             }
-            if (!presence.present || detection == null) {
+            if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip
+                    pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip or cut-off strip
                     pendingEmptyCells = 0
-                    qualityError = presence.message
+                    qualityError = if (detection?.stripFullyInFrame == false) {
+                        "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
+                    } else {
+                        presence.message
+                    }
                     isCapturing = false
                 }
                 return@launch

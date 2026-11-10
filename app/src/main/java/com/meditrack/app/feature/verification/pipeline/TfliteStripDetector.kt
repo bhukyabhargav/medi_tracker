@@ -166,7 +166,7 @@ class TfliteStripDetector @Inject constructor(
      * back to the original photo, pooled, and de-duplicated with class-agnostic NMS (highest confidence wins),
      * so one weak view of a cell is outvoted by a better one.
      *
-     * The strip confidence and the in-frame check always come from pass 1.
+     * The in-frame check and strip boundaries are evaluated geometrically against image borders.
      */
     override suspend fun detect(bitmap: Bitmap): Detection = mutex.withLock {
         val first = detectUnlocked(bitmap)
@@ -203,7 +203,25 @@ class TfliteStripDetector @Inject constructor(
         val merged = filterOutlierCells(applyNms(pooled, VerificationConfig.iouThreshold))
         // Never return fewer cells than the plain whole-photo pass.
         if (merged.size < first.cells.size) return@withLock first
-        first.copy(cells = merged)
+
+        val finalStripBox = if (merged.isNotEmpty()) {
+            deriveStripBox(merged) ?: first.stripBox
+        } else {
+            first.stripBox
+        }
+
+        val finalInFrame = computeStripFullyInFrame(
+            stripBox = finalStripBox,
+            cells = merged,
+            tolerance = VerificationConfig.borderToleranceFraction,
+            cellCutoffTolerance = VerificationConfig.cellCutoffToleranceFraction
+        )
+
+        first.copy(
+            cells = merged,
+            stripBox = finalStripBox,
+            stripFullyInFrame = finalInFrame
+        )
     }
 
     /** Single inference pass on [bitmap] (the caller must hold [mutex]). */
@@ -226,7 +244,6 @@ class TfliteStripDetector @Inject constructor(
             val rawCells = mutableListOf<Cell>()
             val rawStrips = mutableListOf<StripCandidate>()
 
-            val margin = VerificationConfig.edgeMarginFraction
             val confidenceThreshold = VerificationConfig.confidenceThreshold
             val outputCount = activeInterpreter.outputTensorCount
 
@@ -261,7 +278,6 @@ class TfliteStripDetector @Inject constructor(
                         val box = transform.toOriginalNormalized(xc, yc, w, h)
 
                         when (bestClass) {
-                            // C1: Collect all candidate strip detections to pick highest confidence later
                             CLASS_STRIP -> rawStrips.add(StripCandidate(box, maxScore))
                             CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = maxScore))
                             CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = maxScore))
@@ -298,7 +314,6 @@ class TfliteStripDetector @Inject constructor(
                     val box = transform.toOriginalNormalizedBox(rawYmin, rawXmin, rawYmax, rawXmax)
 
                     when (rawClass) {
-                        // C1: Collect all candidate strip detections
                         CLASS_STRIP -> rawStrips.add(StripCandidate(box, score))
                         CLASS_CELL_FULL -> rawCells.add(Cell(box = box, state = CellState.FULL, confidence = score))
                         CLASS_CELL_EMPTY -> rawCells.add(Cell(box = box, state = CellState.EMPTY, confidence = score))
@@ -311,49 +326,50 @@ class TfliteStripDetector @Inject constructor(
                 }
             }
 
-            // C1: Pick the strip detection with the highest confidence
+            // Pick the strip detection with the highest confidence
             val bestStrip = rawStrips.maxByOrNull { it.confidence }
             val detectedStripBox = bestStrip?.box
             val detectedStripConfidence = bestStrip?.confidence
 
-            // C4: Apply Class-Agnostic Non-Maximum Suppression (NMS) across all cell states
+            // Class-Agnostic Non-Maximum Suppression (NMS) across all cell states
             val filteredCells = applyNms(rawCells, VerificationConfig.iouThreshold)
 
-            // Spatially cluster cells to filter out stray background false-positives (e.g. tablecloth patterns, table edges)
+            // Spatially cluster cells to filter out stray background false-positives
             val clusteredCells = filterOutlierCells(filteredCells)
 
-            // Check if detectedStripBox actually encloses the majority of detected cells.
-            // If the model predicted a strip on an artifact (e.g. table edge or background border)
-            // that does not enclose the cells, discard it in favor of cell cluster bounding.
-            val stripEnclosesCells = if (detectedStripBox != null && clusteredCells.isNotEmpty()) {
+            val derivedBox = deriveStripBox(clusteredCells)
+
+            // Check if detectedStripBox encloses cells without being an oversized hallucination
+            val stripEnclosesCells = if (detectedStripBox != null && derivedBox != null) {
+                val derivedArea = (derivedBox.right - derivedBox.left) * (derivedBox.bottom - derivedBox.top)
+                val detectedArea = (detectedStripBox.right - detectedStripBox.left) * (detectedStripBox.bottom - detectedStripBox.top)
+
                 val cellsInside = clusteredCells.count { cell ->
                     val cx = (cell.box.left + cell.box.right) / 2f
                     val cy = (cell.box.top + cell.box.bottom) / 2f
                     cx >= detectedStripBox.left && cx <= detectedStripBox.right &&
                             cy >= detectedStripBox.top && cy <= detectedStripBox.bottom
                 }
-                cellsInside.toFloat() / clusteredCells.size >= 0.5f
+                val majorityEnclosed = cellsInside.toFloat() / clusteredCells.size >= 0.6f
+                val reasonableArea = derivedArea <= 0f || detectedArea <= derivedArea * 2.8f
+                majorityEnclosed && reasonableArea
             } else {
-                detectedStripBox != null
+                detectedStripBox != null && clusteredCells.isEmpty()
             }
 
-            // Determine if strip is fully in frame based on normalized original image coordinates
             val effectiveStripBox = if (detectedStripBox != null && stripEnclosesCells) {
                 detectedStripBox
             } else {
-                deriveStripBox(clusteredCells)
+                derivedBox
             }
 
-            val isFullyInFrame = if (clusteredCells.isNotEmpty()) {
-                true
-            } else if (effectiveStripBox != null) {
-                effectiveStripBox.left >= margin &&
-                        effectiveStripBox.top >= margin &&
-                        effectiveStripBox.right <= (1.0f - margin) &&
-                        effectiveStripBox.bottom <= (1.0f - margin)
-            } else {
-                false
-            }
+            // Real stripFullyInFrame computed strictly from geometry (Task 2)
+            val isFullyInFrame = computeStripFullyInFrame(
+                stripBox = effectiveStripBox,
+                cells = clusteredCells,
+                tolerance = VerificationConfig.borderToleranceFraction,
+                cellCutoffTolerance = VerificationConfig.cellCutoffToleranceFraction
+            )
 
             Detection(
                 cells = clusteredCells,
@@ -362,6 +378,66 @@ class TfliteStripDetector @Inject constructor(
                 stripBox = effectiveStripBox
             )
         }
+
+    /**
+     * Determines whether the strip and all its cavities are fully within the image frame.
+     * Evaluates geometric boundaries against configurable edge tolerances.
+     *
+     * A strip is NOT fully in frame if:
+     * 1. No strip box or cell geometry exists.
+     * 2. Any individual cell is cut off by the image boundary.
+     * 3. The strip box (or cell cluster bounding box) touches or crosses the image border within tolerance.
+     */
+    internal fun computeStripFullyInFrame(
+        stripBox: RectF?,
+        cells: List<Cell>,
+        tolerance: Float = VerificationConfig.borderToleranceFraction,
+        cellCutoffTolerance: Float = VerificationConfig.cellCutoffToleranceFraction
+    ): Boolean {
+        if (stripBox == null && cells.isEmpty()) return false
+
+        // 1. Cut-off cells at the border count against it
+        for (cell in cells) {
+            val b = cell.box
+            if (b.left <= cellCutoffTolerance ||
+                b.top <= cellCutoffTolerance ||
+                b.right >= (1.0f - cellCutoffTolerance) ||
+                b.bottom >= (1.0f - cellCutoffTolerance)
+            ) {
+                return false
+            }
+        }
+
+        // 2. The bounding box of the validated cells must not touch/cross the borders within tolerance
+        if (cells.isNotEmpty()) {
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = Float.MIN_VALUE
+            var maxY = Float.MIN_VALUE
+            for (c in cells) {
+                minX = min(minX, c.box.left)
+                minY = min(minY, c.box.top)
+                maxX = max(maxX, c.box.right)
+                maxY = max(maxY, c.box.bottom)
+            }
+            if (minX <= tolerance || minY <= tolerance || maxX >= (1.0f - tolerance) || maxY >= (1.0f - tolerance)) {
+                return false
+            }
+        }
+
+        // 3. The strip box must not touch/cross the original image borders within tolerance
+        if (stripBox != null) {
+            if (stripBox.left <= tolerance ||
+                stripBox.top <= tolerance ||
+                stripBox.right >= (1.0f - tolerance) ||
+                stripBox.bottom >= (1.0f - tolerance)
+            ) {
+                return false
+            }
+        }
+
+        return true
+    }
 
     /**
      * Latency benchmark: executes repeated inference runs and returns average latency in ms.
@@ -452,34 +528,41 @@ class TfliteStripDetector @Inject constructor(
         val medDistance = sortedDistances[sortedDistances.size / 2]
 
         // Reject isolated detections far from the main cell cluster.
-        // Threshold allows genuine oblong blister packs (up to 0.40 normalized radius)
-        // while dropping background false-positives at the edges of the photo.
         val threshold = max(0.40f, medDistance * 3.0f)
 
         val clustered = cells.filterIndexed { index, _ -> distances[index] <= threshold }
         return if (clustered.isNotEmpty()) clustered else cells
     }
 
-    internal fun deriveStripBox(cells: List<Cell>): RectF? {
+    internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.0f): RectF? {
         if (cells.isEmpty()) return null
         val cluster = filterOutlierCells(cells)
+        val target = if (cluster.isNotEmpty()) cluster else cells
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = Float.MIN_VALUE
         var maxY = Float.MIN_VALUE
 
-        for (cell in cluster) {
+        for (cell in target) {
             minX = min(minX, cell.box.left)
             minY = min(minY, cell.box.top)
             maxX = max(maxX, cell.box.right)
             maxY = max(maxY, cell.box.bottom)
         }
 
-        return RectF(minX, minY, maxX, maxY)
+        if (minX > maxX || minY > maxY) return null
+        val padX = (maxX - minX) * marginFraction
+        val padY = (maxY - minY) * marginFraction
+        return RectF(
+            max(0f, minX - padX),
+            max(0f, minY - padY),
+            min(1f, maxX + padX),
+            min(1f, maxY + padY)
+        )
     }
 
     /**
-     * C4: Class-agnostic Non-Maximum Suppression across all cell states.
+     * Class-agnostic Non-Maximum Suppression across all cell states.
      * Physical pill cavities cannot be both FULL and EMPTY. If the model outputs
      * overlapping boxes for the same blister cavity, the highest confidence one survives.
      */
@@ -517,9 +600,6 @@ class TfliteStripDetector @Inject constructor(
         return if (unionArea > 0f) intersectionArea / unionArea else 0f
     }
 
-    /**
-     * C6: Cleanly closes the TFLite interpreter and frees native resources.
-     */
     override fun close() {
         runBlocking {
             mutex.withLock {

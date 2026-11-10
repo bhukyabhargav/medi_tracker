@@ -270,4 +270,106 @@ class TfliteStripDetectorTest {
             detection.stripFullyInFrame
         )
     }
+
+    @Test
+    fun computeStripFullyInFrame_wellCenteredStrip_returnsTrue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        val stripBox = RectF(0.20f, 0.30f, 0.80f, 0.60f)
+        val cells = listOf(
+            Cell(box = RectF(0.25f, 0.35f, 0.35f, 0.45f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.40f, 0.35f, 0.50f, 0.45f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.55f, 0.35f, 0.65f, 0.45f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.70f, 0.35f, 0.78f, 0.45f), state = CellState.FULL, confidence = 0.9f)
+        )
+
+        assertTrue(detector.computeStripFullyInFrame(stripBox, cells))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_smallStrip20Percent_returnsTrue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        // Small strip covering ~20% of image width
+        val stripBox = RectF(0.40f, 0.40f, 0.60f, 0.55f)
+        val cells = listOf(
+            Cell(box = RectF(0.42f, 0.42f, 0.48f, 0.52f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.52f, 0.42f, 0.58f, 0.52f), state = CellState.FULL, confidence = 0.9f)
+        )
+
+        assertTrue("Small strip (20% of photo) well inside bounds must pass", detector.computeStripFullyInFrame(stripBox, cells))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_offCenterStrip_returnsTrue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        // Off-centre strip in bottom-right quadrant, not touching border
+        val stripBox = RectF(0.55f, 0.60f, 0.92f, 0.85f)
+        val cells = listOf(
+            Cell(box = RectF(0.58f, 0.65f, 0.68f, 0.80f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.72f, 0.65f, 0.82f, 0.80f), state = CellState.FULL, confidence = 0.9f)
+        )
+
+        assertTrue("Off-centre strip not touching the border must pass", detector.computeStripFullyInFrame(stripBox, cells))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_rotatedStrip_returnsTrue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        // Diagonally arranged cells within frame
+        val cells = listOf(
+            Cell(box = RectF(0.20f, 0.20f, 0.28f, 0.28f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.35f, 0.35f, 0.43f, 0.43f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.50f, 0.50f, 0.58f, 0.58f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.65f, 0.65f, 0.73f, 0.73f), state = CellState.FULL, confidence = 0.9f)
+        )
+        val stripBox = RectF(0.18f, 0.18f, 0.75f, 0.75f)
+
+        assertTrue("Rotated strip inside bounds must pass", detector.computeStripFullyInFrame(stripBox, cells))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_stripTouchingBorderLeft_returnsFalse() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        // Strip touches left border (left <= tolerance)
+        val stripBox = RectF(0.005f, 0.30f, 0.60f, 0.60f)
+        val cells = listOf(
+            Cell(box = RectF(0.05f, 0.35f, 0.15f, 0.45f), state = CellState.FULL, confidence = 0.9f),
+            Cell(box = RectF(0.20f, 0.35f, 0.30f, 0.45f), state = CellState.FULL, confidence = 0.9f)
+        )
+
+        assertFalse("Strip touching left border must fail in-frame check", detector.computeStripFullyInFrame(stripBox, cells))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_cellCutOffAtBorderTop_returnsFalse() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        // Strip box might be inside, but a cell touches/crosses top border (top <= cellCutoffTolerance)
+        val stripBox = RectF(0.20f, 0.05f, 0.80f, 0.60f)
+        val cutOffCell = Cell(box = RectF(0.25f, 0.002f, 0.35f, 0.10f), state = CellState.FULL, confidence = 0.9f)
+        val insideCell = Cell(box = RectF(0.40f, 0.20f, 0.50f, 0.30f), state = CellState.FULL, confidence = 0.9f)
+
+        assertFalse("Cell cut off at top border must fail in-frame check", detector.computeStripFullyInFrame(stripBox, listOf(cutOffCell, insideCell)))
+    }
+
+    @Test
+    fun computeStripFullyInFrame_emptyCellsAndNullBox_returnsFalse() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val detector = TfliteStripDetector(context)
+
+        assertFalse(
+            "Null strip box and empty cells must not be fully in frame",
+            detector.computeStripFullyInFrame(null, emptyList())
+        )
+    }
 }

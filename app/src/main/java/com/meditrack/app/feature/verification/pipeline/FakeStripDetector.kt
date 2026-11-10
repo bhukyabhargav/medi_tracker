@@ -55,10 +55,15 @@ class FakeStripDetector @Inject constructor() : StripDetector {
             cells.add(Cell(box = cellBox, state = state, confidence = confidence))
         }
 
+        val stripBox = if (cells.isNotEmpty()) {
+            RectF(cells.minOf { it.box.left }, cells.minOf { it.box.top }, cells.maxOf { it.box.right }, cells.maxOf { it.box.bottom })
+        } else null
+
         return Detection(
             cells = cells,
             stripFullyInFrame = stripInFrame,
-            stripConfidence = 0.9f // debug fake always "finds" a strip, so debug behaviours stay as before
+            stripConfidence = 0.9f, // debug fake always "finds" a strip, so debug behaviours stay as before
+            stripBox = stripBox
         )
     }
 
