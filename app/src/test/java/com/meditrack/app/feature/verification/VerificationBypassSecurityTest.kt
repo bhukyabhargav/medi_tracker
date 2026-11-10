@@ -2,6 +2,7 @@ package com.meditrack.app.feature.verification
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.meditrack.app.BuildConfig
@@ -19,8 +20,11 @@ import com.meditrack.app.domain.usecase.RecordVerifiedDoseUseCase
 import com.meditrack.app.domain.usecase.SkipDoseUseCase
 import com.meditrack.app.domain.usecase.SnoozeDoseUseCase
 import com.meditrack.app.feature.reminder.alarm.AlarmScheduler
+import com.meditrack.app.feature.verification.pipeline.Cell
+import com.meditrack.app.feature.verification.pipeline.CellState
 import com.meditrack.app.feature.verification.pipeline.CoordinatorResult
 import com.meditrack.app.feature.verification.pipeline.Detection
+import com.meditrack.app.feature.verification.pipeline.DetectorSource
 import com.meditrack.app.feature.verification.pipeline.FakeStripDetector
 import com.meditrack.app.feature.verification.pipeline.ForceDetectorBehavior
 import com.meditrack.app.feature.verification.pipeline.StripDetector
@@ -30,6 +34,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -273,6 +278,75 @@ class VerificationBypassSecurityTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { medicineRepository.update(any()) }
+        photoFile.delete()
+    }
+
+    @Test
+    fun confirmNewStripAndVerify_usesMeasuredEmptyCount_andResetsBaselineLedger() = runTest(testDispatcher) {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val photoFile = File(context.filesDir, "new_strip_photo.jpg").apply {
+            val bmp = android.graphics.Bitmap.createBitmap(120, 120, android.graphics.Bitmap.Config.ARGB_8888)
+            outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        }
+
+        // Cause verification rejection so lastRejectedPhotoPath is populated
+        coEvery { verificationCoordinator.verify(any(), any(), any(), any()) } returns CoordinatorResult.Failed(
+            reason = RejectReason.WRONG_PILL_COUNT,
+            attemptsRemaining = 2,
+            friendlyMessage = "This looks like a different or new strip"
+        )
+
+        vm.processCapturedPhoto(photoFile.absolutePath)
+        advanceUntilIdle()
+
+        // Strip detector returns 2 empty cells and 8 full cells (total 10 cells) detected by CLOUD
+        val measuredCells = listOf(
+            Cell(RectF(0f, 0f, 10f, 10f), CellState.EMPTY, 0.95f),
+            Cell(RectF(10f, 0f, 20f, 10f), CellState.EMPTY, 0.92f),
+            Cell(RectF(20f, 0f, 30f, 10f), CellState.FULL, 0.98f)
+        )
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = measuredCells,
+            stripFullyInFrame = true,
+            stripConfidence = 0.97f,
+            source = DetectorSource.CLOUD
+        )
+
+        val updatedMedicineSlot = slot<Medicine>()
+        coEvery { medicineRepository.update(capture(updatedMedicineSlot)) } returns Unit
+        coEvery { recordVerifiedDoseUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+        // Trigger confirm new strip
+        vm.confirmNewStripAndVerify()
+        advanceUntilIdle()
+
+        // Assert medicine baseline was reset using measured empty (2) - pillsPerDose (1) = 1
+        coVerify(exactly = 1) { medicineRepository.update(any()) }
+        val savedMed = updatedMedicineSlot.captured
+        assertEquals(1, savedMed.baselineEmptyCells)
+        assertEquals(photoFile.absolutePath, savedMed.baselinePhotoPath)
+        assertEquals("CLOUD", savedMed.baselineDetectorSource)
+        assertNotNull(savedMed.lastRefillAt)
+
+        // Assert dose was recorded with measuredEmpty count (2) and CLOUD detector source
+        coVerify(exactly = 1) {
+            recordVerifiedDoseUseCase(
+                doseId = "dose_1",
+                photoPath = photoFile.absolutePath,
+                emptyCellsAfter = 2,
+                takenAt = any(),
+                isLate = false,
+                detectorSource = "CLOUD"
+            )
+        }
+
+        val state = vm.uiState.value
+        assertEquals("New strip confirmed. Dose verified as taken.", state.infoMessage)
+        assertNull(state.errorMessage)
+
         photoFile.delete()
     }
 }

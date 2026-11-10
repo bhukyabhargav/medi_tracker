@@ -33,7 +33,7 @@ import com.meditrack.app.domain.model.VerificationAttempt
         MedicineProposal::class,
         NotificationOutbox::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -154,6 +154,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        /**
+         * v5 -> v6: Add detector source tracking to medicines (baselineDetectorSource)
+         * and dose_events (detectorSource).
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineDetectorSource TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE dose_events ADD COLUMN detectorSource TEXT DEFAULT NULL")
+            }
+        }
+
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
     }
 }

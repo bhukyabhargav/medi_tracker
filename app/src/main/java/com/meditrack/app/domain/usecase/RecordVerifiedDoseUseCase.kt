@@ -34,10 +34,11 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         photoPath: String? = null,
         emptyCellsAfter: Int? = null,
         takenAt: Long = System.currentTimeMillis(),
-        isLate: Boolean = false
+        isLate: Boolean = false,
+        detectorSource: String? = null
     ): Result<Unit> = mutex.withLock {
         try {
-            record(doseId, photoPath, emptyCellsAfter, takenAt, isLate)
+            record(doseId, photoPath, emptyCellsAfter, takenAt, isLate, detectorSource)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -52,7 +53,8 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         photoPath: String?,
         emptyCellsAfter: Int?,
         takenAt: Long,
-        isLate: Boolean
+        isLate: Boolean,
+        detectorSource: String? = null
     ): Result<Unit> {
         val dose = doseRepository.getById(doseId)
             ?: return Result.failure(IllegalArgumentException("Dose not found: $doseId"))
@@ -107,6 +109,7 @@ class RecordVerifiedDoseUseCase @Inject constructor(
             takenAt = takenAt,
             verifiedPhotoPath = photoPath,
             emptyCellsAfter = emptyCellsAfter,
+            detectorSource = detectorSource,
             lateEntry = (newStatus == DoseStatus.TAKEN_LATE),
             updatedAt = takenAt
         )

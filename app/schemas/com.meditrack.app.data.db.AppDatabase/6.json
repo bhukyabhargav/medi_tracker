@@ -1,0 +1,862 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "275ef6d2dfe78b5f09daaca12843e06a",
+    "entities": [
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `email` TEXT, `phone` TEXT, `role` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "phone",
+            "columnName": "phone",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "medicines",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `patientId` TEXT NOT NULL, `name` TEXT NOT NULL, `dosageText` TEXT NOT NULL, `pillsPerDose` INTEGER NOT NULL, `frequencyType` TEXT NOT NULL, `timesOfDay` TEXT NOT NULL, `intervalHours` INTEGER, `daysOfWeek` TEXT, `startDate` INTEGER NOT NULL, `endDate` INTEGER, `foodRelation` TEXT NOT NULL, `instructions` TEXT NOT NULL, `reminderEnabled` INTEGER NOT NULL, `initialStock` INTEGER NOT NULL, `currentStock` INTEGER NOT NULL, `baselineEmptyCells` INTEGER NOT NULL, `baselinePhotoPath` TEXT, `baselineDetectorSource` TEXT, `baselineCellCount` INTEGER, `baselineCentersJson` TEXT, `baselineCellSizeRatio` REAL, `baselineRows` INTEGER, `baselineCols` INTEGER, `baselineAspectRatio` REAL, `baselineVersion` INTEGER NOT NULL, `lastRefillAt` INTEGER, `prescribedByDoctorUid` TEXT, `prescribedByDoctorName` TEXT, `stoppedByDoctor` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, `lowStockNotified` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientId",
+            "columnName": "patientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dosageText",
+            "columnName": "dosageText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pillsPerDose",
+            "columnName": "pillsPerDose",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "frequencyType",
+            "columnName": "frequencyType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timesOfDay",
+            "columnName": "timesOfDay",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intervalHours",
+            "columnName": "intervalHours",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "daysOfWeek",
+            "columnName": "daysOfWeek",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "startDate",
+            "columnName": "startDate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endDate",
+            "columnName": "endDate",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "foodRelation",
+            "columnName": "foodRelation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "instructions",
+            "columnName": "instructions",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reminderEnabled",
+            "columnName": "reminderEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initialStock",
+            "columnName": "initialStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentStock",
+            "columnName": "currentStock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baselineEmptyCells",
+            "columnName": "baselineEmptyCells",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baselinePhotoPath",
+            "columnName": "baselinePhotoPath",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineDetectorSource",
+            "columnName": "baselineDetectorSource",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineCellCount",
+            "columnName": "baselineCellCount",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineCentersJson",
+            "columnName": "baselineCentersJson",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineCellSizeRatio",
+            "columnName": "baselineCellSizeRatio",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineRows",
+            "columnName": "baselineRows",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineCols",
+            "columnName": "baselineCols",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineAspectRatio",
+            "columnName": "baselineAspectRatio",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "baselineVersion",
+            "columnName": "baselineVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastRefillAt",
+            "columnName": "lastRefillAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "prescribedByDoctorUid",
+            "columnName": "prescribedByDoctorUid",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "prescribedByDoctorName",
+            "columnName": "prescribedByDoctorName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "stoppedByDoctor",
+            "columnName": "stoppedByDoctor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDeleted",
+            "columnName": "isDeleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lowStockNotified",
+            "columnName": "lowStockNotified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_medicines_patientId",
+            "unique": false,
+            "columnNames": [
+              "patientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_medicines_patientId` ON `${TABLE_NAME}` (`patientId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "dose_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `patientId` TEXT NOT NULL, `medicineId` TEXT NOT NULL, `scheduledAt` INTEGER NOT NULL, `windowEndsAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `takenAt` INTEGER, `verifiedPhotoPath` TEXT, `verificationAttempts` INTEGER NOT NULL, `emptyCellsAfter` INTEGER, `detectorSource` TEXT, `snoozeCount` INTEGER NOT NULL, `lateEntry` INTEGER NOT NULL, `manualUnverified` INTEGER NOT NULL, `nextReminderAt` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`medicineId`) REFERENCES `medicines`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientId",
+            "columnName": "patientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicineId",
+            "columnName": "medicineId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduledAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "windowEndsAt",
+            "columnName": "windowEndsAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "takenAt",
+            "columnName": "takenAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "verifiedPhotoPath",
+            "columnName": "verifiedPhotoPath",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "verificationAttempts",
+            "columnName": "verificationAttempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emptyCellsAfter",
+            "columnName": "emptyCellsAfter",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "detectorSource",
+            "columnName": "detectorSource",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "snoozeCount",
+            "columnName": "snoozeCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lateEntry",
+            "columnName": "lateEntry",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualUnverified",
+            "columnName": "manualUnverified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextReminderAt",
+            "columnName": "nextReminderAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_dose_events_patientId",
+            "unique": false,
+            "columnNames": [
+              "patientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_patientId` ON `${TABLE_NAME}` (`patientId`)"
+          },
+          {
+            "name": "index_dose_events_medicineId",
+            "unique": false,
+            "columnNames": [
+              "medicineId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_medicineId` ON `${TABLE_NAME}` (`medicineId`)"
+          },
+          {
+            "name": "index_dose_events_scheduledAt",
+            "unique": false,
+            "columnNames": [
+              "scheduledAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_scheduledAt` ON `${TABLE_NAME}` (`scheduledAt`)"
+          },
+          {
+            "name": "index_dose_events_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "medicines",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "medicineId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "verification_attempts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `doseEventId` TEXT NOT NULL, `photoPath` TEXT NOT NULL, `result` TEXT NOT NULL, `rejectReason` TEXT, `perceptualHash` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`doseEventId`) REFERENCES `dose_events`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doseEventId",
+            "columnName": "doseEventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoPath",
+            "columnName": "photoPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "result",
+            "columnName": "result",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejectReason",
+            "columnName": "rejectReason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "perceptualHash",
+            "columnName": "perceptualHash",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_verification_attempts_doseEventId",
+            "unique": false,
+            "columnNames": [
+              "doseEventId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_verification_attempts_doseEventId` ON `${TABLE_NAME}` (`doseEventId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "dose_events",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "doseEventId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "caregiver_links",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `patientId` TEXT NOT NULL, `caregiverName` TEXT NOT NULL, `caregiverContact` TEXT NOT NULL, `relationship` TEXT NOT NULL, `status` TEXT NOT NULL, `caregiverUid` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientId",
+            "columnName": "patientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caregiverName",
+            "columnName": "caregiverName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caregiverContact",
+            "columnName": "caregiverContact",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relationship",
+            "columnName": "relationship",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caregiverUid",
+            "columnName": "caregiverUid",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_caregiver_links_patientId",
+            "unique": false,
+            "columnNames": [
+              "patientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_caregiver_links_patientId` ON `${TABLE_NAME}` (`patientId`)"
+          },
+          {
+            "name": "index_caregiver_links_caregiverUid",
+            "unique": false,
+            "columnNames": [
+              "caregiverUid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_caregiver_links_caregiverUid` ON `${TABLE_NAME}` (`caregiverUid`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "doctor_links",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `patientId` TEXT NOT NULL, `doctorUid` TEXT, `doctorName` TEXT NOT NULL, `doctorContact` TEXT NOT NULL, `status` TEXT NOT NULL, `invitationCode` TEXT, `expiresAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientId",
+            "columnName": "patientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doctorUid",
+            "columnName": "doctorUid",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "doctorName",
+            "columnName": "doctorName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doctorContact",
+            "columnName": "doctorContact",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "invitationCode",
+            "columnName": "invitationCode",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_doctor_links_patientId",
+            "unique": false,
+            "columnNames": [
+              "patientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_doctor_links_patientId` ON `${TABLE_NAME}` (`patientId`)"
+          },
+          {
+            "name": "index_doctor_links_doctorUid",
+            "unique": false,
+            "columnNames": [
+              "doctorUid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_doctor_links_doctorUid` ON `${TABLE_NAME}` (`doctorUid`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "medicine_proposals",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `patientId` TEXT NOT NULL, `doctorUid` TEXT NOT NULL, `type` TEXT NOT NULL, `medicineId` TEXT, `payloadJson` TEXT NOT NULL, `status` TEXT NOT NULL, `revision` INTEGER NOT NULL, `clarificationNote` TEXT, `supersedesProposalId` TEXT, `createdAt` INTEGER NOT NULL, `resolvedAt` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patientId",
+            "columnName": "patientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doctorUid",
+            "columnName": "doctorUid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicineId",
+            "columnName": "medicineId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clarificationNote",
+            "columnName": "clarificationNote",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "supersedesProposalId",
+            "columnName": "supersedesProposalId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resolvedAt",
+            "columnName": "resolvedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_medicine_proposals_patientId",
+            "unique": false,
+            "columnNames": [
+              "patientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_medicine_proposals_patientId` ON `${TABLE_NAME}` (`patientId`)"
+          },
+          {
+            "name": "index_medicine_proposals_doctorUid",
+            "unique": false,
+            "columnNames": [
+              "doctorUid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_medicine_proposals_doctorUid` ON `${TABLE_NAME}` (`doctorUid`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "notification_outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `type` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `delivered` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "delivered",
+            "columnName": "delivered",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notification_outbox_delivered",
+            "unique": false,
+            "columnNames": [
+              "delivered"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notification_outbox_delivered` ON `${TABLE_NAME}` (`delivered`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '275ef6d2dfe78b5f09daaca12843e06a')"
+    ]
+  }
+}

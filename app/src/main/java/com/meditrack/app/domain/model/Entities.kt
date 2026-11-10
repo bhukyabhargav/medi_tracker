@@ -39,6 +39,9 @@ data class Medicine(
     val currentStock: Int,
     val baselineEmptyCells: Int = 0,
     val baselinePhotoPath: String? = null,
+    val baselineDetectorSource: String? = null,
+    // Deprecated: Baseline geometry signatures are no longer used for verification.
+    // Columns retained for database schema compatibility without requiring migration changes.
     val baselineCellCount: Int? = null,
     val baselineCentersJson: String? = null,
     val baselineCellSizeRatio: Float? = null,
@@ -55,6 +58,7 @@ data class Medicine(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt
 ) {
+    @Deprecated("Baseline geometry signatures are no longer used for verification")
     fun getBaselineSignature(): BaselineGeometrySignature? {
         val count = baselineCellCount ?: return null
         val centers = BaselineGeometrySignature.fromCentersJson(baselineCentersJson)
@@ -69,6 +73,7 @@ data class Medicine(
         )
     }
 
+    @Deprecated("Baseline geometry signatures are no longer used for verification")
     fun withBaselineSignature(sig: BaselineGeometrySignature): Medicine {
         return copy(
             baselineCellCount = sig.totalCellCount,
@@ -110,6 +115,7 @@ data class DoseEvent(
     val verifiedPhotoPath: String? = null,
     val verificationAttempts: Int = 0,
     val emptyCellsAfter: Int? = null,
+    val detectorSource: String? = null,
     val snoozeCount: Int = 0,
     val lateEntry: Boolean = false,
     val manualUnverified: Boolean = false,

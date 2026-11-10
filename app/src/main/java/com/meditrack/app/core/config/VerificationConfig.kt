@@ -11,7 +11,8 @@ object VerificationConfig {
     var isTfliteEnabled: Boolean = true
     var isRoboflowWorkflowEnabled: Boolean = true
     var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-ytykf/workflows/blister-pack-missing-tablet-counter-1794253615843"
-    var roboflowApiKey: String = "jZmdnU1kp8FytFibdLat"
+    var roboflowApiKey: String = System.getenv("ROBOFLOW_API_KEY")
+        ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY.ifBlank { "" }
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f
@@ -20,6 +21,7 @@ object VerificationConfig {
     var cellCutoffToleranceFraction: Float = 0.012f // 1.2% margin within which a cell is cut off by the frame edge
     var maxInferenceLatencyMs: Long = 400L // Target <= 400 ms on mid-range devices
     var maxCellCountTolerance: Int = 1 // Max allowable discrepancy in total cavities detected
+    var firstDoseCountTolerance: Int = 1 // Allowable discrepancy on first dose vs enrollment baseline
 
     // Two-stage detection: when the strip fills less than this fraction of the photo, the cells are only a few
     // pixels wide at the model's 320x320 input and are missed or classified with low confidence. The detector

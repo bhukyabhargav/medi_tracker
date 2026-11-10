@@ -132,6 +132,141 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migration_5_to_6_addsDetectorSourceColumns_andPreservesExistingData() {
+        val testDbFile = File(context.filesDir, "test_mig_5_6.db")
+        if (testDbFile.exists()) testDbFile.delete()
+
+        val helperConfig = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(testDbFile.name)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
+                override fun onCreate(sqLiteDb: SupportSQLiteDatabase) {
+                    // Create v5 schema of medicines table
+                    sqLiteDb.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `medicines` (
+                            `id` TEXT NOT NULL,
+                            `patientId` TEXT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `dosageText` TEXT NOT NULL,
+                            `pillsPerDose` INTEGER NOT NULL,
+                            `frequencyType` TEXT NOT NULL,
+                            `timesOfDay` TEXT NOT NULL,
+                            `intervalHours` INTEGER,
+                            `daysOfWeek` TEXT,
+                            `startDate` INTEGER NOT NULL,
+                            `endDate` INTEGER,
+                            `foodRelation` TEXT NOT NULL,
+                            `instructions` TEXT NOT NULL,
+                            `reminderEnabled` INTEGER NOT NULL,
+                            `initialStock` INTEGER NOT NULL,
+                            `currentStock` INTEGER NOT NULL,
+                            `baselineEmptyCells` INTEGER NOT NULL,
+                            `baselinePhotoPath` TEXT,
+                            `lastRefillAt` INTEGER,
+                            `prescribedByDoctorUid` TEXT,
+                            `prescribedByDoctorName` TEXT,
+                            `stoppedByDoctor` INTEGER NOT NULL,
+                            `isDeleted` INTEGER NOT NULL,
+                            `lowStockNotified` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            `baselineCellCount` INTEGER,
+                            `baselineCentersJson` TEXT,
+                            `baselineCellSizeRatio` REAL,
+                            `baselineRows` INTEGER,
+                            `baselineCols` INTEGER,
+                            `baselineAspectRatio` REAL,
+                            `baselineVersion` INTEGER NOT NULL DEFAULT 1,
+                            PRIMARY KEY(`id`)
+                        )
+                        """.trimIndent()
+                    )
+                    // Create v5 schema of dose_events table
+                    sqLiteDb.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `dose_events` (
+                            `id` TEXT NOT NULL,
+                            `patientId` TEXT NOT NULL,
+                            `medicineId` TEXT NOT NULL,
+                            `scheduledAt` INTEGER NOT NULL,
+                            `windowEndsAt` INTEGER NOT NULL,
+                            `status` TEXT NOT NULL,
+                            `takenAt` INTEGER,
+                            `verifiedPhotoPath` TEXT,
+                            `verificationAttempts` INTEGER NOT NULL,
+                            `emptyCellsAfter` INTEGER,
+                            `snoozeCount` INTEGER NOT NULL,
+                            `lateEntry` INTEGER NOT NULL,
+                            `manualUnverified` INTEGER NOT NULL,
+                            `nextReminderAt` INTEGER,
+                            `updatedAt` INTEGER NOT NULL,
+                            PRIMARY KEY(`id`)
+                        )
+                        """.trimIndent()
+                    )
+
+                    sqLiteDb.execSQL(
+                        """
+                        INSERT INTO medicines (
+                            id, patientId, name, dosageText, pillsPerDose, frequencyType,
+                            timesOfDay, startDate, foodRelation, instructions, reminderEnabled,
+                            initialStock, currentStock, baselineEmptyCells, baselinePhotoPath,
+                            stoppedByDoctor, isDeleted, lowStockNotified, createdAt, updatedAt
+                        ) VALUES (
+                            'med_mig_5_6', 'patient_1', 'Paracetamol', '650mg', 1, 'DAILY',
+                            '09:00', 1000, 'AFTER', 'With water', 1,
+                            10, 9, 2, 'baseline.jpg',
+                            0, 0, 0, 1000, 1000
+                        )
+                        """.trimIndent()
+                    )
+
+                    sqLiteDb.execSQL(
+                        """
+                        INSERT INTO dose_events (
+                            id, patientId, medicineId, scheduledAt, windowEndsAt, status,
+                            takenAt, verifiedPhotoPath, verificationAttempts, emptyCellsAfter,
+                            snoozeCount, lateEntry, manualUnverified, updatedAt
+                        ) VALUES (
+                            'dose_mig_5_6', 'patient_1', 'med_mig_5_6', 1000, 2000, 'VERIFIED',
+                            1050, 'dose.jpg', 1, 3,
+                            0, 0, 0, 1050
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(sqLiteDb: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+
+        val openHelper = FrameworkSQLiteOpenHelperFactory().create(helperConfig)
+        val writableDb = openHelper.writableDatabase
+
+        // Execute MIGRATION_5_6
+        AppDatabase.MIGRATION_5_6.migrate(writableDb)
+
+        // Verify medicines table has baselineDetectorSource column and data preserved
+        val medCursor = writableDb.query("SELECT id, name, baselineDetectorSource FROM medicines WHERE id = 'med_mig_5_6'")
+        assertTrue(medCursor.moveToFirst())
+        assertEquals("med_mig_5_6", medCursor.getString(medCursor.getColumnIndexOrThrow("id")))
+        assertEquals("Paracetamol", medCursor.getString(medCursor.getColumnIndexOrThrow("name")))
+        assertTrue(medCursor.isNull(medCursor.getColumnIndexOrThrow("baselineDetectorSource")))
+        medCursor.close()
+
+        // Verify dose_events table has detectorSource column and data preserved
+        val doseCursor = writableDb.query("SELECT id, emptyCellsAfter, detectorSource FROM dose_events WHERE id = 'dose_mig_5_6'")
+        assertTrue(doseCursor.moveToFirst())
+        assertEquals("dose_mig_5_6", doseCursor.getString(doseCursor.getColumnIndexOrThrow("id")))
+        assertEquals(3, doseCursor.getInt(doseCursor.getColumnIndexOrThrow("emptyCellsAfter")))
+        assertTrue(doseCursor.isNull(doseCursor.getColumnIndexOrThrow("detectorSource")))
+        doseCursor.close()
+
+        writableDb.close()
+        testDbFile.delete()
+    }
+
+    @Test
     fun medicineWithBaselineSignature_savesAndRestoresCorrectly() = runTest {
         val sig = BaselineGeometrySignature(
             totalCellCount = 10,

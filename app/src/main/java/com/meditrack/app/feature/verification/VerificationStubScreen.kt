@@ -475,6 +475,18 @@ fun VerificationStubScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Retake Photo")
                     }
+                    if (uiState.errorMessage?.contains("new strip", ignoreCase = true) == true ||
+                        uiState.errorMessage?.contains("different", ignoreCase = true) == true) {
+                        Button(
+                            onClick = { viewModel.confirmNewStripAndVerify() },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("I Started a New Strip (Confirm & Verify)")
+                        }
+                    }
                     if (uiState.lastRejectedPhotoPath != null) {
                         OutlinedButton(
                             onClick = { showUseAnywayDialog = true },

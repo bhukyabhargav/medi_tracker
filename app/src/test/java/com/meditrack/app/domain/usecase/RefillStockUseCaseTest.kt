@@ -106,4 +106,15 @@ class RefillStockUseCaseTest {
         assertEquals(1234L, updated.lastRefillAt)
         assertFalse(updated.lowStockNotified)
     }
+
+    @Test
+    fun refill_startedNewStrip_requiresMeasuredBaselineCount() = runTest {
+        coEvery { medicineRepository.getById("med_refill") } returns sampleMedicine
+        val result = useCase("med_refill", additionalPills = 10, startedNewStrip = true, newBaselineEmptyCells = null)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("Starting a new strip requires a measured baseline empty cavity count.", result.exceptionOrNull()?.message)
+        coVerify(exactly = 0) { medicineRepository.update(any()) }
+    }
 }

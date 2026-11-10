@@ -203,6 +203,18 @@ fun EnrollmentPhotoView(
                 }
                 return@launch
             }
+            // 2b) Shared cell confidence & partial-cell guard
+            val cellGuard = com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.evaluate(detection.cells)
+            if (cellGuard is com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.GuardResult.Rejected) {
+                withContext(Dispatchers.Main) {
+                    pendingPhotoPath = null
+                    pendingEmptyCells = 0
+                    qualityError = cellGuard.message
+                    isCapturing = false
+                }
+                return@launch
+            }
+
             val detectedEmptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
                 detection.roboflowMissingCount
             } else {
@@ -211,14 +223,15 @@ fun EnrollmentPhotoView(
                 }
             }
 
-            // 3) Level-2 quality check on blister crop. A real strip with a mediocre photo may still be used if the person insists.
+            // 3) Level-2 quality check on blister crop. Must not save baseline count if quality fails.
             val stripBox = com.meditrack.app.feature.verification.quality.ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
             val level2Quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
             if (!level2Quality.passed) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = path
-                    pendingEmptyCells = detectedEmptyCells
-                    qualityError = level2Quality.friendlyMessage ?: "Blister photo quality check failed"
+                    pendingPhotoPath = null
+                    pendingEmptyCells = 0
+                    qualityError = (level2Quality.friendlyMessage ?: "Blister photo quality check failed.") +
+                        " Please retake the photo in good lighting to establish an accurate baseline."
                     isCapturing = false
                 }
                 return@launch
@@ -480,7 +493,7 @@ fun EnrollmentPhotoView(
                     )
                 },
                 title = {
-                    Text(if (pendingPhotoPath != null) "Baseline Photo Quality Issue" else "No Blister Strip Found")
+                    Text("Baseline Photo Issue")
                 },
                 text = {
                     Text(qualityError ?: "The captured image did not pass quality checks.")
@@ -490,24 +503,7 @@ fun EnrollmentPhotoView(
                         qualityError = null
                         pendingPhotoPath = null
                     }) {
-                        Text("Retake")
-                    }
-                },
-                dismissButton = {
-                    if (pendingPhotoPath != null) {
-                        OutlinedButton(onClick = {
-                            val p = pendingPhotoPath
-                            val empty = pendingEmptyCells
-                            qualityError = null
-                            pendingPhotoPath = null
-                            if (p != null) {
-                                capturedPhotoPath = p
-                                isCapturing = false
-                                onPhotoCaptured(p, empty)
-                            }
-                        }) {
-                            Text("Use Photo Anyway")
-                        }
+                        Text("Retake Photo")
                     }
                 }
             )

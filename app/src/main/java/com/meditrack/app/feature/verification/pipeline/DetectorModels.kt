@@ -10,6 +10,11 @@ enum class CellState {
     PARTIAL
 }
 
+enum class DetectorSource {
+    CLOUD,
+    LOCAL
+}
+
 data class Cell(
     val box: RectF = RectF(),
     val state: CellState,
@@ -24,7 +29,8 @@ data class Detection(
     val stripBox: RectF? = null,
     val isRoboflowWorkflow: Boolean = false,
     val roboflowMissingCount: Int? = null,
-    val roboflowPackStatus: String? = null
+    val roboflowPackStatus: String? = null,
+    val source: DetectorSource = DetectorSource.LOCAL
 )
 
 interface StripDetector {
@@ -37,5 +43,6 @@ data class VerificationResult(
     val failureReason: VerificationFailureReason? = null,
     val emptyCellsAfter: Int? = null,
     val friendlyMessage: String? = null,
-    val retryHint: String? = null
+    val retryHint: String? = null,
+    val detectorSource: DetectorSource? = null
 )

@@ -275,6 +275,36 @@ class RoomDaoTest {
     }
 
     @Test
+    fun doseEventDao_getLatestVerifiedDoseAfter_usesMonotonicUpdatedAtWhenTakenAtIsSlightlyEarlier() = runTest {
+        medicineDao.insert(createSampleMedicine("med_1"))
+
+        // Dose taken at 1000L (e.g. photo file lastModified), refill at 1200L, but verification updated at 1300L
+        val dose = createSampleDose("dose_v1", "med_1", scheduledAt = 900L, status = DoseStatus.TAKEN).copy(
+            takenAt = 1000L,
+            updatedAt = 1300L
+        )
+        doseEventDao.insert(dose)
+
+        val retrieved = doseEventDao.getLatestVerifiedDoseAfter("med_1", afterMillis = 1200L)
+        assertNotNull(retrieved)
+        assertEquals("dose_v1", retrieved?.id)
+
+        // A dose whose updatedAt and takenAt are both before the refill timestamp is excluded
+        val olderDose = createSampleDose("dose_v0", "med_1", scheduledAt = 700L, status = DoseStatus.TAKEN).copy(
+            takenAt = 800L,
+            updatedAt = 1100L
+        )
+        doseEventDao.insert(olderDose)
+
+        val retrievedAfter1250 = doseEventDao.getLatestVerifiedDoseAfter("med_1", afterMillis = 1250L)
+        assertNotNull(retrievedAfter1250)
+        assertEquals("dose_v1", retrievedAfter1250?.id)
+
+        val retrievedAfter1400 = doseEventDao.getLatestVerifiedDoseAfter("med_1", afterMillis = 1400L)
+        assertNull(retrievedAfter1400)
+    }
+
+    @Test
     fun doseEventDao_deleteFuturePendingDoses() = runTest {
         medicineDao.insert(createSampleMedicine("med_1"))
 

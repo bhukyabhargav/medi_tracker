@@ -255,6 +255,7 @@ class VerificationViewModel @Inject constructor(
                             rejectReason = result.reason,
                             failureReason = result.failureReason,
                             retryHint = result.retryHint,
+                            lastRejectedPhotoPath = if (result.reason == RejectReason.TOO_EARLY) null else photoPath,
                             attemptsRemaining = 0,
                             dose = updatedDose,
                             errorMessage = result.friendlyMessage
@@ -342,6 +343,14 @@ class VerificationViewModel @Inject constructor(
                     return@launch
                 }
 
+                val cellGuard = com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.evaluate(detection.cells)
+                if (cellGuard is com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.GuardResult.Rejected) {
+                    _uiState.update {
+                        it.copy(errorMessage = cellGuard.message)
+                    }
+                    return@launch
+                }
+
                 val emptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
                     detection.roboflowMissingCount
                 } else {
@@ -349,15 +358,11 @@ class VerificationViewModel @Inject constructor(
                         it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
                     }
                 }
-                val geometrySig = if (!detection.isRoboflowWorkflow) {
-                    com.meditrack.app.domain.model.BaselineGeometrySignature.extract(presence.validCells, stripBox)
-                } else null
                 val updatedMed = med.copy(
                     baselinePhotoPath = photoPath,
-                    baselineEmptyCells = emptyCells
-                ).let {
-                    if (geometrySig != null) it.withBaselineSignature(geometrySig) else it
-                }
+                    baselineEmptyCells = emptyCells,
+                    baselineDetectorSource = detection.source.name
+                )
                 medicineRepository.update(updatedMed)
                 _uiState.update {
                     it.copy(
@@ -452,6 +457,96 @@ class VerificationViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(isSimulating = false, errorMessage = error.message ?: "Failed to record dose")
+                }
+            }
+        }
+    }
+
+    /**
+     * Resets the strip ledger when a patient confirms they started a new or different blister pack,
+     * recording the dose directly with the new strip baseline without forcing navigation to Refill.
+     */
+    fun confirmNewStripAndVerify() {
+        if (_uiState.value.isSimulating || _uiState.value.isAnalyzing) return
+        val photoPath = _uiState.value.lastRejectedPhotoPath
+        if (photoPath.isNullOrBlank()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSimulating = true, errorMessage = null, infoMessage = null) }
+            val dose = doseRepository.getById(doseId)
+            val medicine = dose?.let { medicineRepository.getById(it.medicineId) }
+            if (dose == null || medicine == null) {
+                _uiState.update { it.copy(isSimulating = false, errorMessage = "Dose not found.") }
+                return@launch
+            }
+
+            val bitmap = try {
+                com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
+            } catch (t: Throwable) {
+                null
+            }
+            if (bitmap == null) {
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = "Could not decode verification photo. Please retake.")
+                }
+                return@launch
+            }
+
+            val detection = try {
+                stripDetector.detect(bitmap)
+            } catch (e: Exception) {
+                null
+            }
+            if (detection == null || !detection.stripFullyInFrame) {
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        errorMessage = "Could not clearly detect the new blister strip in this photo. Please retake."
+                    )
+                }
+                return@launch
+            }
+
+            val measuredEmpty = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
+                detection.roboflowMissingCount
+            } else {
+                detection.cells.count { it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY }
+            }
+
+            val now = System.currentTimeMillis()
+            val newBaselineEmpty = kotlin.math.max(0, measuredEmpty - medicine.pillsPerDose)
+            val updatedMed = medicine.copy(
+                baselineEmptyCells = newBaselineEmpty,
+                baselinePhotoPath = photoPath,
+                baselineDetectorSource = detection.source.name,
+                lastRefillAt = now,
+                updatedAt = now
+            )
+            medicineRepository.update(updatedMed)
+
+            val emptyCells = measuredEmpty
+            recordVerifiedDoseUseCase(
+                doseId = doseId,
+                photoPath = photoPath,
+                emptyCellsAfter = emptyCells,
+                takenAt = now,
+                detectorSource = detection.source.name
+            ).onSuccess {
+                val updatedDose = doseRepository.getById(doseId)
+                val refreshedMed = medicineRepository.getById(medicine.id)
+                _uiState.update {
+                    it.copy(
+                        isSimulating = false,
+                        isSuccess = true,
+                        isFailed = false,
+                        dose = updatedDose,
+                        medicine = refreshedMed,
+                        infoMessage = "New strip confirmed. Dose verified as taken."
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(isSimulating = false, errorMessage = error.message ?: "Failed to record dose with new strip")
                 }
             }
         }

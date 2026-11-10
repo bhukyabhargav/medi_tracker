@@ -128,7 +128,8 @@ class VerificationCoordinator @Inject constructor(
                 medicine = medicine,
                 lastVerifiedEmptyCells = lastVerifiedEmptyCells,
                 existingHashes = existingHashes,
-                currentHashOverride = currentHash
+                currentHashOverride = currentHash,
+                lastVerifiedDetectorSource = latestVerified?.detectorSource
             )
         } catch (e: IllegalStateException) {
             return CoordinatorResult.Error("Verification temporarily unavailable. ${e.message ?: ""}".trim())
@@ -161,7 +162,7 @@ class VerificationCoordinator @Inject constructor(
                 val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
                 val canLate = LateEntryPolicy.canLogLate(dose.copy(status = DoseStatus.MISSED), nextDose?.scheduledAt, now)
                 return if (canLate) {
-                    recordLateDose(dose, photoPath, emptyCells, captureTime, now)
+                    recordLateDose(dose, photoPath, emptyCells, captureTime, now, pipelineResult.detectorSource?.name)
                 } else {
                     processMissedDoseUseCase(doseId, now)
                     CoordinatorResult.WindowExpired("The intake window expired before verification completed.")
@@ -173,7 +174,7 @@ class VerificationCoordinator @Inject constructor(
                 val nextDose = doseRepository.getNextScheduledDose(medicine.id, dose.scheduledAt)
                 val canLate = LateEntryPolicy.canLogLate(dose, nextDose?.scheduledAt, now)
                 return if (canLate) {
-                    recordLateDose(dose, photoPath, emptyCells, captureTime, now)
+                    recordLateDose(dose, photoPath, emptyCells, captureTime, now, pipelineResult.detectorSource?.name)
                 } else {
                     CoordinatorResult.Error("Late entry cutoff passed. Dose remains MISSED.")
                 }
@@ -184,7 +185,8 @@ class VerificationCoordinator @Inject constructor(
                 doseId = doseId,
                 photoPath = photoPath,
                 emptyCellsAfter = emptyCells,
-                takenAt = captureTime
+                takenAt = captureTime,
+                detectorSource = pipelineResult.detectorSource?.name
             )
 
             return if (recordResult.isSuccess) {
@@ -289,7 +291,8 @@ class VerificationCoordinator @Inject constructor(
         photoPath: String,
         emptyCellsAfter: Int,
         captureTime: Long,
-        now: Long
+        now: Long,
+        detectorSource: String? = null
     ): CoordinatorResult {
         // Delegate to RecordVerifiedDoseUseCase as single authority (handles state machine, dose update, alarm cancel, and stock decrement)
         val recordResult = recordVerifiedDoseUseCase(
@@ -297,7 +300,8 @@ class VerificationCoordinator @Inject constructor(
             photoPath = photoPath,
             emptyCellsAfter = emptyCellsAfter,
             takenAt = captureTime,
-            isLate = true
+            isLate = true,
+            detectorSource = detectorSource
         )
         if (recordResult.isFailure) {
             return CoordinatorResult.Error(recordResult.exceptionOrNull()?.message ?: "Failed to record late dose")

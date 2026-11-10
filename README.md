@@ -990,7 +990,7 @@ Extend the notification outbox (`NotificationOutbox`) and Cloud Functions (`onCr
 
 **Goal:** Replace `FakeStripDetector` with a real on-device model that detects blister cells and whether each is FULL, EMPTY or PARTIAL.
 
-🧑 **HUMAN prerequisites:** (1) create a free **Roboflow account** and put the API key in the environment variable `ROBOFLOW_API_KEY` (never commit it); (2) check the dataset licence on its Roboflow page (see 13.A); (3) collect and label your own phone photos (see 13.B). The AI agent builds the *pipeline and tooling*; the human supplies/validates real photos.
+🧑 **HUMAN prerequisites:** (1) create a free **Roboflow account** and supply the API key via environment variable `ROBOFLOW_API_KEY` or `roboflow.api.key=YOUR_KEY` in `local.properties` (loaded into `BuildConfig.ROBOFLOW_API_KEY`, never commit it); (2) check the dataset licence on its Roboflow page (see 13.A); (3) collect and label your own phone photos (see 13.B). The AI agent builds the *pipeline and tooling*; the human supplies/validates real photos.
 
 ### 13.A Datasets to use (open source) – THE DATASET STACK
 

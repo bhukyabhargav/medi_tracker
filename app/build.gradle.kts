@@ -16,6 +16,12 @@ android {
     namespace = "com.meditrack.app"
     compileSdk = 35
 
+    val localPropsFile = rootProject.file("local.properties")
+    val localProps = Properties()
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { localProps.load(it) }
+    }
+
     defaultConfig {
         applicationId = "com.meditrack.app"
         minSdk = 26
@@ -23,16 +29,15 @@ android {
         versionCode = 1
         versionName = "1.0.0-stage0"
 
+        val roboflowKey = System.getenv("ROBOFLOW_API_KEY")
+            ?: localProps.getProperty("roboflow.api.key")
+            ?: ""
+        buildConfigField("String", "ROBOFLOW_API_KEY", "\"$roboflowKey\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-    }
-
-    val localPropsFile = rootProject.file("local.properties")
-    val localProps = Properties()
-    if (localPropsFile.exists()) {
-        localPropsFile.inputStream().use { localProps.load(it) }
     }
 
     val storeFilePath = System.getenv("KEYSTORE_PATH")

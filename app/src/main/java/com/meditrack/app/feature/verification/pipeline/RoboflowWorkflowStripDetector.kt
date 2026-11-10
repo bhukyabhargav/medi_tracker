@@ -40,79 +40,103 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         private const val JPEG_QUALITY = 80
         private const val CONNECT_TIMEOUT_MS = 10000
         private const val READ_TIMEOUT_MS = 25000
+        private const val MAX_RETRIES = 2
+        private const val INITIAL_BACKOFF_MS = 500L
     }
 
     override suspend fun detect(bitmap: Bitmap): Detection = withContext(Dispatchers.IO) {
         if (!VerificationConfig.isRoboflowWorkflowEnabled) {
-            return@withContext fallbackDetector.detect(bitmap)
+            return@withContext fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
         }
 
-        try {
-            val endpoint = VerificationConfig.roboflowWorkflowEndpoint
-            val apiKey = VerificationConfig.roboflowApiKey
+        val endpoint = VerificationConfig.roboflowWorkflowEndpoint
+        val apiKey = VerificationConfig.roboflowApiKey
 
-            if (endpoint.isBlank() || apiKey.isBlank()) {
-                Log.w(TAG, "Roboflow endpoint or API key not configured; falling back to TFLite")
-                return@withContext fallbackDetector.detect(bitmap)
-            }
+        if (endpoint.isBlank() || apiKey.isBlank()) {
+            Log.w(TAG, "Roboflow endpoint or API key not configured; falling back to TFLite")
+            return@withContext fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
+        }
 
-            // Encode scaled bitmap to Base64 JPEG
-            val base64Image = prepareBase64Image(bitmap)
+        // Encode scaled bitmap to Base64 JPEG
+        val base64Image = prepareBase64Image(bitmap)
 
-            val requestUrl = if (endpoint.contains("?")) {
-                "$endpoint&api_key=$apiKey"
-            } else {
-                "$endpoint?api_key=$apiKey"
-            }
+        val requestUrl = if (endpoint.contains("?")) {
+            "$endpoint&api_key=$apiKey"
+        } else {
+            "$endpoint?api_key=$apiKey"
+        }
 
-            val payload = JSONObject().apply {
-                put("api_key", apiKey)
-                put("inputs", JSONObject().apply {
-                    put("image", JSONObject().apply {
-                        put("type", "base64")
-                        put("value", base64Image)
-                    })
+        val payload = JSONObject().apply {
+            put("api_key", apiKey)
+            put("inputs", JSONObject().apply {
+                put("image", JSONObject().apply {
+                    put("type", "base64")
+                    put("value", base64Image)
                 })
-            }
-
-            val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = CONNECT_TIMEOUT_MS
-                readTimeout = READ_TIMEOUT_MS
-                doInput = true
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
-            }
-
-            connection.outputStream.use { os ->
-                OutputStreamWriter(os, Charsets.UTF_8).use { writer ->
-                    writer.write(payload.toString())
-                    writer.flush()
-                }
-            }
-
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val responseText = connection.inputStream.use { stream ->
-                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
-                }
-                parseWorkflowResponse(responseText)
-            } else {
-                val errorText = try {
-                    connection.errorStream?.use { stream ->
-                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
-                    } ?: "HTTP $responseCode"
-                } catch (_: Throwable) {
-                    "HTTP $responseCode"
-                }
-                Log.w(TAG, "Roboflow workflow returned HTTP $responseCode: $errorText. Falling back to local detector.")
-                fallbackDetector.detect(bitmap)
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "Roboflow inference failed: ${e.message}. Falling back to local detector.", e)
-            fallbackDetector.detect(bitmap)
+            })
         }
+
+        var attempt = 0
+        var backoffMs = INITIAL_BACKOFF_MS
+        while (attempt <= MAX_RETRIES) {
+            try {
+                val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = CONNECT_TIMEOUT_MS
+                    readTimeout = READ_TIMEOUT_MS
+                    doInput = true
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
+
+                connection.outputStream.use { os ->
+                    OutputStreamWriter(os, Charsets.UTF_8).use { writer ->
+                        writer.write(payload.toString())
+                        writer.flush()
+                    }
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val responseText = connection.inputStream.use { stream ->
+                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+                    }
+                    return@withContext parseWorkflowResponse(responseText)
+                } else if (responseCode in 500..599 && attempt < MAX_RETRIES) {
+                    Log.w(TAG, "Roboflow server error $responseCode on attempt $attempt; retrying in ${backoffMs}ms")
+                    kotlinx.coroutines.delay(backoffMs)
+                    backoffMs *= 2
+                    attempt++
+                    continue
+                } else {
+                    val errorText = try {
+                        connection.errorStream?.use { stream ->
+                            BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+                        } ?: "HTTP $responseCode"
+                    } catch (_: Throwable) {
+                        "HTTP $responseCode"
+                    }
+                    Log.w(TAG, "Roboflow workflow returned HTTP $responseCode: $errorText. Falling back to local detector.")
+                    return@withContext fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
+                }
+            } catch (e: java.io.IOException) {
+                if (attempt < MAX_RETRIES) {
+                    Log.w(TAG, "Roboflow network error (${e.message}) on attempt $attempt; retrying in ${backoffMs}ms")
+                    kotlinx.coroutines.delay(backoffMs)
+                    backoffMs *= 2
+                    attempt++
+                } else {
+                    Log.w(TAG, "Roboflow inference failed after retries: ${e.message}. Falling back to local detector.", e)
+                    return@withContext fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Roboflow inference unexpected failure: ${e.message}. Falling back to local detector.", e)
+                return@withContext fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
+            }
+        }
+
+        fallbackDetector.detect(bitmap).copy(source = DetectorSource.LOCAL)
     }
 
     private fun prepareBase64Image(source: Bitmap): String {
@@ -135,7 +159,7 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         return Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
 
-    private fun parseWorkflowResponse(jsonString: String): Detection {
+    internal fun parseWorkflowResponse(jsonString: String): Detection {
         val root = if (jsonString.trim().startsWith("[")) {
             val array = JSONArray(jsonString)
             if (array.length() > 0) array.getJSONObject(0) else JSONObject()
@@ -149,15 +173,12 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             }
         }
 
-        val packStatus = root.optString("pack_status", "accepted")
-        val isPackAccepted = packStatus.equals("accepted", ignoreCase = true)
-
-        val missingCountRaw = root.opt("missing_count")
-        val missingCount = when (missingCountRaw) {
-            is Number -> missingCountRaw.toInt()
-            is String -> missingCountRaw.toIntOrNull()
-            else -> null
+        val packStatus = if (root.has("pack_status") && !root.isNull("pack_status")) {
+            root.optString("pack_status", "rejected")
+        } else {
+            "rejected"
         }
+        val isPackAccepted = packStatus.equals("accepted", ignoreCase = true)
 
         // Parse blister pack bounding box
         var stripBox: RectF? = null
@@ -227,6 +248,18 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             }
         }
 
+        val missingCountRaw = root.opt("missing_count")
+        val missingCount = when (missingCountRaw) {
+            is Number -> missingCountRaw.toInt()
+            is String -> missingCountRaw.toIntOrNull()
+            else -> {
+                if (isPackAccepted) {
+                    Log.w(TAG, "missing_count field absent in Roboflow response; falling back to counted empty cavities (${cells.size})")
+                    cells.size
+                } else null
+            }
+        }
+
         // Check if strip is fully in frame geometrically
         val fullyInFrame = if (!isPackAccepted) {
             false
@@ -244,7 +277,8 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             stripBox = stripBox,
             isRoboflowWorkflow = true,
             roboflowMissingCount = missingCount ?: cells.size,
-            roboflowPackStatus = packStatus
+            roboflowPackStatus = packStatus,
+            source = DetectorSource.CLOUD
         )
     }
 }
