@@ -33,7 +33,7 @@ import com.meditrack.app.domain.model.VerificationAttempt
         MedicineProposal::class,
         NotificationOutbox::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -138,6 +138,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        /**
+         * v4 -> v5: adds baseline geometry signature fields to medicines
+         * for rotation-invariant blister verification and brand/layout mismatch detection.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineCellCount INTEGER")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineCentersJson TEXT")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineCellSizeRatio REAL")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineRows INTEGER")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineCols INTEGER")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineAspectRatio REAL")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN baselineVersion INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
     }
 }

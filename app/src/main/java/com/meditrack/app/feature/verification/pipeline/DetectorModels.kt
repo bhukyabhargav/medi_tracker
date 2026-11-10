@@ -31,6 +31,8 @@ interface StripDetector {
 data class VerificationResult(
     val passed: Boolean,
     val rejectReason: RejectReason? = null,
+    val failureReason: VerificationFailureReason? = null,
     val emptyCellsAfter: Int? = null,
-    val friendlyMessage: String? = null
+    val friendlyMessage: String? = null,
+    val retryHint: String? = null
 )

@@ -170,7 +170,11 @@ class TfliteStripDetector @Inject constructor(
      */
     override suspend fun detect(bitmap: Bitmap): Detection = mutex.withLock {
         val first = detectUnlocked(bitmap)
-        val box = first.stripBox ?: return@withLock first
+        val box = if (first.cells.size >= VerificationConfig.minBlisterCells) {
+            deriveStripBox(first.cells, VerificationConfig.stripCropMarginFraction) ?: first.stripBox
+        } else {
+            first.stripBox
+        } ?: return@withLock first
 
         val area = StripCropPlanner.areaFraction(box.left, box.top, box.right, box.bottom)
         if (area >= VerificationConfig.stripZoomAreaThreshold) return@withLock first
@@ -351,8 +355,16 @@ class TfliteStripDetector @Inject constructor(
                             cy >= detectedStripBox.top && cy <= detectedStripBox.bottom
                 }
                 val majorityEnclosed = cellsInside.toFloat() / clusteredCells.size >= 0.6f
-                val reasonableArea = derivedArea <= 0f || detectedArea <= derivedArea * 2.8f
-                majorityEnclosed && reasonableArea
+                val reasonableArea = derivedArea <= 0f || detectedArea <= derivedArea * 2.2f
+                val borderTouchingHallucination = (detectedStripBox.left <= VerificationConfig.borderToleranceFraction ||
+                        detectedStripBox.top <= VerificationConfig.borderToleranceFraction ||
+                        detectedStripBox.right >= (1.0f - VerificationConfig.borderToleranceFraction) ||
+                        detectedStripBox.bottom >= (1.0f - VerificationConfig.borderToleranceFraction)) &&
+                        (derivedBox.left > VerificationConfig.borderToleranceFraction &&
+                        derivedBox.top > VerificationConfig.borderToleranceFraction &&
+                        derivedBox.right < (1.0f - VerificationConfig.borderToleranceFraction) &&
+                        derivedBox.bottom < (1.0f - VerificationConfig.borderToleranceFraction))
+                majorityEnclosed && reasonableArea && !borderTouchingHallucination
             } else {
                 detectedStripBox != null && clusteredCells.isEmpty()
             }
@@ -507,31 +519,97 @@ class TfliteStripDetector @Inject constructor(
     internal fun filterOutlierCells(cells: List<Cell>): List<Cell> {
         if (cells.size <= 2) return cells
 
-        val centers = cells.map { cell ->
+        val widths = cells.map { it.box.right - it.box.left }
+        val heights = cells.map { it.box.bottom - it.box.top }
+        val mw = max(0.01f, widths.sorted()[widths.size / 2])
+        val mh = max(0.01f, heights.sorted()[heights.size / 2])
+
+        // Filter out extreme noise boxes before clustering if we have enough cells
+        val validSize = cells.filter {
+            val wRatio = (it.box.right - it.box.left) / mw
+            val hRatio = (it.box.bottom - it.box.top) / mh
+            wRatio in VerificationConfig.cellSizeToleranceLow..VerificationConfig.cellSizeToleranceHigh &&
+                    hRatio in VerificationConfig.cellSizeToleranceLow..VerificationConfig.cellSizeToleranceHigh
+        }
+        val target = if (validSize.size >= 3) validSize else cells
+
+        val centers = target.map { cell ->
             val cx = (cell.box.left + cell.box.right) / 2f
             val cy = (cell.box.top + cell.box.bottom) / 2f
             Pair(cx, cy)
         }
 
-        val sortedX = centers.map { it.first }.sorted()
-        val sortedY = centers.map { it.second }.sorted()
-        val medX = sortedX[sortedX.size / 2]
-        val medY = sortedY[sortedY.size / 2]
+        val n = target.size
+        val xs = centers.map { it.first }
+        val ys = centers.map { it.second }
+        val mx = xs.average().toFloat()
+        val my = ys.average().toFloat()
+        var sxx = 0f
+        var syy = 0f
+        var sxy = 0f
+        for (i in 0 until n) {
+            val dx = xs[i] - mx
+            val dy = ys[i] - my
+            sxx += dx * dx
+            syy += dy * dy
+            sxy += dx * dy
+        }
+        val angle = 0.5f * kotlin.math.atan2(2f * sxy, sxx - syy)
+        val ca = kotlin.math.cos(angle)
+        val sa = kotlin.math.sin(angle)
 
-        val distances = centers.map { (cx, cy) ->
-            val dx = cx - medX
-            val dy = cy - medY
-            kotlin.math.sqrt(dx * dx + dy * dy)
+        val maxDim = max(mw, mh)
+        val minDim = min(mw, mh)
+
+        val adj = Array(n) { mutableListOf<Int>() }
+        for (i in 0 until n) {
+            for (j in (i + 1) until n) {
+                val dx = centers[i].first - centers[j].first
+                val dy = centers[i].second - centers[j].second
+
+                // Photo-axis normalized distance
+                val dStd = kotlin.math.sqrt((dx / mw) * (dx / mw) + (dy / mh) * (dy / mh))
+
+                // Principal-axis normalized distance
+                val drx = dx * ca + dy * sa
+                val dry = -dx * sa + dy * ca
+                val dRot = kotlin.math.sqrt((drx / maxDim) * (drx / maxDim) + (dry / minDim) * (dry / minDim))
+
+                if (min(dStd, dRot) <= VerificationConfig.maxCellClusterDistance) {
+                    adj[i].add(j)
+                    adj[j].add(i)
+                }
+            }
         }
 
-        val sortedDistances = distances.sorted()
-        val medDistance = sortedDistances[sortedDistances.size / 2]
+        val visited = BooleanArray(n)
+        val components = mutableListOf<List<Cell>>()
+        for (i in 0 until n) {
+            if (!visited[i]) {
+                val comp = mutableListOf<Cell>()
+                val queue = ArrayDeque<Int>()
+                visited[i] = true
+                queue.add(i)
+                while (queue.isNotEmpty()) {
+                    val curr = queue.removeFirst()
+                    comp.add(target[curr])
+                    for (nxt in adj[curr]) {
+                        if (!visited[nxt]) {
+                            visited[nxt] = true
+                            queue.add(nxt)
+                        }
+                    }
+                }
+                components.add(comp)
+            }
+        }
 
-        // Reject isolated detections far from the main cell cluster.
-        val threshold = max(0.40f, medDistance * 3.0f)
-
-        val clustered = cells.filterIndexed { index, _ -> distances[index] <= threshold }
-        return if (clustered.isNotEmpty()) clustered else cells
+        // Return largest component with at least minBlisterCells or highest total confidence
+        components.sortByDescending { comp ->
+            val hasMin = if (comp.size >= VerificationConfig.minBlisterCells) 1000f else 0f
+            hasMin + comp.size * 50f + comp.sumOf { it.confidence.toDouble() }.toFloat()
+        }
+        return components.firstOrNull() ?: cells
     }
 
     internal fun deriveStripBox(cells: List<Cell>, marginFraction: Float = 0.0f): RectF? {

@@ -36,7 +36,11 @@ class RecordVerifiedDoseUseCase @Inject constructor(
         takenAt: Long = System.currentTimeMillis(),
         isLate: Boolean = false
     ): Result<Unit> = mutex.withLock {
-        record(doseId, photoPath, emptyCellsAfter, takenAt, isLate)
+        try {
+            record(doseId, photoPath, emptyCellsAfter, takenAt, isLate)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     // Serialises recording: a double tap or "Taken" notification action + in-app confirm must not

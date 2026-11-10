@@ -38,12 +38,16 @@ sealed interface CoordinatorResult {
     data class Failed(
         val reason: RejectReason,
         val attemptsRemaining: Int,
-        val friendlyMessage: String?
+        val friendlyMessage: String? = null,
+        val retryHint: String? = null,
+        val failureReason: VerificationFailureReason? = null
     ) : CoordinatorResult
 
     data class Exhausted(
         val reason: RejectReason,
-        val friendlyMessage: String
+        val friendlyMessage: String,
+        val retryHint: String? = null,
+        val failureReason: VerificationFailureReason? = null
     ) : CoordinatorResult
 
     data class WindowExpired(
@@ -195,13 +199,14 @@ class VerificationCoordinator @Inject constructor(
         } else {
             // Pipeline REJECTED: Count attempt strikes (quality gate rejections do not consume strikes)
             val reason = pipelineResult.rejectReason ?: RejectReason.WRONG_PILL_COUNT
-            val isQualityGate = reason in setOf(
+            val failureReason = pipelineResult.failureReason
+            val isQualityGate = failureReason?.isQualityGate ?: (reason in setOf(
                 RejectReason.BLURRY,
                 RejectReason.TOO_DARK,
                 RejectReason.TOO_BRIGHT,
                 RejectReason.GLARE,
                 RejectReason.TOO_EARLY
-            )
+            ))
             val newAttempts = if (isQualityGate) dose.verificationAttempts else dose.verificationAttempts + 1
 
             if (newAttempts < AppConfig.MAX_VERIFICATION_ATTEMPTS) {
@@ -215,7 +220,9 @@ class VerificationCoordinator @Inject constructor(
                 return CoordinatorResult.Failed(
                     reason = reason,
                     attemptsRemaining = AppConfig.MAX_VERIFICATION_ATTEMPTS - newAttempts,
-                    friendlyMessage = pipelineResult.friendlyMessage
+                    friendlyMessage = pipelineResult.friendlyMessage,
+                    retryHint = pipelineResult.retryHint,
+                    failureReason = failureReason
                 )
             } else {
                 // 3 strikes exhausted: Transition via state machine
@@ -256,7 +263,9 @@ class VerificationCoordinator @Inject constructor(
 
                     return CoordinatorResult.Exhausted(
                         reason = reason,
-                        friendlyMessage = "We couldn't verify this dose. Your caregiver has been notified."
+                        friendlyMessage = "We couldn't verify this dose. Your caregiver has been notified.",
+                        retryHint = pipelineResult.retryHint,
+                        failureReason = failureReason
                     )
                 } else {
                     // For MISSED doses, VerificationFailedExhausted is illegal in state machine.

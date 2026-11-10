@@ -145,4 +145,17 @@ class RecordVerifiedDoseUseCaseTest {
         assertEquals(DoseStatus.TAKEN, stored.status)
         io.mockk.coVerify(exactly = 1) { processStockDecrementUseCase(any(), any(), any()) }
     }
+
+    @Test
+    fun failedDbWrite_neverRecordsVerifiedDose_andNeverDecrementsStock() = runTest {
+        coEvery { doseRepository.getById("dose_1") } returns sampleDose
+        coEvery { medicineRepository.getById("med_1") } returns sampleMedicine
+        coEvery { doseRepository.update(any()) } throws RuntimeException("Disk full / DB write failed")
+
+        val result = useCase("dose_1", photoPath = "photo.jpg", emptyCellsAfter = 1, takenAt = 2500L, isLate = false)
+
+        assertTrue("Failed DB update must report failure", result.isFailure)
+        coVerify(exactly = 0) { processStockDecrementUseCase(any(), any(), any()) }
+        coVerify(exactly = 0) { alarmScheduler.cancelDoseAlarm(any()) }
+    }
 }

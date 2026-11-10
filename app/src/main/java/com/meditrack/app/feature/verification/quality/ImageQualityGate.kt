@@ -6,6 +6,7 @@ import com.meditrack.app.core.config.AppConfig
 import com.meditrack.app.core.config.VerificationConfig
 import com.meditrack.app.domain.model.RejectReason
 import com.meditrack.app.feature.verification.pipeline.Cell
+import com.meditrack.app.feature.verification.pipeline.VerificationFailureReason
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -23,6 +24,8 @@ data class QualityResult(
     val passed: Boolean,
     val reason: RejectReason? = null,
     val friendlyMessage: String? = null,
+    val retryHint: String? = null,
+    val failureReason: VerificationFailureReason? = null,
     val metrics: QualityMetrics = QualityMetrics()
 )
 
@@ -38,10 +41,13 @@ object ImageQualityGate {
         val height = bitmap.height
 
         if (width < VerificationConfig.globalMinDimensionPx || height < VerificationConfig.globalMinDimensionPx) {
+            val fail = VerificationFailureReason.INSUFFICIENT_RESOLUTION
             return QualityResult(
                 passed = false,
-                reason = RejectReason.BLURRY,
-                friendlyMessage = "Image resolution is too low. Please retake the photo.",
+                reason = fail.mappedRejectReason,
+                friendlyMessage = fail.userMessage,
+                retryHint = fail.retryHint,
+                failureReason = fail,
                 metrics = QualityMetrics(effectiveWidthPx = width, effectiveHeightPx = height)
             )
         }
@@ -69,19 +75,25 @@ object ImageQualityGate {
         val meanBrightness = sumLum / total
 
         if (meanBrightness < VerificationConfig.globalBrightnessMin) {
+            val fail = VerificationFailureReason.POOR_EXPOSURE
             return QualityResult(
                 passed = false,
                 reason = RejectReason.TOO_DARK,
-                friendlyMessage = "Photo is completely dark. Please ensure sufficient light or turn on flash.",
+                friendlyMessage = fail.userMessage,
+                retryHint = fail.retryHint,
+                failureReason = fail,
                 metrics = QualityMetrics(meanBrightness = meanBrightness, effectiveWidthPx = width, effectiveHeightPx = height)
             )
         }
 
         if (meanBrightness > VerificationConfig.globalBrightnessMax) {
+            val fail = VerificationFailureReason.POOR_EXPOSURE
             return QualityResult(
                 passed = false,
                 reason = RejectReason.TOO_BRIGHT,
-                friendlyMessage = "Photo is completely washed out. Please avoid shining harsh lights directly at the camera.",
+                friendlyMessage = fail.userMessage,
+                retryHint = fail.retryHint,
+                failureReason = fail,
                 metrics = QualityMetrics(meanBrightness = meanBrightness, effectiveWidthPx = width, effectiveHeightPx = height)
             )
         }
@@ -146,10 +158,13 @@ object ImageQualityGate {
     private fun analyzeCrop(source: Bitmap, left: Int, top: Int, width: Int, height: Int): QualityResult {
         // Effective resolution check on blister crop
         if (width < VerificationConfig.minBlisterResolutionPx || height < VerificationConfig.minBlisterResolutionPx) {
+            val fail = VerificationFailureReason.INSUFFICIENT_RESOLUTION
             return QualityResult(
                 passed = false,
-                reason = RejectReason.BLURRY,
-                friendlyMessage = "Blister pack is too small or too far away. Please hold the phone closer to the strip.",
+                reason = fail.mappedRejectReason,
+                friendlyMessage = fail.userMessage,
+                retryHint = fail.retryHint,
+                failureReason = fail,
                 metrics = QualityMetrics(effectiveWidthPx = width, effectiveHeightPx = height)
             )
         }
@@ -193,39 +208,51 @@ object ImageQualityGate {
 
             // Brightness checks on blister
             if (meanBrightness < VerificationConfig.blisterBrightnessMin) {
+                val fail = VerificationFailureReason.POOR_EXPOSURE
                 return QualityResult(
                     passed = false,
                     reason = RejectReason.TOO_DARK,
-                    friendlyMessage = "Blister pack is too dark. Please take photo in better lighting or turn on flash.",
+                    friendlyMessage = fail.userMessage,
+                    retryHint = fail.retryHint,
+                    failureReason = fail,
                     metrics = QualityMetrics(meanBrightness = meanBrightness, glareFraction = glareFraction, contrast = contrast, effectiveWidthPx = width, effectiveHeightPx = height)
                 )
             }
 
             if (meanBrightness > VerificationConfig.blisterBrightnessMax) {
+                val fail = VerificationFailureReason.POOR_EXPOSURE
                 return QualityResult(
                     passed = false,
                     reason = RejectReason.TOO_BRIGHT,
-                    friendlyMessage = "Blister pack is too bright. Please avoid harsh reflections or direct lighting.",
+                    friendlyMessage = fail.userMessage,
+                    retryHint = fail.retryHint,
+                    failureReason = fail,
                     metrics = QualityMetrics(meanBrightness = meanBrightness, glareFraction = glareFraction, contrast = contrast, effectiveWidthPx = width, effectiveHeightPx = height)
                 )
             }
 
             // Contrast check on blister
             if (contrast < VerificationConfig.blisterContrastMin) {
+                val fail = VerificationFailureReason.IMAGE_BLURRY
                 return QualityResult(
                     passed = false,
                     reason = RejectReason.BLURRY,
-                    friendlyMessage = "Low contrast on blister pack. Please improve lighting.",
+                    friendlyMessage = fail.userMessage,
+                    retryHint = fail.retryHint,
+                    failureReason = fail,
                     metrics = QualityMetrics(meanBrightness = meanBrightness, glareFraction = glareFraction, contrast = contrast, effectiveWidthPx = width, effectiveHeightPx = height)
                 )
             }
 
             // Glare check on blister
             if (glareFraction > VerificationConfig.blisterGlareFractionMax) {
+                val fail = VerificationFailureReason.EXCESSIVE_GLARE
                 return QualityResult(
                     passed = false,
                     reason = RejectReason.GLARE,
-                    friendlyMessage = "Glare detected on the blister cavities. Please tilt the strip slightly to avoid reflection.",
+                    friendlyMessage = fail.userMessage,
+                    retryHint = fail.retryHint,
+                    failureReason = fail,
                     metrics = QualityMetrics(meanBrightness = meanBrightness, glareFraction = glareFraction, contrast = contrast, effectiveWidthPx = width, effectiveHeightPx = height)
                 )
             }
@@ -259,10 +286,13 @@ object ImageQualityGate {
             val blurVariance = if (lapCount > 0) (lapSqSum / lapCount) - (lapMean * lapMean) else 0.0
 
             if (blurVariance < VerificationConfig.blisterBlurVarianceMin) {
+                val fail = VerificationFailureReason.IMAGE_BLURRY
                 return QualityResult(
                     passed = false,
                     reason = RejectReason.BLURRY,
-                    friendlyMessage = "Photo is blurry. Please hold phone steady and lay blister strip flat.",
+                    friendlyMessage = fail.userMessage,
+                    retryHint = fail.retryHint,
+                    failureReason = fail,
                     metrics = QualityMetrics(blurVariance = blurVariance, meanBrightness = meanBrightness, glareFraction = glareFraction, contrast = contrast, effectiveWidthPx = width, effectiveHeightPx = height)
                 )
             }
