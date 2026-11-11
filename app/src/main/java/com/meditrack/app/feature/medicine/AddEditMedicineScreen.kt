@@ -258,9 +258,9 @@ fun AddEditMedicineScreen(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Text(
-                                        text = "Prescribed by ${uiState.prescribedByDoctorName ?: "Doctor"}. Prescription details are pre-filled below. Please enter your physical stock count and take a baseline photo of your blister pack.",
+                                        text = "Prescribed by ${uiState.prescribedByDoctorName ?: "Doctor"}.\n• Medicine name, dosage, pills per session, and schedule time are pre-filled.\n• Enter your current pill stock count below and proceed to upload your blister strip photo.",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
                                     )
                                 }
                             }
@@ -294,10 +294,15 @@ fun AddEditMedicineScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val isFromProposal = !uiState.acceptProposalId.isNullOrBlank()
                         OutlinedTextField(
                             value = uiState.pillsPerDoseText,
                             onValueChange = viewModel::onPillsPerDoseChange,
-                            label = { Text(stringResource(R.string.pills_per_dose_label)) },
+                            label = {
+                                Text(
+                                    if (isFromProposal) "Pills/session (Prescribed)" else stringResource(R.string.pills_per_dose_label)
+                                )
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
                             singleLine = true
@@ -306,7 +311,11 @@ fun AddEditMedicineScreen(
                         OutlinedTextField(
                             value = uiState.initialStockText,
                             onValueChange = viewModel::onInitialStockChange,
-                            label = { Text(stringResource(R.string.initial_stock_label)) },
+                            label = {
+                                Text(
+                                    if (isFromProposal) "Stock (Required - Patient Upload)" else stringResource(R.string.initial_stock_label)
+                                )
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f),
                             singleLine = true
@@ -590,11 +599,14 @@ fun AddEditMedicineScreen(
                             Text(stringResource(R.string.btn_delete))
                         }
                     } else {
+                        val isFromProposal = !uiState.acceptProposalId.isNullOrBlank()
                         Button(
                             onClick = viewModel::onContinueToPhoto,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(stringResource(R.string.btn_continue_to_photo))
+                            Text(
+                                if (isFromProposal) "Next: Upload Blister Strip Photo" else stringResource(R.string.btn_continue_to_photo)
+                            )
                         }
                     }
 

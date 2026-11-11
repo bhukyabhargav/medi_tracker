@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -545,8 +547,9 @@ fun PatientDoctorContent(
                             Text(payload?.medicineName ?: "Prescription", fontWeight = FontWeight.Bold)
                             Text("Type: ${prop.type.name} • ${prop.status.name}")
                         }
-                        Text("Dosage: ${payload?.dosageText} • Pills: ${payload?.pillsPerDose}", style = MaterialTheme.typography.bodySmall)
-                        Text("Times: ${payload?.times?.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                        Text("Dosage: ${payload?.dosageText} • Pills per session: ${payload?.pillsPerDose}", style = MaterialTheme.typography.bodySmall)
+                        Text("Time to take: ${payload?.times?.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                        Text("Stock & Blister Photo: Uploaded by patient upon accepting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         if (payload?.clarificationNote != null) {
                             Text("Note: ${payload.clarificationNote}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
@@ -585,48 +588,78 @@ fun CreateProposalDialog(
     var dosage by remember { mutableStateOf("500mg") }
     var pillsCount by remember { mutableStateOf("1") }
     var timeInput by remember { mutableStateOf("09:00") }
-    var instructions by remember { mutableStateOf("Take with water") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Propose Prescription (ADD)") },
+        title = { Text("Propose Prescription (Doctor Mode)") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Doctor Mode Scope: You can specify only the medicine name, dosage, number of pills per session, and schedule time.\n\nMedicine stock and baseline blister strip photo will be uploaded by the patient upon accepting this prescription.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+
                 OutlinedTextField(
                     value = medName,
                     onValueChange = { medName = it },
                     label = { Text("Medicine Name (e.g. Amoxicillin)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+
                 OutlinedTextField(
                     value = dosage,
                     onValueChange = { dosage = it },
                     label = { Text("Dosage / Strength (e.g. 500mg, 10ml)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+
                 OutlinedTextField(
                     value = pillsCount,
                     onValueChange = { pillsCount = it },
-                    label = { Text("Pills Per Dose (e.g. 1)") },
+                    label = { Text("No of pills per session (e.g. 1)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+
                 OutlinedTextField(
                     value = timeInput,
                     onValueChange = { timeInput = it },
-                    label = { Text("Schedule Time (HH:mm)") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Time to take that medicine (HH:mm)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Spacer(modifier = Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = instructions,
-                    onValueChange = { instructions = it },
-                    label = { Text("Instructions (e.g. After meals)") },
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Patient Responsibilities on Acceptance:",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "• Enter current physical stock count\n• Upload/capture baseline blister strip photo",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -639,7 +672,7 @@ fun CreateProposalDialog(
                             pillsPerDose = pillsCount.toIntOrNull() ?: 1,
                             times = listOf(timeInput.trim()),
                             startDate = LocalDate.now().toString(),
-                            additionalInstructions = instructions.trim()
+                            additionalInstructions = null
                         )
                         onSubmit(ProposalType.ADD, payload, null)
                     }
