@@ -54,9 +54,22 @@ class HomeViewModel @Inject constructor(
         loadDashboard()
     }
 
+    fun markDoseAsMissed(doseId: String) {
+        viewModelScope.launch {
+            val dose = doseRepository.getById(doseId) ?: return@launch
+            doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = timeProvider()))
+        }
+    }
+
     fun loadDashboard() {
         viewModelScope.launch {
             val now = timeProvider()
+            try {
+                val overdue = doseRepository.getOverduePendingDoses(now)
+                for (dose in overdue) {
+                    doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = now))
+                }
+            } catch (_: Exception) {}
             val zoneId = zoneProvider()
             val todayDate = Instant.ofEpochMilli(now).atZone(zoneId).toLocalDate()
             val startOfToday = ZonedDateTime.of(todayDate, LocalTime.MIN, zoneId).toInstant().toEpochMilli()
