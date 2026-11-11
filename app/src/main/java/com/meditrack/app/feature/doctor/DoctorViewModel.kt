@@ -32,6 +32,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -137,6 +140,9 @@ class DoctorViewModel @Inject constructor(
             linksFlow.collect { links ->
                 val accepted = links.filter { it.status == DoctorLinkStatus.ACCEPTED }
                 _uiState.update { it.copy(acceptedPatients = accepted) }
+                if (_uiState.value.selectedPatientId == null && accepted.isNotEmpty()) {
+                    selectPatient(accepted.first().patientId)
+                }
             }
         }
 
@@ -317,8 +323,11 @@ class DoctorViewModel @Inject constructor(
      * users/{patientId}/doseEvents (last 7 days). Does NOT touch doctor's local Room.
      * Calculates adherence via existing AdherenceCalculator.
      */
+    private var selectPatientJob: Job? = null
+
     fun selectPatient(patientId: String) {
-        viewModelScope.launch {
+        selectPatientJob?.cancel()
+        selectPatientJob = viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
             if (doctorCloud.isAvailable) {
@@ -343,24 +352,23 @@ class DoctorViewModel @Inject constructor(
                     }
                 }
             } else {
-                // Strict read-only query of local medicines and doses (offline / tests)
-                val medicines = medicineRepository.observeAll().firstOrNull() ?: emptyList()
+                val fourteenDaysAgo = System.currentTimeMillis() - (14L * 24 * 60 * 60 * 1000)
+                val tomorrow = System.currentTimeMillis() + (24L * 60 * 60 * 1000)
 
-                val today = LocalDate.now()
-                val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
-
-                val doses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-                val adherence = AdherenceCalculator.calculate(doses)
-
-                _uiState.update {
-                    it.copy(
-                        selectedPatientMedicines = medicines,
-                        selectedPatientDoses = doses,
-                        selectedPatientAdherence = adherence,
-                        isLoading = false
-                    )
-                }
+                combine(
+                    medicineRepository.observeActiveByPatient(patientId),
+                    doseRepository.observeBetweenByPatient(patientId, fourteenDaysAgo, tomorrow)
+                ) { meds, doses ->
+                    val adherence = AdherenceCalculator.calculate(doses)
+                    _uiState.update {
+                        it.copy(
+                            selectedPatientMedicines = meds,
+                            selectedPatientDoses = doses.sortedByDescending { d -> d.scheduledAt },
+                            selectedPatientAdherence = adherence,
+                            isLoading = false
+                        )
+                    }
+                }.collect()
             }
         }
     }
