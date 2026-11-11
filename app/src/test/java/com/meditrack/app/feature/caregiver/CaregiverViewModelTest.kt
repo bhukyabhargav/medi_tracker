@@ -147,8 +147,10 @@ class CaregiverViewModelTest {
             DoseEvent(id = "2", patientId = "patient_1", medicineId = "m1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
         )
         coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(doses)
+        coEvery { doseRepository.observeBetweenByPatient(any(), any(), any()) } returns flowOf(doses)
         coEvery { medicineRepository.observeAll() } returns flowOf(emptyList())
         coEvery { medicineRepository.observeActive() } returns flowOf(emptyList())
+        coEvery { medicineRepository.observeActiveByPatient(any()) } returns flowOf(emptyList())
 
         viewModel.selectPatient("patient_1")
         advanceUntilIdle()

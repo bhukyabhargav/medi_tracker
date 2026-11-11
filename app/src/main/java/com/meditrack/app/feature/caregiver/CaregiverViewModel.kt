@@ -30,6 +30,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -175,33 +178,48 @@ class CaregiverViewModel @Inject constructor(
                     (role == UserRole.CAREGIVER || it.caregiverUid == currentId || it.caregiverUid == "demo_caregiver_001")
                 }
                 _uiState.update { it.copy(linkedPatients = patients) }
+                if (_uiState.value.selectedPatientId == null && patients.isNotEmpty()) {
+                    selectPatient(patients.first().patientId)
+                }
 
-                // Query strictly MISSED doses for all connected patients
                 val patientIds = patients.map { it.patientId }.toSet()
-                loadMissedDosesForPatients(patientIds)
+                observeMissedDosesForPatients(patientIds)
             }
         }
     }
 
-    private fun loadMissedDosesForPatients(patientIds: Set<String>) {
-        viewModelScope.launch {
+    private var missedDosesJob: Job? = null
+
+    private fun observeMissedDosesForPatients(patientIds: Set<String>) {
+        missedDosesJob?.cancel()
+        missedDosesJob = viewModelScope.launch {
             val from = LocalDate.now().minusDays(14).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val to = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val allDoses = doseRepository.observeBetween(from, to).firstOrNull() ?: emptyList()
-            val missedDoses = allDoses.filter { it.status == DoseStatus.MISSED && (patientIds.isEmpty() || it.patientId in patientIds) }
-            val activeMeds = medicineRepository.observeActive().firstOrNull() ?: emptyList()
-            val medMap = activeMeds.associateBy { it.id }
 
-            val missedItems = missedDoses.map { dose ->
-                val medName = medMap[dose.medicineId]?.name ?: "Scheduled Medicine"
-                MissedDoseItem(
-                    id = dose.id,
-                    dose = dose,
-                    medicineName = medName,
-                    patientId = dose.patientId
-                )
+            val targets = if (patientIds.isEmpty()) setOf("demo_patient_001") else patientIds
+
+            val flows = targets.map { pid ->
+                combine(
+                    medicineRepository.observeActiveByPatient(pid),
+                    doseRepository.observeBetweenByPatient(pid, from, to)
+                ) { meds, doses ->
+                    val medMap = meds.associateBy { it.id }
+                    doses.filter { it.status == DoseStatus.MISSED }.map { dose ->
+                        MissedDoseItem(
+                            id = dose.id,
+                            dose = dose,
+                            medicineName = medMap[dose.medicineId]?.name ?: "Scheduled Medicine",
+                            patientId = dose.patientId
+                        )
+                    }
+                }
             }
-            _uiState.update { it.copy(allConnectedMissedDoses = missedItems) }
+
+            combine(flows) { lists ->
+                lists.flatMap { it }.distinctBy { it.id }.sortedByDescending { it.dose.scheduledAt }
+            }.collect { missedItems ->
+                _uiState.update { it.copy(allConnectedMissedDoses = missedItems) }
+            }
         }
     }
 
@@ -453,43 +471,43 @@ class CaregiverViewModel @Inject constructor(
         }
     }
 
+    private var selectPatientJob: Job? = null
+
     fun selectPatient(patientId: String) {
-        viewModelScope.launch {
+        selectPatientJob?.cancel()
+        selectPatientJob = viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
             val today = LocalDate.now()
-            val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val startOfDay = today.minusDays(14).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
-            val allDoses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
-            val dosesToday = allDoses.filter { it.patientId == patientId }
+            combine(
+                medicineRepository.observeActiveByPatient(patientId),
+                doseRepository.observeBetweenByPatient(patientId, startOfDay, endOfDay)
+            ) { medicines, dosesToday ->
+                val adherence = AdherenceCalculator.calculate(dosesToday)
+                val missed = dosesToday.filter { it.status == DoseStatus.MISSED }
+                val missedItems = missed.map { dose ->
+                    val medName = medicines.find { it.id == dose.medicineId }?.name ?: "Scheduled Medicine"
+                    MissedDoseItem(
+                        id = dose.id,
+                        dose = dose,
+                        medicineName = medName,
+                        patientId = dose.patientId
+                    )
+                }
 
-            val allMedicines = medicineRepository.observeActive().firstOrNull() ?: emptyList()
-            val medicines = allMedicines.filter { it.patientId == patientId }
-
-            val adherence = AdherenceCalculator.calculate(dosesToday)
-
-            // Strictly filter MISSED doses for the selected patient
-            val missed = dosesToday.filter { it.status == DoseStatus.MISSED }
-            val missedItems = missed.map { dose ->
-                val medName = medicines.find { it.id == dose.medicineId }?.name ?: "Scheduled Medicine"
-                MissedDoseItem(
-                    id = dose.id,
-                    dose = dose,
-                    medicineName = medName,
-                    patientId = dose.patientId
-                )
-            }
-
-            _uiState.update {
-                it.copy(
-                    selectedPatientDoses = dosesToday,
-                    selectedPatientMedicines = medicines,
-                    selectedPatientMissedDoses = missedItems,
-                    adherenceReport = adherence,
-                    isLoading = false
-                )
-            }
+                _uiState.update {
+                    it.copy(
+                        selectedPatientDoses = dosesToday,
+                        selectedPatientMedicines = medicines,
+                        selectedPatientMissedDoses = missedItems,
+                        adherenceReport = adherence,
+                        isLoading = false
+                    )
+                }
+            }.collect()
         }
     }
 
