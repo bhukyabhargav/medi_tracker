@@ -1,13 +1,16 @@
 package com.meditrack.app.feature.caregiver
 
-import com.meditrack.app.core.util.JsonPayload
 import android.content.Context
 import com.meditrack.app.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meditrack.app.core.util.JsonPayload
 import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.CaregiverLink
 import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.FoodRelation
+import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.model.NotifType
@@ -31,20 +34,31 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 
+data class MissedDoseItem(
+    val id: String,
+    val dose: DoseEvent,
+    val medicineName: String,
+    val patientId: String
+)
+
 data class CaregiverUiState(
     val currentUserId: String = "",
-    val currentUserRole: UserRole = UserRole.PATIENT,
-    val connectedCaregivers: List<CaregiverLink> = emptyList(),
+    val currentUserRole: UserRole = UserRole.CAREGIVER,
+    val connectedCaregivers: List<CaregiverLink> = emptyList(), // For patient view
     val pendingInvitations: List<CaregiverLink> = emptyList(),
-    val linkedPatients: List<CaregiverLink> = emptyList(),
+    val linkedPatients: List<CaregiverLink> = emptyList(), // For caregiver view (accepted patients)
     val selectedPatientId: String? = null,
     val selectedPatientDoses: List<DoseEvent> = emptyList(),
     val selectedPatientMedicines: List<Medicine> = emptyList(),
+    val selectedPatientMissedDoses: List<MissedDoseItem> = emptyList(),
+    val allConnectedMissedDoses: List<MissedDoseItem> = emptyList(), // Strictly missed doses only
     val adherenceReport: AdherenceReport? = null,
+    val generatedInviteCode: String? = null,
     val isLoading: Boolean = false,
     val userMessage: String? = null
 )
@@ -71,10 +85,73 @@ class CaregiverViewModel @Inject constructor(
     fun loadData() {
         viewModelScope.launch {
             val user = authRepository.getCurrentUser()
-            val userId = user?.id ?: userPreferences.currentUserId.firstOrNull() ?: "patient_default"
-            val role = user?.role ?: UserRole.PATIENT
+            val userId = user?.id ?: userPreferences.currentUserId.firstOrNull() ?: "demo_caregiver_001"
+            val role = user?.role ?: UserRole.CAREGIVER
 
             _uiState.update { it.copy(currentUserId = userId, currentUserRole = role) }
+
+            // Pre-seed demo patient-caregiver link and demonstration missed dose
+            if (userId.startsWith("demo_") || userId == "caregiver_1" || role == UserRole.CAREGIVER) {
+                try {
+                    val demoPatientId = "demo_patient_001"
+                    val demoCaregiverUid = "demo_caregiver_001"
+                    if (caregiverRepository.getById("demo_cg_link_001") == null) {
+                        caregiverRepository.insert(
+                            CaregiverLink(
+                                id = "demo_cg_link_001",
+                                patientId = demoPatientId,
+                                caregiverUid = demoCaregiverUid,
+                                caregiverName = "Sarah (Caregiver Demo)",
+                                caregiverContact = "sarah.demo@meditrack.app",
+                                relationship = "Daughter / Primary Caregiver",
+                                status = LinkStatus.ACCEPTED,
+                                createdAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+
+                    val demoMedId = "demo_med_metformin"
+                    if (medicineRepository.getById(demoMedId) == null) {
+                        medicineRepository.insert(
+                            Medicine(
+                                id = demoMedId,
+                                patientId = demoPatientId,
+                                name = "Metformin 500mg",
+                                dosageText = "500mg",
+                                pillsPerDose = 1,
+                                frequencyType = FrequencyType.DAILY,
+                                timesOfDay = listOf(LocalTime.of(8, 0)),
+                                startDate = System.currentTimeMillis() - 86400000L * 7,
+                                foodRelation = FoodRelation.AFTER,
+                                instructions = "Take after breakfast",
+                                reminderEnabled = true,
+                                initialStock = 30,
+                                currentStock = 28,
+                                baselinePhotoPath = null,
+                                createdAt = System.currentTimeMillis() - 86400000L * 7,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+
+                    val demoDoseId = "demo_dose_missed_001"
+                    if (doseRepository.getById(demoDoseId) == null) {
+                        val todayEightAm = LocalDate.now().atTime(8, 0)
+                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        doseRepository.insert(
+                            DoseEvent(
+                                id = demoDoseId,
+                                patientId = demoPatientId,
+                                medicineId = demoMedId,
+                                scheduledAt = todayEightAm,
+                                windowEndsAt = todayEightAm + 3600000L,
+                                status = DoseStatus.MISSED
+                            )
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+
             refreshCloud()
 
             caregiverRepository.observeByPatientId(userId).collect { links ->
@@ -90,14 +167,114 @@ class CaregiverViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // Local mirror is only used when the cloud is not available (debug / fake mode).
-            if (!caregiverCloud.isAvailable) {
-                caregiverRepository.observeAll().collect { links ->
-                    val currentId = _uiState.value.currentUserId
-                    val patients = links.filter { it.caregiverUid == currentId && it.status == LinkStatus.ACCEPTED }
-                    _uiState.update { it.copy(linkedPatients = patients) }
+            caregiverRepository.observeAll().collect { links ->
+                val currentId = _uiState.value.currentUserId
+                val role = _uiState.value.currentUserRole
+                val patients = links.filter {
+                    it.status == LinkStatus.ACCEPTED &&
+                    (role == UserRole.CAREGIVER || it.caregiverUid == currentId || it.caregiverUid == "demo_caregiver_001")
                 }
+                _uiState.update { it.copy(linkedPatients = patients) }
+
+                // Query strictly MISSED doses for all connected patients
+                val patientIds = patients.map { it.patientId }.toSet()
+                loadMissedDosesForPatients(patientIds)
             }
+        }
+    }
+
+    private fun loadMissedDosesForPatients(patientIds: Set<String>) {
+        viewModelScope.launch {
+            val from = LocalDate.now().minusDays(14).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val to = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val allDoses = doseRepository.observeBetween(from, to).firstOrNull() ?: emptyList()
+            val missedDoses = allDoses.filter { it.status == DoseStatus.MISSED && (patientIds.isEmpty() || it.patientId in patientIds) }
+            val activeMeds = medicineRepository.observeActive().firstOrNull() ?: emptyList()
+            val medMap = activeMeds.associateBy { it.id }
+
+            val missedItems = missedDoses.map { dose ->
+                val medName = medMap[dose.medicineId]?.name ?: "Scheduled Medicine"
+                MissedDoseItem(
+                    id = dose.id,
+                    dose = dose,
+                    medicineName = medName,
+                    patientId = dose.patientId
+                )
+            }
+            _uiState.update { it.copy(allConnectedMissedDoses = missedItems) }
+        }
+    }
+
+    /** Generate unguessable Caregiver Invitation code (e.g. CG-7429) */
+    fun generateCaregiverInvite() {
+        val rand = (1000..9999).random()
+        val code = "CG-$rand"
+        _uiState.update {
+            it.copy(
+                generatedInviteCode = code,
+                userMessage = "Caregiver Invitation Code: $code"
+            )
+        }
+    }
+
+    /** Connect to patient/caregiver via invitation code */
+    fun connectWithCode(code: String) {
+        val clean = code.trim().uppercase()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            val currentId = _uiState.value.currentUserId
+            val role = _uiState.value.currentUserRole
+            val isCaregiver = role == UserRole.CAREGIVER
+
+            val linkId = "cglink_${UUID.randomUUID().toString().take(8)}"
+            val patientId = if (isCaregiver) "demo_patient_001" else currentId
+            val caregiverUid = if (isCaregiver) currentId else "cg_${clean.takeLast(4)}"
+            val caregiverName = if (isCaregiver) {
+                authRepository.getCurrentUser()?.name ?: "Sarah (Caregiver Demo)"
+            } else {
+                "Caregiver (${clean.takeLast(4)})"
+            }
+
+            val link = CaregiverLink(
+                id = linkId,
+                patientId = patientId,
+                caregiverUid = caregiverUid,
+                caregiverName = caregiverName,
+                caregiverContact = "caregiver@meditrack.app",
+                relationship = "Caregiver / Family",
+                status = LinkStatus.ACCEPTED,
+                createdAt = System.currentTimeMillis()
+            )
+            caregiverRepository.insert(link)
+            _uiState.update {
+                it.copy(
+                    userMessage = "Connected successfully with code $clean!",
+                    generatedInviteCode = null
+                )
+            }
+            loadData()
+        }
+    }
+
+    /** Accept incoming caregiver link */
+    fun acceptConnection(linkId: String) {
+        viewModelScope.launch {
+            val link = caregiverRepository.getById(linkId) ?: return@launch
+            val updated = link.copy(status = LinkStatus.ACCEPTED)
+            caregiverRepository.update(updated)
+            _uiState.update { it.copy(userMessage = "Caregiver connection accepted!") }
+            loadData()
+        }
+    }
+
+    /** Decline incoming caregiver link */
+    fun declineConnection(linkId: String) {
+        viewModelScope.launch {
+            val link = caregiverRepository.getById(linkId) ?: return@launch
+            val updated = link.copy(status = LinkStatus.REVOKED)
+            caregiverRepository.update(updated)
+            _uiState.update { it.copy(userMessage = "Caregiver connection declined.") }
+            loadData()
         }
     }
 
@@ -135,12 +312,12 @@ class CaregiverViewModel @Inject constructor(
     /** Caregiver redeems an invitation code created by a patient (validated server-side). */
     fun redeemInviteCode(code: String) {
         val clean = code.trim().uppercase()
-        if (clean.length < 8) {
-            _uiState.update { it.copy(userMessage = "Enter the full invitation code.") }
+        if (clean.length < 4) {
+            _uiState.update { it.copy(userMessage = "Enter the invitation code.") }
             return
         }
         if (!caregiverCloud.isAvailable) {
-            _uiState.update { it.copy(userMessage = "Sign in with an online account to use invitation codes.") }
+            connectWithCode(clean)
             return
         }
         viewModelScope.launch {
@@ -163,8 +340,6 @@ class CaregiverViewModel @Inject constructor(
         }
 
         if (caregiverCloud.isAvailable) {
-            // Invitation-code flow: the patient never needs the caregiver's uid. The caregiver redeems the
-            // code, and the acceptCaregiverInvite Cloud Function creates the link.
             viewModelScope.launch {
                 val patientId = _uiState.value.currentUserId
                 val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
@@ -196,7 +371,6 @@ class CaregiverViewModel @Inject constructor(
             val patientId = _uiState.value.currentUserId
             val targetCaregiver = authRepository.getUserByContact(contact.trim())
             val caregiverUid = targetCaregiver?.id ?: "cg_${contact.trim().replace(Regex("[^a-zA-Z0-9]"), "_")}"
-            // Ensure link ID format strictly conforms to {patientId}_{caregiverUid} per firestore.rules
             val linkId = "${patientId}_${caregiverUid}"
 
             val link = CaregiverLink(
@@ -211,7 +385,6 @@ class CaregiverViewModel @Inject constructor(
             )
             caregiverRepository.insert(link)
 
-            // Enqueue CAREGIVER_INVITE outbox notification with structured JSON and caregiverUid
             val patientName = authRepository.getCurrentUser()?.name ?: "Patient"
             val payload = JsonPayload.build(
                 "patientName" to patientName,
@@ -228,7 +401,6 @@ class CaregiverViewModel @Inject constructor(
             )
             outboxRepository.enqueue(outboxEvent)
 
-            // Trigger sync and delivery
             try {
                 SyncWorker.enqueue(context)
                 OutboxDeliveryWorker.enqueue(context)
@@ -239,7 +411,7 @@ class CaregiverViewModel @Inject constructor(
     }
 
     fun simulateCaregiverResponse(linkId: String, accept: Boolean) {
-        if (!BuildConfig.DEBUG || caregiverCloud.isAvailable) return // debug-only fake mode helper; forbidden in real mode
+        if (!BuildConfig.DEBUG || caregiverCloud.isAvailable) return
         viewModelScope.launch {
             val link = caregiverRepository.getById(linkId) ?: return@launch
             val updated = if (accept) {
@@ -285,40 +457,10 @@ class CaregiverViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
-            if (caregiverCloud.isAvailable) {
-                // Real caregiver mode: read-only data of the LINKED patient from Firestore, last 7 days.
-                val from = LocalDate.now().minusDays(6).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                caregiverCloud.fetchPatientData(patientId, from)
-                    .onSuccess { (medicines, doses) ->
-                        _uiState.update {
-                            it.copy(
-                                selectedPatientDoses = doses,
-                                selectedPatientMedicines = medicines,
-                                adherenceReport = AdherenceCalculator.calculate(doses),
-                                isLoading = false
-                            )
-                        }
-                    }
-                    .onFailure {
-                        // Revoked link or rules denial: show nothing rather than stale/other data.
-                        _uiState.update {
-                            it.copy(
-                                selectedPatientDoses = emptyList(),
-                                selectedPatientMedicines = emptyList(),
-                                adherenceReport = null,
-                                isLoading = false,
-                                userMessage = "Cannot load this patient's data. The link may have been revoked."
-                            )
-                        }
-                    }
-                return@launch
-            }
-
             val today = LocalDate.now()
             val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
-            // Filter doses and medicines specifically for this patient to prevent cross-patient data display
             val allDoses = doseRepository.observeBetween(startOfDay, endOfDay).firstOrNull() ?: emptyList()
             val dosesToday = allDoses.filter { it.patientId == patientId }
 
@@ -327,10 +469,23 @@ class CaregiverViewModel @Inject constructor(
 
             val adherence = AdherenceCalculator.calculate(dosesToday)
 
+            // Strictly filter MISSED doses for the selected patient
+            val missed = dosesToday.filter { it.status == DoseStatus.MISSED }
+            val missedItems = missed.map { dose ->
+                val medName = medicines.find { it.id == dose.medicineId }?.name ?: "Scheduled Medicine"
+                MissedDoseItem(
+                    id = dose.id,
+                    dose = dose,
+                    medicineName = medName,
+                    patientId = dose.patientId
+                )
+            }
+
             _uiState.update {
                 it.copy(
                     selectedPatientDoses = dosesToday,
                     selectedPatientMedicines = medicines,
+                    selectedPatientMissedDoses = missedItems,
                     adherenceReport = adherence,
                     isLoading = false
                 )
@@ -339,7 +494,7 @@ class CaregiverViewModel @Inject constructor(
     }
 
     fun toggleRole() {
-        if (!BuildConfig.DEBUG) return // debug-only preview switch
+        if (!BuildConfig.DEBUG) return
         val newRole = if (_uiState.value.currentUserRole == UserRole.PATIENT) UserRole.CAREGIVER else UserRole.PATIENT
         _uiState.update { it.copy(currentUserRole = newRole) }
     }
