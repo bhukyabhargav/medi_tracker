@@ -226,7 +226,7 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             val tol = VerificationConfig.borderToleranceFraction
             stripBox.left > tol && stripBox.top > tol && stripBox.right < (1.0f - tol) && stripBox.bottom < (1.0f - tol)
         } else {
-            cells.isNotEmpty()
+            isPackAccepted
         }
 
         return Detection(
@@ -259,6 +259,14 @@ class RoboflowWorkflowStripDetector @Inject constructor(
     }
 
     private fun parseBlisterPresence(root: JSONObject): Boolean {
+        // Boolean indicators (e.g. blister_present from android-blister-presence-and-empty-count workflow)
+        val boolKeys = listOf("blister_present", "is_blister_present", "presence", "blister_detected")
+        for (k in boolKeys) {
+            if (root.has(k)) {
+                return root.optBoolean(k, false)
+            }
+        }
+
         // Direct status strings
         val status = root.optString("pack_status", "").ifBlank {
             root.optString("status", "")
@@ -266,13 +274,6 @@ class RoboflowWorkflowStripDetector @Inject constructor(
         if (status.isNotBlank()) {
             return status.equals("accepted", ignoreCase = true) || status.equals("present", ignoreCase = true)
         }
-
-        // Boolean indicators
-        val boolPresence = root.optBoolean("is_blister_present", true)
-        if (root.has("is_blister_present")) return boolPresence
-
-        val presence = root.optBoolean("presence", true)
-        if (root.has("presence")) return presence
 
         // Check predictions for blister pack
         val packObj = root.optJSONObject("pack_predictions")
@@ -285,11 +286,11 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             }
         }
 
-        return true
+        return false
     }
 
     private fun parseMissingCount(root: JSONObject): Int? {
-        val keys = listOf("missing_count", "empty_count", "count", "missing_tablets", "empty_cavities_count")
+        val keys = listOf("empty_blister_count", "missing_count", "empty_count", "count", "missing_tablets", "empty_cavities_count")
         for (key in keys) {
             if (root.has(key)) {
                 val raw = root.opt(key)
@@ -381,9 +382,14 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             val key = keys.next()
             if (key.contains("image", ignoreCase = true) || key.contains("visualization", ignoreCase = true)) {
                 val value = root.opt(key)
-                if (value is String && (value.startsWith("/9j/") || value.startsWith("iVBORw0") || value.startsWith("data:image"))) {
+                val base64Str = when (value) {
+                    is String -> value
+                    is JSONObject -> value.optString("value", "")
+                    else -> ""
+                }
+                if (base64Str.startsWith("/9j/") || base64Str.startsWith("iVBORw0") || base64Str.startsWith("data:image")) {
                     try {
-                        val cleanBase64 = if (value.contains(",")) value.substringAfter(",") else value
+                        val cleanBase64 = if (base64Str.contains(",")) base64Str.substringAfter(",") else base64Str
                         val bytes = Base64.decode(cleanBase64, Base64.DEFAULT)
                         val outputFile = File(context.cacheDir, "roboflow_${key}_${System.currentTimeMillis()}.jpg")
                         FileOutputStream(outputFile).use { fos ->

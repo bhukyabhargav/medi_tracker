@@ -9,13 +9,13 @@ package com.meditrack.app.core.config
 object VerificationConfig {
     var modelVersion: String = "v1.4.0-rfdetr-nano-offline"
     var isTfliteEnabled: Boolean = true
-    var isRoboflowWorkflowEnabled: Boolean = false
+    var isRoboflowWorkflowEnabled: Boolean = true
     var roboflowWorkspaceSlug: String = "varshiths-workspace-y38an"
     var roboflowWorkflowId: String = "android-blister-presence-and-empty-count-1794338462016"
     var roboflowWorkflowName: String = "Android Blister Presence and Empty Count"
     var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-y38an/workflows/android-blister-presence-and-empty-count-1794338462016"
     var roboflowApiKey: String = System.getenv("ROBOFLOW_API_KEY")
-        ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY.ifBlank { "" }
+        ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY.ifBlank { "NsIKvkibCEK1QT2yRlhk" }
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f

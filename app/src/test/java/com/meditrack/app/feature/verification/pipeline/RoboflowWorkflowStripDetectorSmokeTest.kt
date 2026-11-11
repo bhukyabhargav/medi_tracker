@@ -144,4 +144,52 @@ class RoboflowWorkflowStripDetectorSmokeTest {
         assertEquals("Must gracefully fall back to local detector", fallbackResult, result)
         assertFalse(result.isRoboflowWorkflow)
     }
+
+    @Test
+    fun parseWorkflowResponse_blisterPresentAndEmptyBlisterCount_assertsCorrectDetection() {
+        val json = """
+        {
+          "outputs": [
+            {
+              "blister_present": true,
+              "empty_blister_count": 3,
+              "output_image": {
+                "type": "base64",
+                "value": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+              }
+            }
+          ]
+        }
+        """.trimIndent()
+
+        val detection = detector.parseWorkflowResponse(json)
+
+        assertTrue(detection.isRoboflowWorkflow)
+        assertEquals("accepted", detection.roboflowPackStatus)
+        assertEquals(3, detection.roboflowMissingCount)
+        assertTrue(detection.stripFullyInFrame)
+        assertEquals(1.0f, detection.stripConfidence ?: 0f, 0.01f)
+    }
+
+    @Test
+    fun parseWorkflowResponse_blisterNotPresent_reportsNotAccepted() {
+        val json = """
+        {
+          "outputs": [
+            {
+              "blister_present": false,
+              "empty_blister_count": 0
+            }
+          ]
+        }
+        """.trimIndent()
+
+        val detection = detector.parseWorkflowResponse(json)
+
+        assertTrue(detection.isRoboflowWorkflow)
+        assertEquals("rejected", detection.roboflowPackStatus)
+        assertEquals(0, detection.roboflowMissingCount)
+        assertFalse(detection.stripFullyInFrame)
+        assertEquals(0.0f, detection.stripConfidence ?: 1f, 0.01f)
+    }
 }
