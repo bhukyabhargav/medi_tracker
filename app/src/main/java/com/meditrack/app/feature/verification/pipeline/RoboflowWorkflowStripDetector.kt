@@ -77,8 +77,15 @@ class RoboflowWorkflowStripDetector @Inject constructor(
             val responseJson = runWorkflowInference(bitmap)
             parseWorkflowResponse(responseJson)
         } catch (e: Throwable) {
-            Log.w(TAG, "Roboflow inference failed: ${e.message}. Falling back to local detector.", e)
-            fallbackDetector.detect(bitmap)
+            Log.w(TAG, "Roboflow inference failed: ${e.message}. Cloud-only verification reporting rejected.", e)
+            Detection(
+                cells = emptyList(),
+                stripFullyInFrame = false,
+                stripConfidence = 0.0f,
+                isRoboflowWorkflow = true,
+                roboflowPackStatus = "rejected",
+                roboflowMissingCount = null
+            )
         }
     }
 

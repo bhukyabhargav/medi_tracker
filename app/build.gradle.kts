@@ -105,7 +105,7 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("tflite", "onnx")
+        noCompress += listOf("tflite")
     }
 
     sourceSets {
@@ -187,10 +187,9 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.functions)
 
-    // ML Kit & TFLite & ONNX Runtime
+    // ML Kit & TFLite
     implementation(libs.mlkit.text.recognition)
     implementation(libs.tensorflow.lite)
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 
     // Testing
     testImplementation(libs.junit)

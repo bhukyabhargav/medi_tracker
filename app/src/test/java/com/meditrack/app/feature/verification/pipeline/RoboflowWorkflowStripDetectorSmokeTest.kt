@@ -126,23 +126,16 @@ class RoboflowWorkflowStripDetectorSmokeTest {
     }
 
     @Test
-    fun detect_whenOfflineOrApiFails_fallsBackToTfliteDetector() = runBlocking {
-        // Point to invalid port to trigger fallback
+    fun detect_whenOfflineOrApiFails_reportsCloudRejection() = runBlocking {
+        // Point to invalid port to trigger failure
         VerificationConfig.roboflowWorkflowEndpoint = "http://localhost:59999/invalid/endpoint"
-
-        val fallbackResult = Detection(
-            cells = emptyList(),
-            stripFullyInFrame = true,
-            stripConfidence = 0.85f,
-            isRoboflowWorkflow = false
-        )
-        coEvery { fallbackDetector.detect(any()) } returns fallbackResult
 
         val testBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
         val result = detector.detect(testBitmap)
 
-        assertEquals("Must gracefully fall back to local detector", fallbackResult, result)
-        assertFalse(result.isRoboflowWorkflow)
+        assertFalse("Cloud failure must report not in frame", result.stripFullyInFrame)
+        assertEquals("rejected", result.roboflowPackStatus)
+        assertTrue(result.isRoboflowWorkflow)
     }
 
     @Test

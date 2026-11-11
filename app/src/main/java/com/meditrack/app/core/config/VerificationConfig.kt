@@ -7,8 +7,8 @@ package com.meditrack.app.core.config
  * blister strip detection, inference latency targets, confidence guards, and model auditing.
  */
 object VerificationConfig {
-    var modelVersion: String = "v1.4.0-rfdetr-nano-offline"
-    var isTfliteEnabled: Boolean = true
+    var modelVersion: String = "v1.5.0-roboflow-cloud-serverless"
+    var isTfliteEnabled: Boolean = false
     var isRoboflowWorkflowEnabled: Boolean = true
     var roboflowWorkspaceSlug: String = "varshiths-workspace-y38an"
     var roboflowWorkflowId: String = "android-blister-presence-and-empty-count-1794338462016"
