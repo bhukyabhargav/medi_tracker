@@ -165,9 +165,11 @@ class RfdetrStripDetector @Inject constructor(
                     }
 
                     val maxCavityScore = max(emptyScore, fullScore)
-                    if (maxCavityScore >= cavityConfThreshold) {
+                    // Multi-class cavity confidence: probability that detection is a cavity (empty OR full)
+                    val cavityConfidence = max(maxCavityScore, 1.0f - (1.0f - emptyScore) * (1.0f - fullScore))
+                    if (cavityConfidence >= cavityConfThreshold) {
                         val state = if (emptyScore > fullScore) CellState.EMPTY else CellState.FULL
-                        rawCells.add(Cell(box = box, state = state, confidence = maxCavityScore))
+                        rawCells.add(Cell(box = box, state = state, confidence = cavityConfidence))
                     }
                 }
             } finally {

@@ -190,10 +190,18 @@ fun EnrollmentPhotoView(
                     presence = presence.copy(message = "Could not check the photo for a blister strip. Please retake.")
                 }
             }
+            val detectedEmptyCells = if (detection?.isRoboflowWorkflow == true && detection.roboflowMissingCount != null) {
+                detection.roboflowMissingCount
+            } else {
+                detection?.cells?.count {
+                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
+                } ?: 0
+            }
+
             if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip or cut-off strip
-                    pendingEmptyCells = 0
+                    pendingPhotoPath = path
+                    pendingEmptyCells = detectedEmptyCells
                     qualityError = if (detection?.stripFullyInFrame == false) {
                         "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
                     } else {
@@ -207,29 +215,21 @@ fun EnrollmentPhotoView(
             val cellGuard = com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.evaluate(detection.cells)
             if (cellGuard is com.meditrack.app.feature.verification.pipeline.BlisterCellGuards.GuardResult.Rejected) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = null
-                    pendingEmptyCells = 0
+                    pendingPhotoPath = path
+                    pendingEmptyCells = detectedEmptyCells
                     qualityError = cellGuard.message
                     isCapturing = false
                 }
                 return@launch
             }
 
-            val detectedEmptyCells = if (detection.isRoboflowWorkflow && detection.roboflowMissingCount != null) {
-                detection.roboflowMissingCount
-            } else {
-                presence.validCells.count {
-                    it.state == com.meditrack.app.feature.verification.pipeline.CellState.EMPTY
-                }
-            }
-
-            // 3) Level-2 quality check on blister crop. Must not save baseline count if quality fails.
+            // 3) Level-2 quality check on blister crop.
             val stripBox = com.meditrack.app.feature.verification.quality.ImageQualityGate.resolveStripBox(detection.stripBox, detection.cells)
             val level2Quality = com.meditrack.app.feature.verification.quality.ImageQualityGate.analyzeBlisterCrop(bitmap, stripBox)
             if (!level2Quality.passed) {
                 withContext(Dispatchers.Main) {
-                    pendingPhotoPath = null
-                    pendingEmptyCells = 0
+                    pendingPhotoPath = path
+                    pendingEmptyCells = detectedEmptyCells
                     qualityError = (level2Quality.friendlyMessage ?: "Blister photo quality check failed.") +
                         " Please retake the photo in good lighting to establish an accurate baseline."
                     isCapturing = false
@@ -493,7 +493,7 @@ fun EnrollmentPhotoView(
                     )
                 },
                 title = {
-                    Text("Baseline Photo Issue")
+                    Text(if (pendingPhotoPath != null) "Baseline Photo Warning" else "Baseline Photo Issue")
                 },
                 text = {
                     Text(qualityError ?: "The captured image did not pass quality checks.")
@@ -504,6 +504,23 @@ fun EnrollmentPhotoView(
                         pendingPhotoPath = null
                     }) {
                         Text("Retake Photo")
+                    }
+                },
+                dismissButton = {
+                    if (pendingPhotoPath != null) {
+                        OutlinedButton(onClick = {
+                            val p = pendingPhotoPath
+                            val empty = pendingEmptyCells
+                            qualityError = null
+                            pendingPhotoPath = null
+                            if (p != null) {
+                                capturedPhotoPath = p
+                                isCapturing = false
+                                onPhotoCaptured(p, empty)
+                            }
+                        }) {
+                            Text("Use Photo Anyway")
+                        }
                     }
                 }
             )

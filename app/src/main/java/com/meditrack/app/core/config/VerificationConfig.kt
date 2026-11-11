@@ -17,11 +17,11 @@ object VerificationConfig {
     var roboflowApiKey: String = System.getenv("ROBOFLOW_API_KEY")
         ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY.ifBlank { "" }
     var confidenceThreshold: Float = 0.45f
-    var minCellConfidence: Float = 0.45f
+    var minCellConfidence: Float = 0.35f
     var iouThreshold: Float = 0.45f
     var edgeMarginFraction: Float = 0.05f // 5% border margin for strip bounds (legacy target)
-    var borderToleranceFraction: Float = 0.015f // 1.5% margin within which strip/cell bounds touch the border
-    var cellCutoffToleranceFraction: Float = 0.012f // 1.2% margin within which a cell is cut off by the frame edge
+    var borderToleranceFraction: Float = 0.005f // 0.5% margin within which strip/cell bounds touch the border
+    var cellCutoffToleranceFraction: Float = 0.005f // 0.5% margin within which a cell is cut off by the frame edge
     var maxInferenceLatencyMs: Long = 400L // Target <= 400 ms on mid-range devices
     var maxCellCountTolerance: Int = 1 // Max allowable discrepancy in total cavities detected
     var firstDoseCountTolerance: Int = 1 // Allowable discrepancy on first dose vs enrollment baseline
@@ -46,11 +46,11 @@ object VerificationConfig {
     // that fill a good part of the strip box).
     var minBlisterCells: Int = 4 // a physical blister strip has at least this many cavities
     var maxCellClusterDistance: Float = 2.35f // max normalized distance between adjacent cavities in blister cluster
-    var minConsistentCellFraction: Float = 0.75f // share of cells whose width AND height are close to the median
+    var minConsistentCellFraction: Float = 0.60f // share of cells whose width AND height are close to the median
     var cellSizeToleranceLow: Float = 0.60f
     var cellSizeToleranceHigh: Float = 1.65f
-    var minMeanCellConfidence: Float = 0.55f
-    var minAlignedCellFraction: Float = 0.8f // share of cells lying on a regular row or column
+    var minMeanCellConfidence: Float = 0.50f
+    var minAlignedCellFraction: Float = 0.50f // share of cells lying on a regular row or column
     var minStripCoverage: Float = 0.10f // total cell area / strip box area (real strips: ~0.3-0.45; rotated/single-row: ~0.12)
 
     // Level-1 Global image quality checks (light check: minimum resolution, not near-black/near-white)
