@@ -264,7 +264,7 @@ fun HomeScreen(
                                         null
                                     }
                                     Text(
-                                        text = "${payload?.medicineName ?: "Prescription"} (${payload?.dosageText ?: ""}) \u2022 ${payload?.pillsPerDose ?: 1} pill(s)/dose",
+                                        text = "${payload?.medicineName ?: "Prescription"} (${payload?.dosageText ?: ""}) \u2022 ${payload?.pillsPerDose ?: 1} pill(s)/session",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -276,6 +276,18 @@ fun HomeScreen(
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                         )
                                     }
+                                    if (!payload?.times.isNullOrEmpty()) {
+                                        Text(
+                                            text = "Scheduled Time: ${payload?.times?.joinToString(", ")}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Stock & blister strip photo to be uploaded by patient upon accepting.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                    )
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
@@ -287,7 +299,7 @@ fun HomeScreen(
                                                 }
                                             }
                                         ) {
-                                            Text("Review & Add to Schedule")
+                                            Text("Review & Accept (Enter Stock & Strip)")
                                         }
                                         OutlinedButton(onClick = onNavigateToDoctor) {
                                             Text("Doctor Mode")
@@ -965,15 +977,20 @@ fun DoctorHomeContent(
 
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Patient: ${proposal.patientId} \u2022 Dosage: ${payload?.dosageText ?: "N/A"} (${payload?.pillsPerDose ?: 1} pill(s))",
+                            text = "Patient: ${proposal.patientId} \u2022 Dosage: ${payload?.dosageText ?: "N/A"} (${payload?.pillsPerDose ?: 1} pill(s)/session)",
                             style = MaterialTheme.typography.bodySmall
                         )
                         if (!payload?.times.isNullOrEmpty()) {
                             Text(
-                                text = "Scheduled Times: ${payload?.times?.joinToString(", ")}",
+                                text = "Scheduled Time: ${payload?.times?.joinToString(", ")}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
+                        Text(
+                            text = "Stock count & blister strip photo uploaded by patient upon acceptance",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                         if (!payload?.additionalInstructions.isNullOrBlank()) {
                             Text(
                                 text = "Instructions: ${payload.additionalInstructions}",
