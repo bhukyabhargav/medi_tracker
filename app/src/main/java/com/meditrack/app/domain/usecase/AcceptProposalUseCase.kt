@@ -193,6 +193,43 @@ class AcceptProposalUseCase @Inject constructor(
         return true
     }
 
+    /**
+     * Called when a patient accepts an ADD proposal via the full AddMedicine workflow
+     * with their actual stock count and enrolled baseline blister pack photo.
+     */
+    suspend fun markProposalAccepted(proposalId: String, medicineId: String): Boolean {
+        val proposal = proposalRepository.getById(proposalId) ?: return false
+        if (proposal.status == ProposalStatus.ACCEPTED) return true
+
+        val newStatus = ProposalStateMachine.transition(proposal.status, ProposalStatus.ACCEPTED)
+        val now = System.currentTimeMillis()
+        val updatedProposal = proposal.copy(
+            status = newStatus,
+            medicineId = medicineId,
+            resolvedAt = now
+        )
+        proposalRepository.update(updatedProposal)
+
+        val currentUser = authRepository.getCurrentUser()
+        val patientName = currentUser?.name ?: "Patient"
+        val payload = try {
+            PrescriptionPayload.fromJson(proposal.payloadJson)
+        } catch (_: Exception) {
+            null
+        }
+        val medName = payload?.medicineName ?: "Prescription"
+
+        val outbox = NotificationOutbox(
+            id = "outbox_${UUID.randomUUID()}",
+            type = NotifType.PRESCRIPTION_ACCEPTED,
+            payloadJson = """{"patientName":"$patientName","medicineName":"$medName","doctorUid":"${proposal.doctorUid}"}""",
+            createdAt = now,
+            delivered = false
+        )
+        outboxRepository.enqueue(outbox)
+        return true
+    }
+
     private fun parseTime(str: String): LocalTime? {
         return try {
             LocalTime.parse(str.trim())

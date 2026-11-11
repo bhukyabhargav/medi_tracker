@@ -8,6 +8,7 @@ import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.usecase.AcceptProposalUseCase
 import com.meditrack.app.domain.usecase.MedicineValidator
 import com.meditrack.app.domain.usecase.SaveMedicineUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -51,7 +52,10 @@ data class AddEditMedicineUiState(
     val currentStep: AddEditStep = AddEditStep.FORM,
     val errorMessage: String? = null,
     val isLoading: Boolean = false,
-    val savedDoses: List<DoseEvent> = emptyList()
+    val savedDoses: List<DoseEvent> = emptyList(),
+    val acceptProposalId: String? = null,
+    val prescribedByDoctorUid: String? = null,
+    val prescribedByDoctorName: String? = null
 ) {
     val pillsPerDose: Int get() = pillsPerDoseText.toIntOrNull() ?: 0
     val initialStock: Int get() = initialStockText.toIntOrNull() ?: 0
@@ -63,7 +67,8 @@ class AddEditMedicineViewModel @Inject constructor(
     private val medicineRepository: MedicineRepository,
     private val saveMedicineUseCase: SaveMedicineUseCase,
     private val userPreferences: UserPreferences,
-    val stripDetector: com.meditrack.app.feature.verification.pipeline.StripDetector? = null
+    val stripDetector: com.meditrack.app.feature.verification.pipeline.StripDetector? = null,
+    private val acceptProposalUseCase: AcceptProposalUseCase? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddEditMedicineUiState())
@@ -116,7 +121,10 @@ class AddEditMedicineViewModel @Inject constructor(
         daysOfWeek: String? = null,
         durationDays: String? = null,
         foodRelation: String?,
-        instructions: String?
+        instructions: String?,
+        acceptProposalId: String? = null,
+        prescribedByDoctorUid: String? = null,
+        prescribedByDoctorName: String? = null
     ) {
         if (prefillConsumed) return
         prefillConsumed = true
@@ -171,7 +179,10 @@ class AddEditMedicineViewModel @Inject constructor(
                 daysOfWeek = if (!parsedDays.isNullOrEmpty()) parsedDays else state.daysOfWeek,
                 endDate = newEndDate,
                 foodRelation = food,
-                instructions = instructions ?: state.instructions
+                instructions = instructions ?: state.instructions,
+                acceptProposalId = acceptProposalId ?: state.acceptProposalId,
+                prescribedByDoctorUid = prescribedByDoctorUid ?: state.prescribedByDoctorUid,
+                prescribedByDoctorName = prescribedByDoctorName ?: state.prescribedByDoctorName
             )
         }
     }
@@ -322,7 +333,7 @@ class AddEditMedicineViewModel @Inject constructor(
                     )
                 } else {
                     Medicine(
-                        id = "med_${UUID.randomUUID()}",
+                        id = if (!state.acceptProposalId.isNullOrBlank()) "med_${state.acceptProposalId}" else "med_${UUID.randomUUID()}",
                         patientId = currentUserId,
                         name = state.name.trim(),
                         dosageText = state.dosageText.trim(),
@@ -340,6 +351,10 @@ class AddEditMedicineViewModel @Inject constructor(
                         currentStock = state.initialStock,
                         baselineEmptyCells = state.baselineEmptyCells,
                         baselinePhotoPath = state.baselinePhotoPath,
+                        prescribedByDoctorUid = state.prescribedByDoctorUid,
+                        prescribedByDoctorName = state.prescribedByDoctorName,
+                        stoppedByDoctor = false,
+                        isDeleted = false,
                         createdAt = now,
                         updatedAt = now
                     )
@@ -349,6 +364,10 @@ class AddEditMedicineViewModel @Inject constructor(
                     saveMedicineUseCase.updateMedicine(medicine)
                 } else {
                     saveMedicineUseCase.saveNewMedicine(medicine)
+                }
+
+                if (!state.acceptProposalId.isNullOrBlank()) {
+                    acceptProposalUseCase?.markProposalAccepted(state.acceptProposalId, medicine.id)
                 }
 
                 _uiState.update {

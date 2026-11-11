@@ -65,6 +65,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.BuildConfig
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.R
+import com.meditrack.app.domain.model.MedicineProposal
 import com.meditrack.app.domain.model.PrescriptionPayload
 import com.meditrack.app.domain.model.ProposalStatus
 import com.meditrack.app.domain.model.User
@@ -90,6 +91,7 @@ fun HomeScreen(
     onNavigateToDoctor: () -> Unit = {},
     onNavigateToScan: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAddMedicineFromProposal: (MedicineProposal, PrescriptionPayload) -> Unit = { _, _ -> },
     viewModel: HomeViewModel = hiltViewModel(),
     doctorViewModel: DoctorViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
@@ -227,6 +229,74 @@ fun HomeScreen(
                         onNavigateToScan = onNavigateToScan,
                         onNavigateToSettings = onNavigateToSettings
                     )
+                }
+
+                // Section 1.2: Incoming Doctor Prescription Proposals (for Patient)
+                val pendingProposals = doctorUiState.patientProposals.filter {
+                    it.status == ProposalStatus.PENDING || it.status == ProposalStatus.CLARIFICATION_REQUESTED
+                }
+                if (pendingProposals.isNotEmpty()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Prescription Proposal from Doctor",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                pendingProposals.forEach { prop ->
+                                    val payload = try {
+                                        PrescriptionPayload.fromJson(prop.payloadJson)
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    Text(
+                                        text = "${payload?.medicineName ?: "Prescription"} (${payload?.dosageText ?: ""}) \u2022 ${payload?.pillsPerDose ?: 1} pill(s)/dose",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    if (!payload?.doctorName.isNullOrBlank()) {
+                                        Text(
+                                            text = "Prescribed by Dr. ${payload?.doctorName}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                if (payload != null) {
+                                                    onNavigateToAddMedicineFromProposal(prop, payload)
+                                                } else {
+                                                    onNavigateToDoctor()
+                                                }
+                                            }
+                                        ) {
+                                            Text("Review & Add to Schedule")
+                                        }
+                                        OutlinedButton(onClick = onNavigateToDoctor) {
+                                            Text("Doctor Mode")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Section 1.5: Stock Alerts
