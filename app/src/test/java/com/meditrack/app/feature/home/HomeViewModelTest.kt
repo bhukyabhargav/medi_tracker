@@ -180,4 +180,20 @@ class HomeViewModelTest {
         assertTrue(viewModel.uiState.value.upcomingDoses.isEmpty())
         assertTrue(viewModel.uiState.value.missedDoses.isEmpty())
     }
+
+    @Test
+    fun `user with doctor role correctly propagates to uiState`() = runTest(testDispatcher) {
+        val doctorUser = User(id = "doc_1", name = "Dr. Strange", role = UserRole.DOCTOR)
+        coEvery { authRepository.observeCurrentUser() } returns flowOf(doctorUser)
+        coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(emptyList())
+
+        val viewModel = HomeViewModel(authRepository, medicineRepository, doseRepository)
+        viewModel.timeProvider = { baseEpochMillis }
+        viewModel.zoneProvider = { testZoneId }
+        viewModel.loadDashboard()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(UserRole.DOCTOR, viewModel.uiState.value.user?.role)
+        assertEquals("Dr. Strange", viewModel.uiState.value.user?.name)
+    }
 }
