@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -47,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.meditrack.app.domain.model.DoctorLink
 import com.meditrack.app.domain.model.DoctorLinkStatus
@@ -63,7 +65,8 @@ import java.time.LocalDate
 @Composable
 fun DoctorScreen(
     viewModel: DoctorViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToAddMedicineFromProposal: ((MedicineProposal, PrescriptionPayload) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -186,7 +189,18 @@ fun DoctorScreen(
                     onAcceptConnection = { viewModel.acceptDoctorConnection(it) },
                     onDeclineConnection = { viewModel.declineDoctorConnection(it) },
                     onRevokeAccess = { viewModel.revokeDoctorAccess(it) },
-                    onAcceptProposal = { viewModel.acceptProposal(it) },
+                    onAcceptProposal = { proposal ->
+                        val payload = try {
+                            PrescriptionPayload.fromJson(proposal.payloadJson)
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (proposal.type == ProposalType.ADD && payload != null && onNavigateToAddMedicineFromProposal != null) {
+                            onNavigateToAddMedicineFromProposal(proposal, payload)
+                        } else {
+                            viewModel.acceptProposal(proposal.id)
+                        }
+                    },
                     onDeclineProposal = { viewModel.declineProposal(it) },
                     onOpenClarification = {
                         selectedProposalIdForClarification = it
@@ -413,7 +427,7 @@ fun PatientDoctorContent(
     onAcceptConnection: (String) -> Unit,
     onDeclineConnection: (String) -> Unit,
     onRevokeAccess: (String) -> Unit,
-    onAcceptProposal: (String) -> Unit,
+    onAcceptProposal: (MedicineProposal) -> Unit,
     onDeclineProposal: (String) -> Unit,
     onOpenClarification: (String) -> Unit
 ) {
@@ -543,7 +557,7 @@ fun PatientDoctorContent(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Button(onClick = { onAcceptProposal(prop.id) }) {
+                                Button(onClick = { onAcceptProposal(prop) }) {
                                     Text("Accept")
                                 }
                                 OutlinedButton(onClick = { onDeclineProposal(prop.id) }) {
@@ -568,7 +582,7 @@ fun CreateProposalDialog(
     onSubmit: (ProposalType, PrescriptionPayload, String?) -> Unit
 ) {
     var medName by remember { mutableStateOf("") }
-    var dosage by remember { mutableStateOf("1 pill") }
+    var dosage by remember { mutableStateOf("500mg") }
     var pillsCount by remember { mutableStateOf("1") }
     var timeInput by remember { mutableStateOf("09:00") }
     var instructions by remember { mutableStateOf("Take with water") }
@@ -581,28 +595,36 @@ fun CreateProposalDialog(
                 OutlinedTextField(
                     value = medName,
                     onValueChange = { medName = it },
-                    label = { Text("Medicine Name") },
+                    label = { Text("Medicine Name (e.g. Amoxicillin)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
                     value = dosage,
                     onValueChange = { dosage = it },
-                    label = { Text("Dosage (e.g. 500mg)") },
+                    label = { Text("Dosage / Strength (e.g. 500mg, 10ml)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = pillsCount,
+                    onValueChange = { pillsCount = it },
+                    label = { Text("Pills Per Dose (e.g. 1)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
                     value = timeInput,
                     onValueChange = { timeInput = it },
-                    label = { Text("Time (HH:mm)") },
+                    label = { Text("Schedule Time (HH:mm)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
                     value = instructions,
                     onValueChange = { instructions = it },
-                    label = { Text("Instructions") },
+                    label = { Text("Instructions (e.g. After meals)") },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -617,7 +639,7 @@ fun CreateProposalDialog(
                             pillsPerDose = pillsCount.toIntOrNull() ?: 1,
                             times = listOf(timeInput.trim()),
                             startDate = LocalDate.now().toString(),
-                            additionalInstructions = instructions
+                            additionalInstructions = instructions.trim()
                         )
                         onSubmit(ProposalType.ADD, payload, null)
                     }
