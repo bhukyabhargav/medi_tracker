@@ -267,6 +267,21 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToSettings = {
                                     navController.navigate(Screen.Settings.route)
+                                },
+                                onNavigateToAddMedicineFromProposal = { prop, payload ->
+                                    navController.currentBackStackEntry?.savedStateHandle?.apply {
+                                        set("prefillName", payload.medicineName)
+                                        set("prefillDosage", payload.dosageText)
+                                        set("prefillPills", payload.pillsPerDose.toString())
+                                        set("prefillTimes", payload.times)
+                                        set("prefillFrequency", payload.frequencyType.name)
+                                        set("prefillFood", payload.foodRelation.name)
+                                        set("prefillInstructions", payload.additionalInstructions ?: "")
+                                        set("acceptProposalId", prop.id)
+                                        set("prescribedByDoctorUid", prop.doctorUid)
+                                        set("prescribedByDoctorName", payload.doctorName)
+                                    }
+                                    navController.navigate(Screen.AddMedicine.route)
                                 }
                             )
                         }
@@ -300,7 +315,22 @@ class MainActivity : ComponentActivity() {
                             val doctorViewModel = androidx.hilt.navigation.compose.hiltViewModel<com.meditrack.app.feature.doctor.DoctorViewModel>()
                             com.meditrack.app.feature.doctor.DoctorScreen(
                                 viewModel = doctorViewModel,
-                                onNavigateBack = { navController.popBackStack() }
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToAddMedicineFromProposal = { prop, payload ->
+                                    navController.currentBackStackEntry?.savedStateHandle?.apply {
+                                        set("prefillName", payload.medicineName)
+                                        set("prefillDosage", payload.dosageText)
+                                        set("prefillPills", payload.pillsPerDose.toString())
+                                        set("prefillTimes", payload.times)
+                                        set("prefillFrequency", payload.frequencyType.name)
+                                        set("prefillFood", payload.foodRelation.name)
+                                        set("prefillInstructions", payload.additionalInstructions ?: "")
+                                        set("acceptProposalId", prop.id)
+                                        set("prescribedByDoctorUid", prop.doctorUid)
+                                        set("prescribedByDoctorName", payload.doctorName)
+                                    }
+                                    navController.navigate(Screen.AddMedicine.route)
+                                }
                             )
                         }
 
@@ -367,12 +397,16 @@ class MainActivity : ComponentActivity() {
                             val prefillPills = prevEntry?.savedStateHandle?.get<String>("prefillPills")
                             val prefillDaysOfWeek = prevEntry?.savedStateHandle?.get<String>("prefillDaysOfWeek")
                             val prefillDurationDays = prevEntry?.savedStateHandle?.get<String>("prefillDurationDays")
+                            val acceptProposalId = prevEntry?.savedStateHandle?.get<String>("acceptProposalId")
+                            val prescribedByDoctorUid = prevEntry?.savedStateHandle?.get<String>("prescribedByDoctorUid")
+                            val prescribedByDoctorName = prevEntry?.savedStateHandle?.get<String>("prescribedByDoctorName")
 
                             val clearPrefill = {
                                 val keys = listOf(
                                     "prefillName", "prefillDosage", "prefillFrequency", "prefillTimes",
                                     "prefillInterval", "prefillDaysOfWeek", "prefillDurationDays",
-                                    "prefillFood", "prefillInstructions", "prefillStock", "prefillPills"
+                                    "prefillFood", "prefillInstructions", "prefillStock", "prefillPills",
+                                    "acceptProposalId", "prescribedByDoctorUid", "prescribedByDoctorName"
                                 )
                                 keys.forEach { key -> prevEntry?.savedStateHandle?.remove<Any>(key) }
                             }
@@ -389,6 +423,9 @@ class MainActivity : ComponentActivity() {
                                 prefillInstructions = prefillInstructions,
                                 prefillStock = prefillStock,
                                 prefillPillsPerDose = prefillPills,
+                                acceptProposalId = acceptProposalId,
+                                prescribedByDoctorUid = prescribedByDoctorUid,
+                                prescribedByDoctorName = prescribedByDoctorName,
                                 onConsumePrefill = clearPrefill,
                                 onNavigateBack = {
                                     clearPrefill()
