@@ -23,13 +23,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,8 +58,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.domain.model.CaregiverLink
-import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.LinkStatus
 import com.meditrack.app.domain.model.UserRole
 import java.time.Instant
 import java.time.ZoneId
@@ -88,8 +88,8 @@ fun CaregiverScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (uiState.currentUserRole == UserRole.PATIENT) "Caregivers & Family"
-                        else "Caregiver Portal"
+                        if (uiState.currentUserRole == UserRole.PATIENT) "Caregivers & Family Connections"
+                        else "Caregiver Dashboard (Missed Doses Oversight)"
                     )
                 },
                 navigationIcon = {
@@ -98,14 +98,11 @@ fun CaregiverScreen(
                     }
                 },
                 actions = {
-                    // Debug-only quick toggle to preview Patient vs Caregiver view on a single device
-                    if (com.meditrack.app.BuildConfig.DEBUG) {
-                        IconButton(onClick = viewModel::toggleRole) {
-                            Icon(
-                                imageVector = Icons.Default.SwapHoriz,
-                                contentDescription = "Switch View (Patient / Caregiver)"
-                            )
-                        }
+                    IconButton(onClick = viewModel::toggleRole) {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = "Switch View (Patient / Caregiver)"
+                        )
                     }
                 }
             )
@@ -120,26 +117,89 @@ fun CaregiverScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Role indicator banner
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (uiState.currentUserRole == UserRole.CAREGIVER) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    }
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (uiState.currentUserRole == UserRole.CAREGIVER) {
+                                    "Active Role: Caregiver (Missed Doses Oversight)"
+                                } else {
+                                    "Active Role: Patient (Family Support Authority)"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (uiState.currentUserRole == UserRole.CAREGIVER) {
+                                    "Caregiver interface strictly displays missed medication doses for connected patients."
+                                } else {
+                                    "Connected family members receive alerts when your scheduled doses are missed."
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.toggleRole() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (uiState.currentUserRole == UserRole.CAREGIVER) "Switch to Patient View" else "Switch to Caregiver View"
+                        )
+                    }
+                }
+            }
+
             if (uiState.currentUserRole == UserRole.PATIENT) {
                 PatientCaregiverView(
                     connectedCaregivers = uiState.connectedCaregivers,
                     pendingInvitations = uiState.pendingInvitations,
-                    onSimulateResponse = viewModel::simulateCaregiverResponse,
-                    onOpenInviteDialog = { showInviteDialog = true }
+                    generatedInviteCode = uiState.generatedInviteCode,
+                    onGenerateInvite = { viewModel.generateCaregiverInvite() },
+                    onConnectWithCode = { viewModel.connectWithCode(it) },
+                    onAcceptConnection = { viewModel.acceptConnection(it) },
+                    onDeclineConnection = { viewModel.declineConnection(it) },
+                    onRevokeAccess = { viewModel.revokeCaregiver(it) },
+                    onOpenInviteDialog = { showInviteDialog = true },
+                    modifier = Modifier.weight(1f)
                 )
             } else {
                 CaregiverPortalView(
                     linkedPatients = uiState.linkedPatients,
                     selectedPatientId = uiState.selectedPatientId,
-                    selectedDoses = uiState.selectedPatientDoses,
-                    adherenceReport = uiState.adherenceReport,
+                    missedDoses = uiState.allConnectedMissedDoses,
+                    generatedInviteCode = uiState.generatedInviteCode,
+                    onGenerateInvite = { viewModel.generateCaregiverInvite() },
                     onSelectPatient = viewModel::selectPatient,
-                    onRedeemCode = viewModel::redeemInviteCode
+                    onConnectWithCode = { viewModel.connectWithCode(it) },
+                    onRevokePatient = { viewModel.revokeCaregiver(it) },
+                    modifier = Modifier.weight(1f)
                 )
             }
 
@@ -160,32 +220,74 @@ fun CaregiverScreen(
 private fun PatientCaregiverView(
     connectedCaregivers: List<CaregiverLink>,
     pendingInvitations: List<CaregiverLink>,
-    onSimulateResponse: (String, Boolean) -> Unit,
-    onOpenInviteDialog: () -> Unit
+    generatedInviteCode: String?,
+    onGenerateInvite: () -> Unit,
+    onConnectWithCode: (String) -> Unit,
+    onAcceptConnection: (String) -> Unit,
+    onDeclineConnection: (String) -> Unit,
+    onRevokeAccess: (String) -> Unit,
+    onOpenInviteDialog: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    var codeInput by remember { mutableStateOf("") }
+
     LazyColumn(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Section: Connect Caregiver Pipeline
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Family & Caregiver Support",
+                        text = "Connect with Family Member or Caregiver",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Connected caregivers receive automatic alerts when a dose is missed or medication runs low, helping ensure safe adherence.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Enter a caregiver invitation code or generate one to share with your loved one.",
+                        style = MaterialTheme.typography.bodySmall
                     )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = codeInput,
+                            onValueChange = { codeInput = it },
+                            placeholder = { Text("e.g. CG-1234") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (codeInput.isNotBlank()) {
+                                    onConnectWithCode(codeInput)
+                                    codeInput = ""
+                                }
+                            }
+                        ) {
+                            Text("Connect")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onGenerateInvite) {
+                        Text("Generate Invitation Code")
+                    }
+                    if (generatedInviteCode != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Code: $generatedInviteCode",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
@@ -218,18 +320,36 @@ private fun PatientCaregiverView(
                         Button(onClick = onOpenInviteDialog) {
                             Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Invite Caregiver")
+                            Text("Invite Caregiver Manually")
                         }
                     }
                 }
             }
         } else {
             items(connectedCaregivers, key = { it.id }) { link ->
-                CaregiverItemCard(
-                    link = link,
-                    isConnected = true,
-                    onSimulateResponse = onSimulateResponse
-                )
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(link.caregiverName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Relationship: ${link.relationship} • Status: Connected", style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(
+                                onClick = { onRevokeAccess(link.id) },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Revoke")
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -242,110 +362,31 @@ private fun PatientCaregiverView(
                     fontWeight = FontWeight.Bold
                 )
             }
-
             items(pendingInvitations, key = { it.id }) { link ->
-                CaregiverItemCard(
-                    link = link,
-                    isConnected = false,
-                    onSimulateResponse = onSimulateResponse
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CaregiverItemCard(
-    link: CaregiverLink,
-    isConnected: Boolean,
-    onSimulateResponse: (String, Boolean) -> Unit
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = link.caregiverName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${link.relationship} \u2022 ${link.caregiverContact}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                if (isConnected) {
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Connected") },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color(0xFF2E7D32)
-                            )
-                        },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = Color(0xFFE8F5E9),
-                            labelColor = Color(0xFF2E7D32)
-                        )
-                    )
-                } else {
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Pending") },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.HourglassEmpty,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color(0xFFE65100)
-                            )
-                        },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = Color(0xFFFFF3E0),
-                            labelColor = Color(0xFFE65100)
-                        )
-                    )
-                }
-            }
-
-            // Debug-only simulation: accept/reject directly (real caregivers redeem an invitation code)
-            if (!isConnected && com.meditrack.app.BuildConfig.DEBUG) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    OutlinedButton(
-                        onClick = { onSimulateResponse(link.id, false) },
-                        modifier = Modifier.padding(end = 8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Simulate Reject")
-                    }
-                    Button(
-                        onClick = { onSimulateResponse(link.id, true) }
-                    ) {
-                        Text("Simulate Accept")
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(link.caregiverName, fontWeight = FontWeight.Bold)
+                            Text("Status: PENDING", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100))
+                        }
+                        Row {
+                            Button(onClick = { onAcceptConnection(link.id) }) {
+                                Text("Accept")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(onClick = { onDeclineConnection(link.id) }) {
+                                Text("Decline")
+                            }
+                        }
                     }
                 }
             }
@@ -357,14 +398,23 @@ private fun CaregiverItemCard(
 private fun CaregiverPortalView(
     linkedPatients: List<CaregiverLink>,
     selectedPatientId: String?,
-    selectedDoses: List<DoseEvent>,
-    adherenceReport: com.meditrack.app.domain.usecase.AdherenceReport?,
+    missedDoses: List<MissedDoseItem>,
+    generatedInviteCode: String?,
+    onGenerateInvite: () -> Unit,
     onSelectPatient: (String) -> Unit,
-    onRedeemCode: (String) -> Unit = {}
+    onConnectWithCode: (String) -> Unit,
+    onRevokePatient: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var codeInput by remember { mutableStateOf("") }
+    val displayMissed = if (selectedPatientId != null) {
+        missedDoses.filter { it.patientId == selectedPatientId }
+    } else {
+        missedDoses
+    }
+
     LazyColumn(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -387,12 +437,12 @@ private fun CaregiverPortalView(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "Caregiver View (Read-Only)",
+                            text = "Caregiver View (Missed Doses Oversight)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Monitor linked patients' medication adherence and intake records in real time.",
+                            text = "This interface strictly tracks missed medication doses for connected patients so you can follow up quickly.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                         )
@@ -401,40 +451,64 @@ private fun CaregiverPortalView(
             }
         }
 
+        // Section: Invitation Pipeline
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Have an invitation code?",
+                        text = "Patient Connection Pipeline",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    androidx.compose.material3.OutlinedTextField(
-                        value = codeInput,
-                        onValueChange = { codeInput = it.filter { c -> c.isLetterOrDigit() }.uppercase().take(12) },
-                        label = { Text("Invitation code") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        text = "Generate a code for your patient, or enter their invitation code to link:",
+                        style = MaterialTheme.typography.bodySmall
                     )
-                    androidx.compose.material3.Button(
-                        onClick = {
-                            onRedeemCode(codeInput)
-                            codeInput = ""
-                        },
-                        enabled = codeInput.length >= 8
-                    ) {
-                        Text("Connect to patient")
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = codeInput,
+                            onValueChange = { codeInput = it },
+                            label = { Text("Invitation Code (e.g. CG-1234)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (codeInput.isNotBlank()) {
+                                    onConnectWithCode(codeInput)
+                                    codeInput = ""
+                                }
+                            }
+                        ) {
+                            Text("Connect")
+                        }
+                    }
+                    Button(onClick = onGenerateInvite) {
+                        Text("Generate Invitation Code")
+                    }
+                    if (generatedInviteCode != null) {
+                        Text(
+                            text = "Active Code: $generatedInviteCode",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
         }
 
+        // Section: Connected Patients
         item {
             Text(
-                text = "Patients in Your Care (${linkedPatients.size})",
+                text = "Connected Loved Ones & Patients (${linkedPatients.size})",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -442,11 +516,17 @@ private fun CaregiverPortalView(
 
         if (linkedPatients.isEmpty()) {
             item {
-                Text(
-                    text = "No linked patients currently assigned.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "No linked patients connected yet. Use the connection pipeline above to link a patient.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
             }
         } else {
             items(linkedPatients, key = { it.id }) { link ->
@@ -455,97 +535,130 @@ private fun CaregiverPortalView(
                     colors = CardDefaults.cardColors(
                         containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                     ),
-                    onClick = { onSelectPatient(link.patientId) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Patient: ${link.patientId}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Relationship: ${link.relationship} \u2022 Status: Connected",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-        }
-
-        // Selected Patient Details
-        if (selectedPatientId != null) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Today's Patient Summary",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            if (adherenceReport != null) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Medication Adherence: ${adherenceReport.percentageFormatted}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Taken: ${adherenceReport.verifiedTakenCount} \u2022 Missed: ${adherenceReport.missedCount} \u2022 Skipped: ${adherenceReport.skippedCount}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            items(selectedDoses, key = { it.id }) { dose ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            val timeStr = DateTimeFormatter.ofPattern("hh:mm a")
-                                .withZone(ZoneId.systemDefault())
-                                .format(Instant.ofEpochMilli(dose.scheduledAt))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Scheduled: $timeStr",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Patient: ${link.patientId}",
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                        }
-
-                        val (statusText, statusColor) = when (dose.status) {
-                            DoseStatus.TAKEN -> Pair("Taken", Color(0xFF2E7D32))
-                            DoseStatus.TAKEN_LATE -> Pair("Taken Late", Color(0xFFE65100))
-                            DoseStatus.MISSED -> Pair("Missed", Color(0xFFC62828))
-                            DoseStatus.SKIPPED -> Pair("Skipped", Color.Gray)
-                            DoseStatus.PENDING -> Pair("Pending", Color(0xFF1565C0))
-                            DoseStatus.UNVERIFIED -> Pair("Unverified", Color(0xFFE65100))
-                        }
-
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text(statusText) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = statusColor.copy(alpha = 0.15f),
-                                labelColor = statusColor
+                            Text(
+                                text = "Relationship: ${link.relationship} • Status: CONNECTED",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                        }
+                        Button(onClick = { onSelectPatient(link.patientId) }) {
+                            Text(if (isSelected) "Selected" else "Filter Patient")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: MISSED DOSES ONLY
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Missed Medication Alerts (${displayMissed.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        if (displayMissed.isEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "All Clear! No Missed Doses",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1B5E20)
+                            )
+                            Text(
+                                text = "All connected patients have taken their scheduled medications.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF2E7D32)
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            items(displayMissed, key = { it.id }) { item ->
+                val timeStr = DateTimeFormatter.ofPattern("hh:mm a • MMM d")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(item.dose.scheduledAt))
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Missed Dose Alert",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = item.medicineName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text("MISSED", fontWeight = FontWeight.Bold) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    labelColor = MaterialTheme.colorScheme.onError
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Patient: ${item.patientId} • Scheduled: $timeStr",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = "Urgent: Dose verification window elapsed. Please contact the patient to ensure safety.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f)
                         )
                     }
                 }
@@ -581,28 +694,27 @@ private fun AddCaregiverDialog(
                 OutlinedTextField(
                     value = contact,
                     onValueChange = { contact = it },
-                    label = { Text("Phone Number or Email") },
+                    label = { Text("Email or Phone Number") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(14.dp))
-                Text("Relationship:", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    relationships.take(3).forEach { rel ->
-                        FilterChip(
-                            selected = selectedRelationship == rel,
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("Relationship:", style = MaterialTheme.typography.bodySmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    relationships.take(4).forEach { rel ->
+                        SuggestionChip(
                             onClick = { selectedRelationship = rel },
-                            label = { Text(rel, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    relationships.drop(3).take(3).forEach { rel ->
-                        FilterChip(
-                            selected = selectedRelationship == rel,
-                            onClick = { selectedRelationship = rel },
-                            label = { Text(rel, style = MaterialTheme.typography.labelSmall) }
+                            label = { Text(rel) },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = if (selectedRelationship == rel) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            )
                         )
                     }
                 }
@@ -610,8 +722,11 @@ private fun AddCaregiverDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSend(name, contact, selectedRelationship) },
-                enabled = name.isNotBlank()
+                onClick = {
+                    if (name.isNotBlank() && contact.isNotBlank()) {
+                        onSend(name, contact, selectedRelationship)
+                    }
+                }
             ) {
                 Text("Send Invitation")
             }

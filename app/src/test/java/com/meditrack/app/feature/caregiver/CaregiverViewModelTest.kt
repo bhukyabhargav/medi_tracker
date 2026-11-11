@@ -148,6 +148,7 @@ class CaregiverViewModelTest {
         )
         coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(doses)
         coEvery { medicineRepository.observeAll() } returns flowOf(emptyList())
+        coEvery { medicineRepository.observeActive() } returns flowOf(emptyList())
 
         viewModel.selectPatient("patient_1")
         advanceUntilIdle()
@@ -157,5 +158,25 @@ class CaregiverViewModelTest {
         assertEquals(2, state.selectedPatientDoses.size)
         assertNotNull(state.adherenceReport)
         assertEquals(50.0, state.adherenceReport?.percentage ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun generateCaregiverInvite_generatesCodeWithPrefix() = runTest {
+        viewModel.generateCaregiverInvite()
+        val code = viewModel.uiState.value.generatedInviteCode
+        assertNotNull(code)
+        assertTrue(code!!.startsWith("CG-"))
+    }
+
+    @Test
+    fun connectWithCode_insertsAcceptedCaregiverLink() = runTest {
+        val linkSlot = slot<CaregiverLink>()
+        coEvery { caregiverRepository.insert(capture(linkSlot)) } returns Unit
+
+        viewModel.connectWithCode("CG-4821")
+        advanceUntilIdle()
+
+        coVerify { caregiverRepository.insert(any()) }
+        assertEquals(LinkStatus.ACCEPTED, linkSlot.captured.status)
     }
 }
