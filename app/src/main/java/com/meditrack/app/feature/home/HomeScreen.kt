@@ -36,17 +36,25 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,7 +65,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.meditrack.app.BuildConfig
 import com.meditrack.app.MediTrackApp
 import com.meditrack.app.R
+import com.meditrack.app.domain.model.PrescriptionPayload
+import com.meditrack.app.domain.model.ProposalStatus
+import com.meditrack.app.domain.model.User
+import com.meditrack.app.domain.model.UserRole
 import com.meditrack.app.domain.usecase.LateEntryPolicy
+import com.meditrack.app.feature.doctor.CreateProposalDialog
+import com.meditrack.app.feature.doctor.DoctorUiState
+import com.meditrack.app.feature.doctor.DoctorViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -76,9 +91,29 @@ fun HomeScreen(
     onNavigateToScan: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
+    doctorViewModel: DoctorViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isDoctor = uiState.user?.role == UserRole.DOCTOR
+    val doctorUiState by doctorViewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var showProposalDialog by remember { mutableStateOf(false) }
+    var targetPatientIdForProposal by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(isDoctor) {
+        if (isDoctor) {
+            doctorViewModel.loadData()
+        }
+    }
+
+    LaunchedEffect(doctorUiState.userMessage) {
+        doctorUiState.userMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            doctorViewModel.clearMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -86,7 +121,7 @@ fun HomeScreen(
                 title = {
                     Column {
                         Text(
-                            text = stringResource(R.string.home_title),
+                            text = if (isDoctor) "Doctor Dashboard" else stringResource(R.string.home_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.combinedClickable(
@@ -101,7 +136,11 @@ fun HomeScreen(
                         )
                         uiState.user?.let { user ->
                             Text(
-                                text = "Hello, ${user.name} (${user.role.name})",
+                                text = if (isDoctor) {
+                                    "Dr. ${user.name} \u2022 Clinical Oversight"
+                                } else {
+                                    "Hello, ${user.name} (${user.role.name})"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
@@ -137,6 +176,7 @@ fun HomeScreen(
                 )
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { innerPadding ->
         if (uiState.isLoading) {
@@ -149,6 +189,22 @@ fun HomeScreen(
             ) {
                 CircularProgressIndicator()
             }
+        } else if (isDoctor) {
+            DoctorHomeContent(
+                user = uiState.user,
+                doctorUiState = doctorUiState,
+                onGenerateInvite = { doctorViewModel.generateDoctorInvite() },
+                onSelectPatient = { patientId -> doctorViewModel.selectPatient(patientId) },
+                onOpenProposalDialog = { patientId ->
+                    targetPatientIdForProposal = patientId
+                    showProposalDialog = true
+                },
+                onNavigateToDoctorPortal = onNavigateToDoctor,
+                onNavigateToSettings = onNavigateToSettings,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -403,6 +459,466 @@ fun HomeScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showProposalDialog && targetPatientIdForProposal != null) {
+        CreateProposalDialog(
+            patientId = targetPatientIdForProposal!!,
+            onDismiss = {
+                showProposalDialog = false
+                targetPatientIdForProposal = null
+            },
+            onSubmit = { type, payload, medicineId ->
+                doctorViewModel.createPrescriptionProposal(
+                    targetPatientIdForProposal!!,
+                    type,
+                    payload,
+                    medicineId
+                )
+                showProposalDialog = false
+                targetPatientIdForProposal = null
+            }
+        )
+    }
+}
+
+@Composable
+fun DoctorHomeContent(
+    user: User?,
+    doctorUiState: DoctorUiState,
+    onGenerateInvite: () -> Unit,
+    onSelectPatient: (String) -> Unit,
+    onOpenProposalDialog: (String) -> Unit,
+    onNavigateToDoctorPortal: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Clinical Overview Hero Banner
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Dr. ${user?.name ?: "Doctor"}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Role: DOCTOR \u2022 Monitoring & Proposals",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Connected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${doctorUiState.acceptedPatients.size} Patients",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Proposals",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${doctorUiState.patientProposals.size} Total",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "MediTrack doctor mode provides read-only adherence oversight and prescription proposals. Patient consent is required before any proposed medication takes effect.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onNavigateToDoctorPortal,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Full Doctor Portal")
+                        }
+                        OutlinedButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Settings")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Patient Invitation
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Connect New Patient",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Generate a secure, single-use invitation code to share with your patient. The patient enters it under Doctor Connection to grant you read-only adherence visibility.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(onClick = onGenerateInvite) {
+                        Text("Generate Invitation Code")
+                    }
+                    if (doctorUiState.generatedInviteCode != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Active Invitation Code:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = doctorUiState.generatedInviteCode,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Share this 8-character code with your patient. It expires in 24 hours.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Connected Patients
+        item {
+            SectionHeader(title = "Connected Patients (${doctorUiState.acceptedPatients.size})")
+        }
+
+        if (doctorUiState.acceptedPatients.isEmpty()) {
+            item {
+                EmptyCard(
+                    icon = Icons.Default.People,
+                    message = "No connected patients yet. Generate an invitation code above to link your first patient."
+                )
+            }
+        } else {
+            items(doctorUiState.acceptedPatients, key = { it.id }) { link ->
+                val isSelected = doctorUiState.selectedPatientId == link.patientId
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Patient: ${link.patientId}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Status: ACCEPTED (Read-Only Access)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onSelectPatient(link.patientId) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (isSelected) "Refresh Details" else "View Adherence & Doses")
+                            }
+                            OutlinedButton(
+                                onClick = { onOpenProposalDialog(link.patientId) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Propose Rx")
+                            }
+                        }
+
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Adherence Report
+                            val adherence = doctorUiState.selectedPatientAdherence
+                            if (adherence != null) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = "7-Day Adherence: ${adherence.percentageFormatted}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Verified Taken: ${adherence.verifiedTakenCount} \u2022 Missed: ${adherence.missedCount} \u2022 Skipped: ${adherence.skippedCount}",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            // Active Medicines
+                            Text(
+                                text = "Patient Active Medicines (${doctorUiState.selectedPatientMedicines.size}):",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (doctorUiState.selectedPatientMedicines.isEmpty()) {
+                                Text(
+                                    text = "No active medicines on record.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                doctorUiState.selectedPatientMedicines.forEach { med ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "\u2022 ${med.name} (${med.dosageText})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "Stock: ${med.currentStock} pills",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            // Recent Doses
+                            Text(
+                                text = "Today's Dose Logs (${doctorUiState.selectedPatientDoses.size}):",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (doctorUiState.selectedPatientDoses.isEmpty()) {
+                                Text(
+                                    text = "No dose events recorded today.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                doctorUiState.selectedPatientDoses.take(5).forEach { dose ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Dose: ${dose.id.take(8)}",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Text(
+                                            text = dose.status.name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when (dose.status) {
+                                                com.meditrack.app.domain.model.DoseStatus.TAKEN,
+                                                com.meditrack.app.domain.model.DoseStatus.TAKEN_LATE -> MaterialTheme.colorScheme.primary
+                                                com.meditrack.app.domain.model.DoseStatus.MISSED -> MaterialTheme.colorScheme.error
+                                                else -> MaterialTheme.colorScheme.onSurface
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Prescription Proposals
+        item {
+            SectionHeader(title = "Prescription Proposals (${doctorUiState.patientProposals.size})")
+        }
+
+        if (doctorUiState.patientProposals.isEmpty()) {
+            item {
+                EmptyCard(
+                    icon = Icons.Default.Medication,
+                    message = "No prescription proposals generated yet. Select a patient above to propose medication."
+                )
+            }
+        } else {
+            items(doctorUiState.patientProposals, key = { it.id }) { proposal ->
+                val payload = try {
+                    PrescriptionPayload.fromJson(proposal.payloadJson)
+                } catch (_: Exception) {
+                    null
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = payload?.medicineName ?: "Prescription Proposal",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = when (proposal.status) {
+                                        ProposalStatus.ACCEPTED -> androidx.compose.ui.graphics.Color(0xFFE8F5E9)
+                                        ProposalStatus.DECLINED -> MaterialTheme.colorScheme.errorContainer
+                                        ProposalStatus.CLARIFICATION_REQUESTED -> androidx.compose.ui.graphics.Color(0xFFE1F5FE)
+                                        ProposalStatus.PENDING -> androidx.compose.ui.graphics.Color(0xFFFFF3E0)
+                                        ProposalStatus.SUPERSEDED -> MaterialTheme.colorScheme.surfaceVariant
+                                    }
+                                )
+                            ) {
+                                Text(
+                                    text = "${proposal.type.name} \u2022 ${proposal.status.name}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    color = when (proposal.status) {
+                                        ProposalStatus.ACCEPTED -> androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                                        ProposalStatus.DECLINED -> MaterialTheme.colorScheme.onErrorContainer
+                                        ProposalStatus.CLARIFICATION_REQUESTED -> androidx.compose.ui.graphics.Color(0xFF0277BD)
+                                        ProposalStatus.PENDING -> androidx.compose.ui.graphics.Color(0xFFE65100)
+                                        ProposalStatus.SUPERSEDED -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Patient: ${proposal.patientId} \u2022 Dosage: ${payload?.dosageText ?: "N/A"} (${payload?.pillsPerDose ?: 1} pill(s))",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (!payload?.times.isNullOrEmpty()) {
+                            Text(
+                                text = "Scheduled Times: ${payload?.times?.joinToString(", ")}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (!payload?.additionalInstructions.isNullOrBlank()) {
+                            Text(
+                                text = "Instructions: ${payload.additionalInstructions}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (!payload?.clarificationNote.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Patient Note: ${payload?.clarificationNote}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }
