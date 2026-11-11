@@ -37,6 +37,12 @@ class MedicineRepositoryImpl @Inject constructor(
     override fun observeActive(): Flow<List<Medicine>> =
         userPreferences.currentUserId.flatMapLatest { uid -> medicineDao.observeActiveByPatient(uid ?: NO_USER) }
 
+    override fun observeAllByPatient(patientId: String): Flow<List<Medicine>> =
+        medicineDao.observeAllByPatient(patientId)
+
+    override fun observeActiveByPatient(patientId: String): Flow<List<Medicine>> =
+        medicineDao.observeActiveByPatient(patientId)
+
     override fun observeById(id: String): Flow<Medicine?> = medicineDao.observeById(id)
     override suspend fun getById(id: String): Medicine? = medicineDao.getById(id)
     override suspend fun insert(medicine: Medicine) = medicineDao.insert(medicine)
@@ -60,6 +66,12 @@ class DoseRepositoryImpl @Inject constructor(
         userPreferences.currentUserId.flatMapLatest { uid ->
             doseEventDao.observeBetweenByPatient(uid ?: NO_USER, startTime, endTime)
         }
+
+    override fun observeBetweenByPatient(patientId: String, startTime: Long, endTime: Long): Flow<List<DoseEvent>> =
+        doseEventDao.observeBetweenByPatient(patientId, startTime, endTime)
+
+    override fun observeAllByPatient(patientId: String): Flow<List<DoseEvent>> =
+        doseEventDao.observeAllByPatient(patientId)
 
     override fun observeByMedicineId(medicineId: String): Flow<List<DoseEvent>> =
         doseEventDao.observeByMedicineId(medicineId)

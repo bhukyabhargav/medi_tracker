@@ -17,6 +17,19 @@ import kotlinx.coroutines.flow.flowOf
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import com.meditrack.app.data.db.dao.DoctorLinkDao
+import com.meditrack.app.domain.model.CaregiverLink
+import com.meditrack.app.domain.model.DoctorLink
+import com.meditrack.app.domain.model.DoctorLinkStatus
+import com.meditrack.app.domain.model.DoseEvent
+import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.FoodRelation
+import com.meditrack.app.domain.model.FrequencyType
+import com.meditrack.app.domain.model.LinkStatus
+import com.meditrack.app.domain.model.Medicine
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,7 +42,8 @@ class FakeAuthRepository @Inject constructor(
     private val medicineDao: MedicineDao,
     private val doseEventDao: DoseEventDao,
     private val caregiverLinkDao: CaregiverLinkDao,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val doctorLinkDao: DoctorLinkDao? = null
 ) : AuthRepository {
 
     private data class PendingAccount(
@@ -205,6 +219,7 @@ class FakeAuthRepository @Inject constructor(
         userDao.insertUser(user)
         userPreferences.setLoggedIn(demoId)
         repairLegacyPatientData(demoId)
+        ensureInterconnectedDemoEcosystem()
         userPreferences.setOnboardingCompleted(true)
         userPreferences.setBatteryGuidanceSeen(true)
         return Result.success(user)
@@ -225,6 +240,153 @@ class FakeAuthRepository @Inject constructor(
         val md = MessageDigest.getInstance("SHA-256")
         val bytes = md.digest((DEMO_SALT + password).toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun ensureInterconnectedDemoEcosystem() {
+        try {
+            val demoPatientId = "demo_patient_001"
+            val demoDoctorUid = "demo_doctor_001"
+            val demoCaregiverUid = "demo_caregiver_001"
+
+            userDao.insertUser(
+                User(
+                    id = demoPatientId,
+                    name = "Demo Patient",
+                    email = "patient.demo@meditrack.app",
+                    role = UserRole.PATIENT,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            userDao.insertUser(
+                User(
+                    id = demoDoctorUid,
+                    name = "Dr. Smith (Demo)",
+                    email = "doctor.demo@meditrack.app",
+                    role = UserRole.DOCTOR,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            userDao.insertUser(
+                User(
+                    id = demoCaregiverUid,
+                    name = "Sarah (Caregiver Demo)",
+                    email = "caregiver.demo@meditrack.app",
+                    role = UserRole.CAREGIVER,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+
+            doctorLinkDao?.let { dDao ->
+                if (dDao.getById("demo_doc_link_001") == null) {
+                    dDao.insert(
+                        DoctorLink(
+                            id = "demo_doc_link_001",
+                            patientId = demoPatientId,
+                            doctorUid = demoDoctorUid,
+                            doctorName = "Dr. Smith (Demo)",
+                            doctorContact = "dr.smith@hospital.org",
+                            status = DoctorLinkStatus.ACCEPTED,
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+
+            if (caregiverLinkDao.getById("demo_cg_link_001") == null) {
+                caregiverLinkDao.insert(
+                    CaregiverLink(
+                        id = "demo_cg_link_001",
+                        patientId = demoPatientId,
+                        caregiverUid = demoCaregiverUid,
+                        caregiverName = "Sarah (Caregiver Demo)",
+                        caregiverContact = "sarah.demo@meditrack.app",
+                        relationship = "Daughter / Primary Caregiver",
+                        status = LinkStatus.ACCEPTED,
+                        createdAt = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            val existingMeds = medicineDao.getAllByPatientId(demoPatientId)
+            val demoMedId = "demo_med_metformin"
+            if (existingMeds.isEmpty() || medicineDao.getById(demoMedId) == null) {
+                val demoMed = Medicine(
+                    id = demoMedId,
+                    patientId = demoPatientId,
+                    name = "Metformin 500mg",
+                    dosageText = "500mg",
+                    pillsPerDose = 1,
+                    frequencyType = FrequencyType.DAILY,
+                    timesOfDay = listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    startDate = LocalDate.now().minusDays(3).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    foodRelation = FoodRelation.AFTER,
+                    instructions = "Take with water after meals",
+                    reminderEnabled = true,
+                    initialStock = 30,
+                    currentStock = 27
+                )
+                medicineDao.insert(demoMed)
+
+                val now = System.currentTimeMillis()
+                val today = LocalDate.now()
+                val todayEightAm = today.atTime(8, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val todayEightPm = today.atTime(20, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val yesterdayEightAm = today.minusDays(1).atTime(8, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val yesterdayEightPm = today.minusDays(1).atTime(20, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+                if (doseEventDao.getById("demo_dose_hist_001") == null) {
+                    doseEventDao.insert(
+                        DoseEvent(
+                            id = "demo_dose_hist_001",
+                            patientId = demoPatientId,
+                            medicineId = demoMedId,
+                            scheduledAt = yesterdayEightAm,
+                            windowEndsAt = yesterdayEightAm + 3600000L,
+                            status = DoseStatus.TAKEN,
+                            takenAt = yesterdayEightAm + 600000L
+                        )
+                    )
+                }
+                if (doseEventDao.getById("demo_dose_hist_002") == null) {
+                    doseEventDao.insert(
+                        DoseEvent(
+                            id = "demo_dose_hist_002",
+                            patientId = demoPatientId,
+                            medicineId = demoMedId,
+                            scheduledAt = yesterdayEightPm,
+                            windowEndsAt = yesterdayEightPm + 3600000L,
+                            status = DoseStatus.TAKEN,
+                            takenAt = yesterdayEightPm + 600000L
+                        )
+                    )
+                }
+                if (doseEventDao.getById("demo_dose_missed_001") == null) {
+                    doseEventDao.insert(
+                        DoseEvent(
+                            id = "demo_dose_missed_001",
+                            patientId = demoPatientId,
+                            medicineId = demoMedId,
+                            scheduledAt = todayEightAm,
+                            windowEndsAt = todayEightAm + 3600000L,
+                            status = DoseStatus.MISSED
+                        )
+                    )
+                }
+                if (doseEventDao.getById("demo_dose_upcoming_001") == null) {
+                    val upcomingTime = if (now < todayEightPm) todayEightPm else now + 3600000L
+                    doseEventDao.insert(
+                        DoseEvent(
+                            id = "demo_dose_upcoming_001",
+                            patientId = demoPatientId,
+                            medicineId = demoMedId,
+                            scheduledAt = upcomingTime,
+                            windowEndsAt = upcomingTime + 3600000L,
+                            status = DoseStatus.PENDING
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     private suspend fun repairLegacyPatientData(userId: String) {

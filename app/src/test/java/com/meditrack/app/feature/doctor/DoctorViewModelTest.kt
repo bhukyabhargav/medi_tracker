@@ -205,7 +205,9 @@ class DoctorViewModelTest {
             DoseEvent(id = "d2", medicineId = "m1", scheduledAt = 3000L, windowEndsAt = 4000L, status = DoseStatus.MISSED)
         )
         coEvery { doseRepository.observeBetween(any(), any()) } returns flowOf(doses)
+        coEvery { doseRepository.observeBetweenByPatient(any(), any(), any()) } returns flowOf(doses)
         coEvery { medicineRepository.observeAll() } returns flowOf(emptyList())
+        coEvery { medicineRepository.observeActiveByPatient(any()) } returns flowOf(emptyList())
 
         viewModel.selectPatient("pat_1")
         advanceUntilIdle()
