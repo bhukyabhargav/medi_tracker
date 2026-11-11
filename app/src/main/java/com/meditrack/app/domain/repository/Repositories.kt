@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 interface MedicineRepository {
     fun observeAll(): Flow<List<Medicine>>
     fun observeActive(): Flow<List<Medicine>>
+    fun observeAllByPatient(patientId: String): Flow<List<Medicine>> = observeAll()
+    fun observeActiveByPatient(patientId: String): Flow<List<Medicine>> = observeActive()
     fun observeById(id: String): Flow<Medicine?>
     suspend fun getById(id: String): Medicine?
     suspend fun insert(medicine: Medicine)
@@ -22,6 +24,8 @@ interface MedicineRepository {
 
 interface DoseRepository {
     fun observeBetween(startTime: Long, endTime: Long): Flow<List<DoseEvent>>
+    fun observeBetweenByPatient(patientId: String, startTime: Long, endTime: Long): Flow<List<DoseEvent>> = observeBetween(startTime, endTime)
+    fun observeAllByPatient(patientId: String): Flow<List<DoseEvent>> = observeBetween(0L, Long.MAX_VALUE)
     fun observeByMedicineId(medicineId: String): Flow<List<DoseEvent>>
     fun observeById(id: String): Flow<DoseEvent?>
     suspend fun getById(id: String): DoseEvent?

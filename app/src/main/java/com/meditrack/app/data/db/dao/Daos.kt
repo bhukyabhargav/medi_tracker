@@ -117,6 +117,9 @@ interface DoseEventDao {
     @Query("SELECT * FROM dose_events WHERE patientId = :patientId AND scheduledAt >= :startTime AND scheduledAt <= :endTime ORDER BY scheduledAt ASC")
     fun observeBetweenByPatient(patientId: String, startTime: Long, endTime: Long): Flow<List<DoseEvent>>
 
+    @Query("SELECT * FROM dose_events WHERE patientId = :patientId ORDER BY scheduledAt ASC")
+    fun observeAllByPatient(patientId: String): Flow<List<DoseEvent>>
+
     @Query("SELECT * FROM dose_events WHERE medicineId = :medicineId ORDER BY scheduledAt ASC")
     fun observeByMedicineId(medicineId: String): Flow<List<DoseEvent>>
 
