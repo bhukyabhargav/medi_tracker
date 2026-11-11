@@ -7,11 +7,13 @@ import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
 import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.repository.MedicineRepository
+import com.meditrack.app.domain.usecase.AcceptProposalUseCase
 import com.meditrack.app.domain.usecase.SaveMedicineUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -258,5 +260,52 @@ class AddEditMedicineViewModelTest {
         assertFalse(noUserVm.uiState.value.isLoading)
         assertEquals(AddEditStep.FORM, noUserVm.uiState.value.currentStep)
         coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any(), any(), any()) }
+    }
+
+    @Test
+    fun `saveMedicine with acceptProposalId marks proposal accepted and preserves doctor metadata`() = runTest(testDispatcher) {
+        val acceptProposalUseCase: AcceptProposalUseCase = mockk(relaxed = true)
+        val vmWithProposal = AddEditMedicineViewModel(
+            medicineRepository = medicineRepository,
+            saveMedicineUseCase = saveMedicineUseCase,
+            userPreferences = userPreferences,
+            acceptProposalUseCase = acceptProposalUseCase
+        )
+
+        vmWithProposal.prefillFromScan(
+            name = "Amoxicillin",
+            dosage = "500mg",
+            pillsPerDose = "2",
+            initialStock = null,
+            frequency = "DAILY",
+            times = listOf("09:00"),
+            intervalHours = null,
+            daysOfWeek = null,
+            durationDays = null,
+            foodRelation = "AFTER",
+            instructions = "Take after breakfast",
+            acceptProposalId = "prop_123",
+            prescribedByDoctorUid = "doc_999",
+            prescribedByDoctorName = "Dr. House"
+        )
+
+        // Patient fills in their real stock
+        vmWithProposal.onInitialStockChange("30")
+
+        // Patient saves
+        vmWithProposal.onSkipPhoto()
+        advanceUntilIdle()
+
+        val slot = slot<Medicine>()
+        coVerify { saveMedicineUseCase.saveNewMedicine(capture(slot), any(), any()) }
+        assertEquals("Amoxicillin", slot.captured.name)
+        assertEquals("500mg", slot.captured.dosageText)
+        assertEquals(2, slot.captured.pillsPerDose)
+        assertEquals(30, slot.captured.initialStock)
+        assertEquals("doc_999", slot.captured.prescribedByDoctorUid)
+        assertEquals("Dr. House", slot.captured.prescribedByDoctorName)
+
+        coVerify { acceptProposalUseCase.markProposalAccepted("prop_123", slot.captured.id) }
+        assertEquals(AddEditStep.SUCCESS, vmWithProposal.uiState.value.currentStep)
     }
 }

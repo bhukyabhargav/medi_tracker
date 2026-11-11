@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -86,6 +88,9 @@ fun AddEditMedicineScreen(
     prefillPillsPerDose: String? = null,
     prefillDaysOfWeek: String? = null,
     prefillDurationDays: String? = null,
+    acceptProposalId: String? = null,
+    prescribedByDoctorUid: String? = null,
+    prescribedByDoctorName: String? = null,
     onConsumePrefill: () -> Unit = {},
     onNavigateBack: () -> Unit,
     onNavigateToHome: () -> Unit,
@@ -111,7 +116,8 @@ fun AddEditMedicineScreen(
         !prefillInstructions.isNullOrBlank() ||
         !prefillTimes.isNullOrEmpty() ||
         !prefillDaysOfWeek.isNullOrBlank() ||
-        !prefillDurationDays.isNullOrBlank()
+        !prefillDurationDays.isNullOrBlank() ||
+        !acceptProposalId.isNullOrBlank()
 
     LaunchedEffect(medicineId, hasPrefill) {
         if (!medicineId.isNullOrBlank()) {
@@ -128,7 +134,10 @@ fun AddEditMedicineScreen(
                 daysOfWeek = prefillDaysOfWeek,
                 durationDays = prefillDurationDays,
                 foodRelation = prefillFoodRelation,
-                instructions = prefillInstructions
+                instructions = prefillInstructions,
+                acceptProposalId = acceptProposalId,
+                prescribedByDoctorUid = prescribedByDoctorUid,
+                prescribedByDoctorName = prescribedByDoctorName
             )
             onConsumePrefill()
         }
@@ -221,6 +230,40 @@ fun AddEditMedicineScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.padding(12.dp)
                             )
+                        }
+                    }
+
+                    if (!uiState.acceptProposalId.isNullOrBlank()) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Doctor Prescription Proposal",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "Prescribed by ${uiState.prescribedByDoctorName ?: "Doctor"}. Prescription details are pre-filled below. Please enter your physical stock count and take a baseline photo of your blister pack.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
                         }
                     }
 
