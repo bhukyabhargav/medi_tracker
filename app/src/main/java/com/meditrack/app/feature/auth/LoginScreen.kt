@@ -113,14 +113,6 @@ fun LoginScreen(
                     ) {
                         Text("Demo Caregiver")
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = { viewModel.quickDemoLogin(UserRole.CAREGIVER, onSuccess = onLoginSuccess) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !uiState.isLoading
-                    ) {
-                        Text("Demo Caregiver")
-                    }
                 }
             }
 

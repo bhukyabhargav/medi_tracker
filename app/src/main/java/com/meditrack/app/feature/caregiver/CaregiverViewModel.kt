@@ -175,7 +175,7 @@ class CaregiverViewModel @Inject constructor(
                 val role = _uiState.value.currentUserRole
                 val patients = links.filter {
                     it.status == LinkStatus.ACCEPTED &&
-                    (role == UserRole.CAREGIVER || it.caregiverUid == currentId || it.caregiverUid == "demo_caregiver_001")
+                    (role == UserRole.CAREGIVER || it.caregiverUid == currentId || it.caregiverUid == "demo_caregiver_001" || it.patientId == "demo_patient_001")
                 }
                 _uiState.update { it.copy(linkedPatients = patients) }
                 if (_uiState.value.selectedPatientId == null && patients.isNotEmpty()) {
@@ -219,6 +219,11 @@ class CaregiverViewModel @Inject constructor(
                 lists.flatMap { it }.distinctBy { it.id }.sortedByDescending { it.dose.scheduledAt }
             }.collect { missedItems ->
                 _uiState.update { it.copy(allConnectedMissedDoses = missedItems) }
+                if (missedItems.isNotEmpty()) {
+                    try {
+                        CaregiverAlertNotifier.postMissedAlert(context, "Demo Patient", missedItems.first().medicineName)
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
@@ -472,6 +477,28 @@ class CaregiverViewModel @Inject constructor(
     }
 
     private var selectPatientJob: Job? = null
+
+    fun linkPatient(patientId: String = "demo_patient_001") {
+        val clean = patientId.trim().ifBlank { "demo_patient_001" }
+        viewModelScope.launch {
+            val user = authRepository.getCurrentUser()
+            val caregiverUid = user?.id ?: _uiState.value.currentUserId
+            val caregiverName = user?.name ?: "Sarah (Caregiver Demo)"
+            val link = CaregiverLink(
+                id = "cglink_${clean}_${caregiverUid}",
+                patientId = clean,
+                caregiverUid = caregiverUid,
+                caregiverName = caregiverName,
+                caregiverContact = "sarah.demo@meditrack.app",
+                relationship = "Primary Caregiver",
+                status = LinkStatus.ACCEPTED,
+                createdAt = System.currentTimeMillis()
+            )
+            caregiverRepository.insert(link)
+            selectPatient(clean)
+            _uiState.update { it.copy(userMessage = "Connected to loved one $clean successfully.") }
+        }
+    }
 
     fun selectPatient(patientId: String) {
         selectPatientJob?.cancel()
