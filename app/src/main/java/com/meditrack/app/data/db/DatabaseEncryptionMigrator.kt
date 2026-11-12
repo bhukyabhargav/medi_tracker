@@ -81,7 +81,10 @@ object DatabaseEncryptionMigrator {
                 plaintextDb.rawExecSQL(
                     "ATTACH DATABASE '${tempEncryptedFile.absolutePath}' AS encrypted KEY '$passphraseStr';"
                 )
-                plaintextDb.rawExecSQL("SELECT sqlcipher_export('encrypted');")
+                // SELECT returns a row, so it must run through rawQuery (rawExecSQL rejects row-returning statements).
+                plaintextDb.rawQuery("SELECT sqlcipher_export('encrypted');", arrayOf<String>()).use { cursor ->
+                    cursor.moveToFirst()
+                }
                 plaintextDb.rawExecSQL("DETACH DATABASE encrypted;")
                 exportSuccess = true
             } finally {
@@ -131,8 +134,13 @@ object DatabaseEncryptionMigrator {
                 net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
                 null
             )
-            verifyDb.rawExecSQL("SELECT count(*) FROM sqlite_master;")
-            verifyDb.close()
+            try {
+                verifyDb.rawQuery("SELECT count(*) FROM sqlite_master;", arrayOf<String>()).use { cursor ->
+                    cursor.moveToFirst()
+                }
+            } finally {
+                verifyDb.close()
+            }
             isVerified = true
         } catch (e: Throwable) {
             Log.e(TAG, "Verification of newly migrated encrypted database failed: ${e.message}", e)

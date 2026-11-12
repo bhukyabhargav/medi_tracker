@@ -85,22 +85,32 @@ object DatabaseModule {
         if (dbFile.exists() && dbFile.length() > 0) {
             var isReadable = false
             var openError: Throwable? = null
+            var testDb: net.zetetic.database.sqlcipher.SQLiteDatabase? = null
             try {
                 // Use OPEN_READWRITE so SQLite WAL mode can recover un-checkpointed frames if previous session ended abruptly
-                val testDb = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                testDb = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
                     dbFile.absolutePath,
                     openerPassphrase,
                     null,
                     net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE,
                     null
                 )
-                testDb.rawExecSQL("SELECT count(*) FROM sqlite_master;")
-                testDb.close()
+                // A SELECT must go through rawQuery: rawExecSQL rejects any statement that returns rows
+                // ("Queries can be performed using SQLiteDatabase query or rawQuery methods only"), which made
+                // every healthy database look undecryptable on the second app start.
+                testDb.rawQuery("SELECT count(*) FROM sqlite_master;", arrayOf<String>()).use { cursor ->
+                    cursor.moveToFirst()
+                }
                 isReadable = true
             } catch (t: Throwable) {
                 isReadable = false
                 openError = t
                 Log.e(TAG, "Test database open check failed: ${t.message}", t)
+            } finally {
+                try {
+                    testDb?.close()
+                } catch (_: Throwable) {
+                }
             }
 
             if (!isReadable) {
