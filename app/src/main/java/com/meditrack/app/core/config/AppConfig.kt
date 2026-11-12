@@ -36,6 +36,8 @@ object AppConfig {
 
     // Stock
     const val LOW_STOCK_DAYS_THRESHOLD = 3        // low when remaining pills < pillsPerDay * this
+    // The caregiver is alerted later than the patient: when the remaining pills last less than this many days.
+    const val CAREGIVER_LOW_STOCK_DAYS_THRESHOLD = 2
 
     // Scan Rx (prescription photo -> prefilled medicine). Hidden from the patient dashboard: it only reads clean
     // printed text for a single medicine, cannot read handwriting, and can mix fields across medicines.

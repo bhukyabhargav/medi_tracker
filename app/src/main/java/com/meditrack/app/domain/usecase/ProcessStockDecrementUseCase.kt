@@ -58,18 +58,26 @@ class ProcessStockDecrementUseCase @Inject constructor(
         // Alert if stock is now low and the user has not yet been notified (handles low-start medicines)
         val shouldAlert = !medicine.lowStockNotified && isNowLow
 
+        // The caregiver is alerted once, when the stock drops to less than 2 days of supply
+        // (AppConfig.CAREGIVER_LOW_STOCK_DAYS_THRESHOLD). A medicine that was already below that level and has
+        // not raised any low-stock alert yet (added or refilled with very little stock) alerts on its next dose.
+        val caregiverLowBefore = StockCalculator.isLowForCaregiver(medicine)
+        val caregiverLowNow = StockCalculator.isLowForCaregiver(afterDecrement)
+        val shouldAlertCaregiver = caregiverLowNow && (!caregiverLowBefore || !medicine.lowStockNotified)
+
         var outboxEnqueued = false
         var promptCaregiver = false
 
-        if (shouldAlert) {
+        if (shouldAlert || shouldAlertCaregiver) {
             val currentUserId = userPreferences.currentUserId.first()
             val hasCaregiver = currentUserId != null && caregiverRepository.hasConnectedCaregiver(currentUserId)
 
-            if (hasCaregiver) {
+            if (hasCaregiver && shouldAlertCaregiver) {
                 // Enqueue a LOW_STOCK outbox event with an escaped JSON payload
                 val payload = JsonPayload.build(
                     "medicineId" to medicine.id,
                     "name" to medicine.name,
+                    "medicineName" to medicine.name,
                     "remaining" to newStock
                 )
                 val outboxEvent = NotificationOutbox(
@@ -81,10 +89,12 @@ class ProcessStockDecrementUseCase @Inject constructor(
                 )
                 outboxRepository.enqueue(outboxEvent)
                 outboxEnqueued = true
-            } else {
+            } else if (!hasCaregiver && shouldAlert) {
                 promptCaregiver = true
             }
+        }
 
+        if (shouldAlert) {
             // Show local alert to the patient: "<Medicine> is running low."
             try {
                 notifier(context, medicine.name, newStock, promptCaregiver, medicine.id)

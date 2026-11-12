@@ -25,6 +25,19 @@ object StockCalculator {
     }
 
     /**
+     * True when the remaining pills last less than [AppConfig.CAREGIVER_LOW_STOCK_DAYS_THRESHOLD] days at the
+     * medicine's schedule. This is the point at which the patient's caregiver is told to arrange a refill.
+     */
+    fun isLowForCaregiver(
+        medicine: Medicine,
+        pillsPerDay: Double = estimatePillsPerDay(medicine)
+    ): Boolean {
+        if (medicine.currentStock <= 0) return true
+        if (pillsPerDay <= 0.0) return false
+        return medicine.currentStock < pillsPerDay * AppConfig.CAREGIVER_LOW_STOCK_DAYS_THRESHOLD
+    }
+
+    /**
      * Estimates daily pill consumption based on frequency settings.
      */
     fun estimatePillsPerDay(medicine: Medicine): Double {

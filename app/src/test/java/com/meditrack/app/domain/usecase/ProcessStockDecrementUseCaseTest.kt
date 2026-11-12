@@ -87,14 +87,11 @@ class ProcessStockDecrementUseCaseTest {
     }
 
     @Test
-    fun decrement_whenCrossingThreshold_withCaregiver_triggersSingleAlertAndOutbox() = runTest {
-        // Stock drops from 6 -> 5 (< 6.0 threshold, becomes low!)
+    fun decrement_whenCrossingPatientThreshold_alertsPatientOnly_caregiverNotYet() = runTest {
+        // Stock drops from 6 -> 5: under 3 days (patient warning) but still 2.5 days of supply, so no caregiver alert.
         val medWith6 = sampleMedicine.copy(currentStock = 6, lowStockNotified = false)
         coEvery { medicineRepository.getById("med_stock") } returns medWith6
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
-
-        val outboxSlot = slot<NotificationOutbox>()
-        coEvery { outboxRepository.enqueue(capture(outboxSlot)) } returns Unit
 
         val result = useCase("med_stock", pillsToDecrement = 1, now = 5000L)
 
@@ -102,14 +99,10 @@ class ProcessStockDecrementUseCaseTest {
         assertEquals(5, result?.newStock)
         assertTrue(result?.isLow == true)
         assertTrue(result?.transitionedToLow == true)
-        assertTrue(result?.outboxEnqueued == true)
+        assertFalse(result?.outboxEnqueued ?: true)
+        assertFalse(result?.promptCaregiver ?: true)
         assertEquals(1, alertCount)
-
-        // Verify outbox payload
-        coVerify(exactly = 1) { outboxRepository.enqueue(any()) }
-        assertEquals(NotifType.LOW_STOCK, outboxSlot.captured.type)
-        assertTrue(outboxSlot.captured.payloadJson.contains("Amoxicillin"))
-        assertTrue(outboxSlot.captured.payloadJson.contains("\"remaining\":5"))
+        coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
 
         // Verify lowStockNotified flag set to true
         val medSlot = slot<Medicine>()
@@ -118,16 +111,82 @@ class ProcessStockDecrementUseCaseTest {
     }
 
     @Test
+    fun decrement_whenStockDropsBelowTwoDays_notifiesCaregiverOnce() = runTest {
+        // 2 pills/day: 4 pills = exactly 2 days (no alert), 3 pills = 1.5 days (alert).
+        val medWith4 = sampleMedicine.copy(currentStock = 4, lowStockNotified = true)
+        coEvery { medicineRepository.getById("med_stock") } returns medWith4
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
+
+        val outboxSlot = slot<NotificationOutbox>()
+        coEvery { outboxRepository.enqueue(capture(outboxSlot)) } returns Unit
+
+        val result = useCase("med_stock", pillsToDecrement = 1, now = 5000L)
+
+        assertEquals(3, result?.newStock)
+        assertTrue(result?.outboxEnqueued == true)
+        assertEquals("Patient was already warned at 3 days", 0, alertCount)
+        coVerify(exactly = 1) { outboxRepository.enqueue(any()) }
+        assertEquals(NotifType.LOW_STOCK, outboxSlot.captured.type)
+        assertTrue(outboxSlot.captured.payloadJson.contains("\"medicineName\":\"Amoxicillin\""))
+        assertTrue(outboxSlot.captured.payloadJson.contains("\"remaining\":3"))
+
+        // The next dose (3 -> 2) is still under 2 days: no second caregiver alert.
+        coEvery { medicineRepository.getById("med_stock") } returns medWith4.copy(currentStock = 3)
+        val next = useCase("med_stock", pillsToDecrement = 1, now = 6000L)
+        assertFalse(next?.outboxEnqueued ?: true)
+        coVerify(exactly = 1) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
+    fun decrement_toExactlyTwoDaysOfSupply_doesNotNotifyCaregiver() = runTest {
+        coEvery { medicineRepository.getById("med_stock") } returns
+            sampleMedicine.copy(currentStock = 5, lowStockNotified = true)
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
+
+        val result = useCase("med_stock", pillsToDecrement = 1)
+
+        assertEquals(4, result?.newStock)
+        assertFalse(result?.outboxEnqueued ?: true)
+        coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
+    fun medicineStartedWithUnderTwoDaysOfStock_notifiesCaregiverOnFirstDose() = runTest {
+        // Added (or refilled) with only 3 pills: already under 2 days and never alerted.
+        coEvery { medicineRepository.getById("med_stock") } returns
+            sampleMedicine.copy(currentStock = 3, lowStockNotified = false)
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
+
+        val result = useCase("med_stock", pillsToDecrement = 1)
+
+        assertTrue(result?.outboxEnqueued == true)
+        assertEquals(1, alertCount)
+        coVerify(exactly = 1) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
+    fun stockBelowTwoDays_withoutCaregiver_enqueuesNothing() = runTest {
+        coEvery { medicineRepository.getById("med_stock") } returns
+            sampleMedicine.copy(currentStock = 4, lowStockNotified = true)
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns false
+
+        val result = useCase("med_stock", pillsToDecrement = 1)
+
+        assertFalse(result?.outboxEnqueued ?: true)
+        coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
     fun decrement_whenAlreadyLow_doesNotSpamAlertOrOutbox() = runTest {
-        // Stock is already low (4 pills) and lowStockNotified is true
-        val alreadyLowMed = sampleMedicine.copy(currentStock = 4, lowStockNotified = true)
+        // Stock is already under 2 days (3 pills) and lowStockNotified is true
+        val alreadyLowMed = sampleMedicine.copy(currentStock = 3, lowStockNotified = true)
         coEvery { medicineRepository.getById("med_stock") } returns alreadyLowMed
         coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
 
         val result = useCase("med_stock", pillsToDecrement = 1, now = 6000L)
 
         assertNotNull(result)
-        assertEquals(3, result?.newStock)
+        assertEquals(2, result?.newStock)
         assertTrue(result?.isLow == true)
         assertFalse("Must NOT transition to low again if already low", result?.transitionedToLow ?: true)
         assertFalse("Must NOT spam caregiver outbox", result?.outboxEnqueued ?: true)
