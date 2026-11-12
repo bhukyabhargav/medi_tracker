@@ -9,6 +9,10 @@ package com.meditrack.app.core.config
 object VerificationConfig {
     var modelVersion: String = "v1.5.0-roboflow-cloud-serverless"
     var isTfliteEnabled: Boolean = false
+    // Offline RF-DETR model bundled in the app (assets/rfdetr_blister.onnx). When true it is used for both baseline
+    // enrollment and dose verification, so every count comes from the same model and no internet is needed.
+    // Set to false to go back to the Roboflow cloud workflow.
+    var isOfflineRfdetrEnabled: Boolean = true
     var isRoboflowWorkflowEnabled: Boolean = true
     var roboflowWorkspaceSlug: String = "varshiths-workspace-y38an"
     var roboflowWorkflowId: String = "android-blister-presence-and-empty-count-1794338462016"

@@ -105,7 +105,7 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("tflite")
+        noCompress += listOf("tflite", "onnx")
     }
 
     sourceSets {
@@ -186,6 +186,9 @@ dependencies {
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.functions)
+
+    // Offline RF-DETR blister model (assets/rfdetr_blister.onnx)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 
     // ML Kit & TFLite
     implementation(libs.mlkit.text.recognition)
