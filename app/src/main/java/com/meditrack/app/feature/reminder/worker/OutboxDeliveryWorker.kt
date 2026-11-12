@@ -214,6 +214,17 @@ class OutboxDeliveryWorker @AssistedInject constructor(
                 .setContentText(body)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
+                .setContentIntent(
+                    android.app.PendingIntent.getActivity(
+                        appContext,
+                        event.id.hashCode(),
+                        android.content.Intent(appContext, com.meditrack.app.MainActivity::class.java).apply {
+                            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        },
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    )
+                )
                 .build()
             manager.notify(event.id.hashCode(), notification)
         } catch (_: Throwable) {

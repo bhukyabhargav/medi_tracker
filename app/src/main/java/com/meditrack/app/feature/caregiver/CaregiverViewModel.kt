@@ -218,12 +218,9 @@ class CaregiverViewModel @Inject constructor(
             combine(flows) { lists ->
                 lists.flatMap { it }.distinctBy { it.id }.sortedByDescending { it.dose.scheduledAt }
             }.collect { missedItems ->
+                // The list only shows missed doses. The alert itself is sent once, when the dose is missed
+                // (OutboxDeliveryWorker), so opening this screen must not raise it again.
                 _uiState.update { it.copy(allConnectedMissedDoses = missedItems) }
-                if (missedItems.isNotEmpty()) {
-                    try {
-                        CaregiverAlertNotifier.postMissedAlert(context, "Demo Patient", missedItems.first().medicineName)
-                    } catch (_: Exception) {}
-                }
             }
         }
     }
