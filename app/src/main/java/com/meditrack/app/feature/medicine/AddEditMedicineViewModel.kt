@@ -68,7 +68,8 @@ class AddEditMedicineViewModel @Inject constructor(
     private val saveMedicineUseCase: SaveMedicineUseCase,
     private val userPreferences: UserPreferences,
     val stripDetector: com.meditrack.app.feature.verification.pipeline.StripDetector? = null,
-    private val acceptProposalUseCase: AcceptProposalUseCase? = null
+    private val acceptProposalUseCase: AcceptProposalUseCase? = null,
+    private val doctorCloud: com.meditrack.app.feature.doctor.DoctorCloud? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddEditMedicineUiState())
@@ -271,11 +272,24 @@ class AddEditMedicineViewModel @Inject constructor(
     }
 
     fun onSkipPhoto() {
+        // A doctor's prescription is only activated with the patient's own baseline blister photo.
+        if (!_uiState.value.acceptProposalId.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(errorMessage = "A baseline blister strip photo is required to accept a doctor's prescription.")
+            }
+            return
+        }
         _uiState.update { it.copy(baselinePhotoPath = null) }
         saveMedicine()
     }
 
     fun onConfirmPhotoAndSave() {
+        if (!_uiState.value.acceptProposalId.isNullOrBlank() && _uiState.value.baselinePhotoPath.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(errorMessage = "A baseline blister strip photo is required to accept a doctor's prescription.")
+            }
+            return
+        }
         saveMedicine()
     }
 
@@ -296,6 +310,19 @@ class AddEditMedicineViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             errorMessage = "No active user session. Please sign in to save medicines."
+                        )
+                    }
+                    return@launch
+                }
+
+                // A proposal that was declined, replaced, or belongs to someone else must not create a medicine.
+                if (!state.acceptProposalId.isNullOrBlank() && acceptProposalUseCase != null &&
+                    !acceptProposalUseCase.canAccept(state.acceptProposalId)
+                ) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "This prescription proposal can no longer be accepted. Please go back and check with your doctor."
                         )
                     }
                     return@launch
@@ -367,7 +394,23 @@ class AddEditMedicineViewModel @Inject constructor(
                 }
 
                 if (!state.acceptProposalId.isNullOrBlank()) {
-                    acceptProposalUseCase?.markProposalAccepted(state.acceptProposalId, medicine.id)
+                    val accepted = acceptProposalUseCase?.markProposalAccepted(state.acceptProposalId, medicine.id) == true
+                    // Tell the doctor's side too, so the proposal does not stay "pending" for them.
+                    if (accepted) {
+                        try {
+                            if (doctorCloud?.isAvailable == true) {
+                                doctorCloud.updateProposal(
+                                    state.acceptProposalId,
+                                    mapOf(
+                                        "status" to com.meditrack.app.domain.model.ProposalStatus.ACCEPTED.name,
+                                        "medicineId" to medicine.id,
+                                        "resolvedAt" to now
+                                    )
+                                )
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
                 }
 
                 _uiState.update {

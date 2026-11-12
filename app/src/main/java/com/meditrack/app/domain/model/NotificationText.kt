@@ -34,6 +34,10 @@ object NotificationText {
                 "Missed Dose",
                 "Medicine dose has been missed."
             )
+            NotifType.DOSE_SKIPPED -> Pair(
+                "Dose Skipped",
+                "Medicine dose has been skipped."
+            )
             NotifType.LOW_STOCK -> Pair(
                 "Low Stock Alert",
                 "$medicine is running low \u2013 refill needed."

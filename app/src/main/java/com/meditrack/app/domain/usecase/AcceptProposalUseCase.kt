@@ -1,5 +1,6 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.core.util.JsonPayload
 import com.meditrack.app.domain.model.FoodRelation
 import com.meditrack.app.domain.model.FrequencyType
 import com.meditrack.app.domain.model.Medicine
@@ -184,7 +185,7 @@ class AcceptProposalUseCase @Inject constructor(
         val outbox = NotificationOutbox(
             id = "outbox_${UUID.randomUUID()}",
             type = NotifType.PRESCRIPTION_ACCEPTED,
-            payloadJson = """{"patientName":"$patientName","medicineName":"${payload.medicineName}","doctorUid":"${proposal.doctorUid}"}""",
+            payloadJson = JsonPayload.build("patientName" to patientName, "medicineName" to payload.medicineName, "doctorUid" to proposal.doctorUid),
             createdAt = System.currentTimeMillis(),
             delivered = false
         )
@@ -194,12 +195,24 @@ class AcceptProposalUseCase @Inject constructor(
     }
 
     /**
+     * True when the signed-in patient may accept this proposal now: it exists, it is addressed to them,
+     * and its status still allows acceptance (not declined or superseded).
+     */
+    suspend fun canAccept(proposalId: String): Boolean {
+        val proposal = proposalRepository.getById(proposalId) ?: return false
+        val currentUser = authRepository.getCurrentUser()
+        if (currentUser != null && proposal.patientId != currentUser.id) return false
+        return ProposalStateMachine.canTransition(proposal.status, ProposalStatus.ACCEPTED)
+    }
+
+    /**
      * Called when a patient accepts an ADD proposal via the full AddMedicine workflow
      * with their actual stock count and enrolled baseline blister pack photo.
      */
     suspend fun markProposalAccepted(proposalId: String, medicineId: String): Boolean {
         val proposal = proposalRepository.getById(proposalId) ?: return false
         if (proposal.status == ProposalStatus.ACCEPTED) return true
+        if (!canAccept(proposalId)) return false
 
         val newStatus = ProposalStateMachine.transition(proposal.status, ProposalStatus.ACCEPTED)
         val now = System.currentTimeMillis()
@@ -222,7 +235,7 @@ class AcceptProposalUseCase @Inject constructor(
         val outbox = NotificationOutbox(
             id = "outbox_${UUID.randomUUID()}",
             type = NotifType.PRESCRIPTION_ACCEPTED,
-            payloadJson = """{"patientName":"$patientName","medicineName":"$medName","doctorUid":"${proposal.doctorUid}"}""",
+            payloadJson = JsonPayload.build("patientName" to patientName, "medicineName" to medName, "doctorUid" to proposal.doctorUid),
             createdAt = now,
             delivered = false
         )

@@ -486,7 +486,7 @@ fun VerificationStubScreen(
                             Text("I Started a New Strip (Confirm & Verify)")
                         }
                     }
-                    if (uiState.lastRejectedPhotoPath != null) {
+                    if (uiState.lastRejectedPhotoPath != null && uiState.canUseRejectedPhotoAnyway) {
                         OutlinedButton(
                             onClick = { showUseAnywayDialog = true },
                             modifier = Modifier.fillMaxWidth()

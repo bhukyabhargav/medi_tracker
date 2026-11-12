@@ -24,7 +24,9 @@ data class Detection(
     val stripBox: RectF? = null,
     val isRoboflowWorkflow: Boolean = false,
     val roboflowMissingCount: Int? = null,
-    val roboflowPackStatus: String? = null
+    val roboflowPackStatus: String? = null,
+    /** True when the detector could not run at all (no internet, timeout, service error). Says nothing about the photo. */
+    val detectorUnavailable: Boolean = false
 )
 
 interface StripDetector {

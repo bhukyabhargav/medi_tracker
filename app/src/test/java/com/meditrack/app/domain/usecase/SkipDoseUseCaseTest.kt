@@ -2,7 +2,11 @@ package com.meditrack.app.domain.usecase
 
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.DoseStatus
+import com.meditrack.app.domain.model.NotifType
+import com.meditrack.app.domain.model.NotificationOutbox
+import com.meditrack.app.domain.repository.CaregiverRepository
 import com.meditrack.app.domain.repository.DoseRepository
+import com.meditrack.app.domain.repository.OutboxRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -63,5 +67,47 @@ class SkipDoseUseCaseTest {
         val result = useCase("not_found")
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun skipDose_withConnectedCaregiver_enqueuesDoseSkippedEvent() = runTest {
+        val caregiverRepository: CaregiverRepository = mockk(relaxed = true)
+        val outboxRepository: OutboxRepository = mockk(relaxed = true)
+        val dose = sampleDose.copy(patientId = "patient_1")
+        coEvery { doseRepository.getById("dose_skip_1") } returns dose
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns true
+        val outboxSlot = slot<NotificationOutbox>()
+        coEvery { outboxRepository.enqueue(capture(outboxSlot)) } returns Unit
+
+        val result = SkipDoseUseCase(doseRepository, caregiverRepository, outboxRepository)("dose_skip_1", now = 3000L)
+
+        assertTrue(result.isSuccess)
+        assertEquals(NotifType.DOSE_SKIPPED, outboxSlot.captured.type)
+        assertTrue(outboxSlot.captured.payloadJson.contains("\"doseId\":\"dose_skip_1\""))
+    }
+
+    @Test
+    fun skipDose_withoutCaregiver_enqueuesNothing() = runTest {
+        val caregiverRepository: CaregiverRepository = mockk(relaxed = true)
+        val outboxRepository: OutboxRepository = mockk(relaxed = true)
+        coEvery { doseRepository.getById("dose_skip_1") } returns sampleDose.copy(patientId = "patient_1")
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } returns false
+
+        val result = SkipDoseUseCase(doseRepository, caregiverRepository, outboxRepository)("dose_skip_1")
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { outboxRepository.enqueue(any()) }
+    }
+
+    @Test
+    fun skipDose_notificationFailure_doesNotFailTheSkip() = runTest {
+        val caregiverRepository: CaregiverRepository = mockk(relaxed = true)
+        val outboxRepository: OutboxRepository = mockk(relaxed = true)
+        coEvery { doseRepository.getById("dose_skip_1") } returns sampleDose.copy(patientId = "patient_1")
+        coEvery { caregiverRepository.hasConnectedCaregiver("patient_1") } throws RuntimeException("db closed")
+
+        val result = SkipDoseUseCase(doseRepository, caregiverRepository, outboxRepository)("dose_skip_1")
+
+        assertTrue(result.isSuccess)
     }
 }

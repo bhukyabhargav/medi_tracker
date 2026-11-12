@@ -1,5 +1,6 @@
 package com.meditrack.app.feature.doctor
 
+import com.meditrack.app.core.util.JsonPayload
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -131,6 +132,28 @@ class DoctorViewModel @Inject constructor(
                 } catch (_: Exception) {}
             }
 
+            // These collectors need the resolved user id, so they start only after it is known.
+            launch {
+                // Observe incoming doctor links for patient
+                doctorRepository.observeByPatientId(userId).collect { links ->
+                    _uiState.update { it.copy(incomingDoctorLinks = links) }
+                }
+            }
+
+            launch {
+                if (doctorCloud.isAvailable) {
+                    val cloudProposals = doctorCloud.fetchProposalsForPatient(userId)
+                    if (cloudProposals.isNotEmpty()) {
+                        _uiState.update { it.copy(patientProposals = cloudProposals) }
+                    }
+                }
+                // Only proposals this user sent (as doctor) or received (as patient); never other accounts' proposals.
+                proposalRepository.observeAll().collect { proposals ->
+                    val mine = proposals.filter { it.patientId == userId || it.doctorUid == userId }
+                    _uiState.update { it.copy(patientProposals = mine) }
+                }
+            }
+
             // Observe accepted patients for doctor
             val linksFlow = if (role == UserRole.DOCTOR) {
                 doctorRepository.observeAcceptedForDoctor(userId)
@@ -138,7 +161,9 @@ class DoctorViewModel @Inject constructor(
                 doctorRepository.observeAll()
             }
             linksFlow.collect { links ->
-                val accepted = links.filter { it.status == DoctorLinkStatus.ACCEPTED }
+                val accepted = links.filter {
+                    it.status == DoctorLinkStatus.ACCEPTED && (it.doctorUid == userId || it.patientId == userId)
+                }
                 _uiState.update { it.copy(acceptedPatients = accepted) }
                 if (_uiState.value.selectedPatientId == null && accepted.isNotEmpty()) {
                     selectPatient(accepted.first().patientId)
@@ -146,26 +171,6 @@ class DoctorViewModel @Inject constructor(
             }
         }
 
-        viewModelScope.launch {
-            val userId = _uiState.value.currentUserId
-            // Observe incoming doctor links for patient
-            doctorRepository.observeByPatientId(userId).collect { links ->
-                _uiState.update { it.copy(incomingDoctorLinks = links) }
-            }
-        }
-
-        viewModelScope.launch {
-            if (doctorCloud.isAvailable) {
-                val userId = _uiState.value.currentUserId
-                val cloudProposals = doctorCloud.fetchProposalsForPatient(userId)
-                if (cloudProposals.isNotEmpty()) {
-                    _uiState.update { it.copy(patientProposals = cloudProposals) }
-                }
-            }
-            proposalRepository.observeAll().collect { proposals ->
-                _uiState.update { it.copy(patientProposals = proposals) }
-            }
-        }
     }
 
     /**
@@ -239,7 +244,7 @@ class DoctorViewModel @Inject constructor(
                 val outbox = NotificationOutbox(
                     id = "outbox_${UUID.randomUUID()}",
                     type = NotifType.DOCTOR_INVITE_RECEIVED,
-                    payloadJson = """{"doctorName":"$doctorName","patientId":"$patientId"}""",
+                    payloadJson = JsonPayload.build("doctorName" to doctorName, "patientId" to patientId),
                     createdAt = System.currentTimeMillis(),
                     delivered = false
                 )
@@ -260,7 +265,7 @@ class DoctorViewModel @Inject constructor(
             val outbox = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOCTOR_INVITE_ACCEPTED,
-                payloadJson = """{"patientName":"$patientName","doctorUid":"${link.doctorUid}"}""",
+                payloadJson = JsonPayload.build("patientName" to patientName, "doctorUid" to link.doctorUid),
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -283,7 +288,7 @@ class DoctorViewModel @Inject constructor(
             val outbox = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOCTOR_INVITE_DECLINED,
-                payloadJson = """{"patientName":"$patientName","doctorUid":"${link.doctorUid}"}""",
+                payloadJson = JsonPayload.build("patientName" to patientName, "doctorUid" to link.doctorUid),
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -308,7 +313,7 @@ class DoctorViewModel @Inject constructor(
             val outbox = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.DOCTOR_INVITE_REVOKED,
-                payloadJson = """{"doctorUid":"${link.doctorUid}"}""",
+                payloadJson = JsonPayload.build("doctorUid" to link.doctorUid),
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )
@@ -330,7 +335,7 @@ class DoctorViewModel @Inject constructor(
         selectPatientJob = viewModelScope.launch {
             _uiState.update { it.copy(selectedPatientId = patientId, isLoading = true) }
 
-            if (doctorCloud.isAvailable) {
+            if (doctorCloud.isAvailable && !patientId.startsWith("demo_")) {
                 val sevenDaysAgo = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
                 val result = doctorCloud.fetchPatientData(patientId, sevenDaysAgo)
                 result.onSuccess { (meds, doses) ->
@@ -409,7 +414,7 @@ class DoctorViewModel @Inject constructor(
             val outbox = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.PRESCRIPTION_PROPOSAL_RECEIVED,
-                payloadJson = """{"doctorName":"$doctorName","medicineName":"${finalPayload.medicineName}","patientId":"$patientId"}""",
+                payloadJson = JsonPayload.build("doctorName" to doctorName, "medicineName" to finalPayload.medicineName, "patientId" to patientId),
                 createdAt = System.currentTimeMillis(),
                 delivered = false
             )

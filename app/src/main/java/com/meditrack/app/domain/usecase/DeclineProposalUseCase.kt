@@ -1,5 +1,6 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.core.util.JsonPayload
 import com.meditrack.app.domain.model.NotifType
 import com.meditrack.app.domain.model.NotificationOutbox
 import com.meditrack.app.domain.model.PrescriptionPayload
@@ -42,7 +43,7 @@ class DeclineProposalUseCase @Inject constructor(
         val outbox = NotificationOutbox(
             id = "outbox_${UUID.randomUUID()}",
             type = NotifType.PRESCRIPTION_DECLINED,
-            payloadJson = """{"patientName":"$patientName","medicineName":"$medicineName","doctorUid":"${proposal.doctorUid}"}""",
+            payloadJson = JsonPayload.build("patientName" to patientName, "medicineName" to medicineName, "doctorUid" to proposal.doctorUid),
             createdAt = System.currentTimeMillis(),
             delivered = false
         )

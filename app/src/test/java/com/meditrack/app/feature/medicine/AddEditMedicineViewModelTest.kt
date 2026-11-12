@@ -265,6 +265,8 @@ class AddEditMedicineViewModelTest {
     @Test
     fun `saveMedicine with acceptProposalId marks proposal accepted and preserves doctor metadata`() = runTest(testDispatcher) {
         val acceptProposalUseCase: AcceptProposalUseCase = mockk(relaxed = true)
+        coEvery { acceptProposalUseCase.canAccept("prop_123") } returns true
+        coEvery { acceptProposalUseCase.markProposalAccepted(any(), any()) } returns true
         val vmWithProposal = AddEditMedicineViewModel(
             medicineRepository = medicineRepository,
             saveMedicineUseCase = saveMedicineUseCase,
@@ -292,8 +294,14 @@ class AddEditMedicineViewModelTest {
         // Patient fills in their real stock
         vmWithProposal.onInitialStockChange("30")
 
-        // Patient saves
+        // Skipping the baseline photo is not allowed for a doctor's prescription
         vmWithProposal.onSkipPhoto()
+        advanceUntilIdle()
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any(), any(), any()) }
+
+        // Patient enrolls the baseline strip photo and saves
+        vmWithProposal.onPhotoCapturedWithLedger("/data/baseline/strip.jpg", 0)
+        vmWithProposal.onConfirmPhotoAndSave()
         advanceUntilIdle()
 
         val slot = slot<Medicine>()
@@ -307,5 +315,38 @@ class AddEditMedicineViewModelTest {
 
         coVerify { acceptProposalUseCase.markProposalAccepted("prop_123", slot.captured.id) }
         assertEquals(AddEditStep.SUCCESS, vmWithProposal.uiState.value.currentStep)
+    }
+
+    @Test
+    fun `saveMedicine with a proposal that can no longer be accepted does not create a medicine`() = runTest(testDispatcher) {
+        val acceptProposalUseCase: AcceptProposalUseCase = mockk(relaxed = true)
+        coEvery { acceptProposalUseCase.canAccept("prop_declined") } returns false
+        val vm = AddEditMedicineViewModel(
+            medicineRepository = medicineRepository,
+            saveMedicineUseCase = saveMedicineUseCase,
+            userPreferences = userPreferences,
+            acceptProposalUseCase = acceptProposalUseCase
+        )
+
+        vm.prefillFromScan(
+            name = "Amoxicillin",
+            dosage = "500mg",
+            pillsPerDose = "1",
+            initialStock = null,
+            frequency = "DAILY",
+            times = listOf("09:00"),
+            intervalHours = null,
+            foodRelation = "AFTER",
+            instructions = "",
+            acceptProposalId = "prop_declined"
+        )
+        vm.onInitialStockChange("30")
+        vm.onPhotoCapturedWithLedger("/data/baseline/strip.jpg", 0)
+        vm.onConfirmPhotoAndSave()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { saveMedicineUseCase.saveNewMedicine(any(), any(), any()) }
+        coVerify(exactly = 0) { acceptProposalUseCase.markProposalAccepted(any(), any()) }
+        assertEquals(AddEditStep.FORM, vm.uiState.value.currentStep)
     }
 }

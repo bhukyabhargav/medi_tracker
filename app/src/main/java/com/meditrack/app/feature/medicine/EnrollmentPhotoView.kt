@@ -86,7 +86,9 @@ fun EnrollmentPhotoView(
     onSkip: () -> Unit,
     onConfirmSave: () -> Unit,
     modifier: Modifier = Modifier,
-    stripDetector: StripDetector? = null
+    stripDetector: StripDetector? = null,
+    /** False when the baseline photo is mandatory (accepting a doctor's prescription). */
+    allowSkip: Boolean = true
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -194,7 +196,9 @@ fun EnrollmentPhotoView(
                 withContext(Dispatchers.Main) {
                     pendingPhotoPath = null // no "Use Photo Anyway" for a photo without a blister strip or cut-off strip
                     pendingEmptyCells = 0
-                    qualityError = if (detection?.stripFullyInFrame == false) {
+                    qualityError = if (detection?.detectorUnavailable == true) {
+                        com.meditrack.app.feature.verification.pipeline.VerificationPipeline.DETECTOR_UNAVAILABLE_MESSAGE
+                    } else if (detection?.stripFullyInFrame == false) {
                         "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
                     } else {
                         presence.message
@@ -465,15 +469,17 @@ fun EnrollmentPhotoView(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextButton(
-                    onClick = onSkip,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = stringResource(R.string.btn_skip_photo),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
+                if (allowSkip) {
+                    TextButton(
+                        onClick = onSkip,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(R.string.btn_skip_photo),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
                 }
             }
         }

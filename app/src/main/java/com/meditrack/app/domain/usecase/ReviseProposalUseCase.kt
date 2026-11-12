@@ -1,5 +1,6 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.core.util.JsonPayload
 import com.meditrack.app.domain.model.MedicineProposal
 import com.meditrack.app.domain.model.NotifType
 import com.meditrack.app.domain.model.NotificationOutbox
@@ -55,7 +56,7 @@ class ReviseProposalUseCase @Inject constructor(
         val outbox = NotificationOutbox(
             id = "outbox_${UUID.randomUUID()}",
             type = NotifType.PRESCRIPTION_REVISED,
-            payloadJson = """{"doctorName":"${finalPayload.doctorName}","medicineName":"${finalPayload.medicineName}","patientId":"${oldProposal.patientId}","revision":$newRevisionNumber}""",
+            payloadJson = JsonPayload.build("doctorName" to finalPayload.doctorName, "medicineName" to finalPayload.medicineName, "patientId" to oldProposal.patientId, "revision" to newRevisionNumber),
             createdAt = System.currentTimeMillis(),
             delivered = false
         )

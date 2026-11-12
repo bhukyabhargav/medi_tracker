@@ -56,6 +56,12 @@ data class VerificationUiState(
     val retryHint: String? = null,
     /** Photo of the last rejected attempt; lets the person choose "Use Photo Anyway". */
     val lastRejectedPhotoPath: String? = null,
+    /**
+     * Whether "Use Photo Anyway" may be offered for the last rejection. Only for photo-quality style rejections
+     * (blur, glare, exposure, strip touching the photo edge), never when the check found a duplicate photo,
+     * no blister, no pill removed, or a wrong pill count.
+     */
+    val canUseRejectedPhotoAnyway: Boolean = false,
     val attemptsRemaining: Int = AppConfig.MAX_VERIFICATION_ATTEMPTS,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
@@ -183,7 +189,7 @@ class VerificationViewModel @Inject constructor(
 
     fun processCapturedPhoto(photoPath: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null, lastRejectedPhotoPath = null) }
+            _uiState.update { it.copy(isAnalyzing = true, errorMessage = null, infoMessage = null, lastRejectedPhotoPath = null, canUseRejectedPhotoAnyway = false) }
             val bitmap = try {
                 com.meditrack.app.core.util.BitmapLoader.decodeSampled(photoPath, maxSidePx = 1920)
             } catch (t: Throwable) {
@@ -240,6 +246,7 @@ class VerificationViewModel @Inject constructor(
                             retryHint = result.retryHint,
                             // Never offer "use anyway" for TOO_EARLY: it would bypass the early-intake guard.
                             lastRejectedPhotoPath = if (result.reason == RejectReason.TOO_EARLY) null else photoPath,
+                            canUseRejectedPhotoAnyway = isOverrideAllowed(result.reason, result.failureReason),
                             attemptsRemaining = result.attemptsRemaining,
                             dose = updatedDose,
                             errorMessage = result.friendlyMessage ?: "Verification rejected: ${result.reason}"
@@ -321,7 +328,9 @@ class VerificationViewModel @Inject constructor(
                 if (!presence.present || detection == null || !detection.stripFullyInFrame) {
                     _uiState.update {
                         it.copy(
-                            errorMessage = if (detection?.stripFullyInFrame == false) {
+                            errorMessage = if (detection?.detectorUnavailable == true) {
+                                com.meditrack.app.feature.verification.pipeline.VerificationPipeline.DETECTOR_UNAVAILABLE_MESSAGE
+                            } else if (detection?.stripFullyInFrame == false) {
                                 "Blister strip is partially outside the photo. Please place the entire blister pack fully in view and retake."
                             } else {
                                 presence.message ?: "No blister pack detected."
@@ -379,12 +388,31 @@ class VerificationViewModel @Inject constructor(
     }
 
     /**
+     * "Use Photo Anyway" is a fallback for photos the app could not read well. It must not be available when the
+     * check positively found a problem with the dose itself, otherwise any photo could be recorded as a verified dose.
+     */
+    private fun isOverrideAllowed(reason: RejectReason, failureReason: VerificationFailureReason?): Boolean {
+        if (reason in setOf(
+                RejectReason.TOO_EARLY,
+                RejectReason.DUPLICATE_PHOTO,
+                RejectReason.PILLS_NOT_REMOVED,
+                RejectReason.WRONG_PILL_COUNT
+            )
+        ) return false
+        if (failureReason != null) {
+            return failureReason.isQualityGate || failureReason == VerificationFailureReason.BLISTER_PARTIALLY_VISIBLE
+        }
+        return reason in setOf(RejectReason.BLURRY, RejectReason.TOO_DARK, RejectReason.TOO_BRIGHT, RejectReason.GLARE)
+    }
+
+    /**
      * "Use Photo Anyway": the person confirms the dose was taken although automatic verification rejected the photo.
      * Records the dose as TAKEN (or TAKEN_LATE) with the rejected photo as proof, keeping the empty-cell ledger moving
      * by the prescribed pills-per-dose so later verifications still compare correctly.
      */
     fun useRejectedPhotoAnyway() {
         if (_uiState.value.isSimulating || _uiState.value.isAnalyzing) return // ignore double taps
+        if (!_uiState.value.canUseRejectedPhotoAnyway) return
         val photoPath = _uiState.value.lastRejectedPhotoPath
         if (photoPath.isNullOrBlank()) return
 

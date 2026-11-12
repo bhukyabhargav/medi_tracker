@@ -17,6 +17,11 @@ class VerificationPipeline @Inject constructor(
     private val stripDetector: StripDetector
 ) {
 
+    companion object {
+        const val DETECTOR_UNAVAILABLE_MESSAGE =
+            "Could not reach the blister checking service. Check your internet connection and try again."
+    }
+
     /**
      * Executes the verification pipeline in the exact specified order:
      * 1. Quality gate (BLURRY / TOO_DARK / TOO_BRIGHT / GLARE)
@@ -65,6 +70,12 @@ class VerificationPipeline @Inject constructor(
 
         // Step 3: Strip cell detection
         val detection = stripDetector.detect(bitmap)
+
+        // The detector could not run (no internet, timeout, service error). This is not a judgement about the
+        // photo, so it must not be reported as a rejection or consume a verification attempt.
+        if (detection.detectorUnavailable) {
+            throw IllegalStateException(DETECTOR_UNAVAILABLE_MESSAGE)
+        }
 
         // Step 3a: Real stripFullyInFrame geometric check (Task 2)
         if (!detection.stripFullyInFrame) {

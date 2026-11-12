@@ -8,7 +8,7 @@ const INVITE_CODE_PATTERN = /^[A-Z0-9]{6,12}$/;
 
 /** Android notification channel per event type (must match NotificationChannels in the app). */
 function channelFor(type: string): string {
-  return type === 'MISSED_DOSE' ? 'channel_missed_doses' : 'channel_general';
+  return type === 'MISSED_DOSE' || type === 'DOSE_SKIPPED' ? 'channel_missed_doses' : 'channel_general';
 }
 
 /**

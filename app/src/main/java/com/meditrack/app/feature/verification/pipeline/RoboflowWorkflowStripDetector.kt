@@ -84,7 +84,8 @@ class RoboflowWorkflowStripDetector @Inject constructor(
                 stripConfidence = 0.0f,
                 isRoboflowWorkflow = true,
                 roboflowPackStatus = "rejected",
-                roboflowMissingCount = null
+                roboflowMissingCount = null,
+                detectorUnavailable = true
             )
         }
     }

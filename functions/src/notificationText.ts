@@ -12,7 +12,8 @@ export type NotifType =
   | 'PRESCRIPTION_ACCEPTED'
   | 'PRESCRIPTION_DECLINED'
   | 'PRESCRIPTION_CLARIFICATION_REQUESTED'
-  | 'PRESCRIPTION_REVISED';
+  | 'PRESCRIPTION_REVISED'
+  | 'DOSE_SKIPPED';
 
 export interface NotificationPayload {
   type: NotifType;
@@ -43,6 +44,11 @@ export function getNotificationText(payload: NotificationPayload): { title: stri
       return {
         title: 'Missed Dose',
         body: 'Medicine dose has been missed.',
+      };
+    case 'DOSE_SKIPPED':
+      return {
+        title: 'Dose Skipped',
+        body: 'Medicine dose has been skipped.',
       };
     case 'LOW_STOCK':
       return {

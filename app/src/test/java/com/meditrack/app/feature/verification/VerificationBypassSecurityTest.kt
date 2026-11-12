@@ -140,9 +140,9 @@ class VerificationBypassSecurityTest {
 
         // Mock verification coordinator to fail with a retryable non-early reason
         coEvery { verificationCoordinator.verify(any(), any(), any(), any()) } returns CoordinatorResult.Failed(
-            reason = RejectReason.WRONG_PILL_COUNT,
+            reason = RejectReason.BLURRY,
             attemptsRemaining = 2,
-            friendlyMessage = "Wrong pill count"
+            friendlyMessage = "Blurry photo"
         )
 
         // Set scheduled time way in the future (> early tolerance)
@@ -163,6 +163,38 @@ class VerificationBypassSecurityTest {
         assertTrue("Error must mention too early", state.errorMessage!!.contains("too early", ignoreCase = true))
         coVerify(exactly = 0) { recordVerifiedDoseUseCase(any(), any(), any(), any(), any()) }
 
+        photoFile.delete()
+    }
+
+    @Test
+    fun useRejectedPhotoAnyway_afterWrongPillCountOrDuplicate_isBlocked() = runTest(testDispatcher) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val photoFile = File(context.filesDir, "rejected_photo_count.jpg")
+        val bmp = android.graphics.Bitmap.createBitmap(50, 50, android.graphics.Bitmap.Config.ARGB_8888)
+        photoFile.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+
+        for (reason in listOf(
+            RejectReason.WRONG_PILL_COUNT,
+            RejectReason.DUPLICATE_PHOTO,
+            RejectReason.PILLS_NOT_REMOVED
+        )) {
+            val vm = createViewModel()
+            advanceUntilIdle()
+            coEvery { verificationCoordinator.verify(any(), any(), any(), any()) } returns CoordinatorResult.Failed(
+                reason = reason,
+                attemptsRemaining = 2,
+                friendlyMessage = "Rejected"
+            )
+
+            vm.processCapturedPhoto(photoFile.absolutePath)
+            advanceUntilIdle()
+            assertEquals("Override must not be offered for $reason", false, vm.uiState.value.canUseRejectedPhotoAnyway)
+
+            vm.useRejectedPhotoAnyway()
+            advanceUntilIdle()
+        }
+
+        coVerify(exactly = 0) { recordVerifiedDoseUseCase(any(), any(), any(), any(), any()) }
         photoFile.delete()
     }
 
@@ -189,9 +221,9 @@ class VerificationBypassSecurityTest {
         photoFile.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
 
         coEvery { verificationCoordinator.verify(any(), any(), any(), any()) } returns CoordinatorResult.Failed(
-            reason = RejectReason.WRONG_PILL_COUNT,
+            reason = RejectReason.BLURRY,
             attemptsRemaining = 2,
-            friendlyMessage = "Wrong pill count"
+            friendlyMessage = "Blurry photo"
         )
 
         // Dose is already TAKEN

@@ -15,7 +15,7 @@ object VerificationConfig {
     var roboflowWorkflowName: String = "Android Blister Presence and Empty Count"
     var roboflowWorkflowEndpoint: String = "https://serverless.roboflow.com/varshiths-workspace-y38an/workflows/android-blister-presence-and-empty-count-1794338462016"
     var roboflowApiKey: String = System.getenv("ROBOFLOW_API_KEY")
-        ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY.ifBlank { "NsIKvkibCEK1QT2yRlhk" }
+        ?: com.meditrack.app.BuildConfig.ROBOFLOW_API_KEY
     var confidenceThreshold: Float = 0.45f
     var minCellConfidence: Float = 0.45f
     var iouThreshold: Float = 0.45f

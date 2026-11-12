@@ -332,14 +332,22 @@ fun HomeScreen(
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
                                             onClick = {
-                                                if (payload != null) {
+                                                // Only a NEW medicine goes through Add Medicine. A change or stop of an
+                                                // existing medicine is reviewed in Doctor Mode, which updates that medicine.
+                                                if (payload != null && prop.type == com.meditrack.app.domain.model.ProposalType.ADD) {
                                                     onNavigateToAddMedicineFromProposal(prop, payload)
                                                 } else {
                                                     onNavigateToDoctor()
                                                 }
                                             }
                                         ) {
-                                            Text("Review & Accept (Enter Stock & Strip)")
+                                            Text(
+                                                if (prop.type == com.meditrack.app.domain.model.ProposalType.ADD) {
+                                                    "Review & Accept (Enter Stock & Strip)"
+                                                } else {
+                                                    "Review Change in Doctor Mode"
+                                                }
+                                            )
                                         }
                                         OutlinedButton(onClick = onNavigateToDoctor) {
                                             Text("Doctor Mode")

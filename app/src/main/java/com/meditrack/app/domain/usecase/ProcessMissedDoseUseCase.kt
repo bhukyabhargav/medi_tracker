@@ -1,5 +1,6 @@
 package com.meditrack.app.domain.usecase
 
+import com.meditrack.app.core.util.JsonPayload
 import com.meditrack.app.data.prefs.UserPreferences
 import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.NotifType
@@ -61,15 +62,21 @@ class ProcessMissedDoseUseCase @Inject constructor(
         doseRepository.update(updatedDose)
 
         // Check if an accepted caregiver is connected to the patient
-        val currentUserId = userPreferences.currentUserId.first()
-        val hasConnectedCaregiver = if (currentUserId != null) {
+        // The dose's own patient decides who is notified; the signed-in user is only a fallback for old rows.
+        val currentUserId = dose.patientId.ifBlank { userPreferences.currentUserId.first() }
+        val hasConnectedCaregiver = if (!currentUserId.isNullOrBlank()) {
             caregiverRepository.hasConnectedCaregiver(currentUserId)
         } else {
             false
         }
 
         if (hasConnectedCaregiver) {
-            val payload = """{"doseId":"$doseId","medicineId":"${dose.medicineId}","scheduledAt":${dose.scheduledAt},"windowEndsAt":${dose.windowEndsAt}}"""
+            val payload = JsonPayload.build(
+                "doseId" to doseId,
+                "medicineId" to dose.medicineId,
+                "scheduledAt" to dose.scheduledAt,
+                "windowEndsAt" to dose.windowEndsAt
+            )
             val outboxEvent = NotificationOutbox(
                 id = "outbox_${UUID.randomUUID()}",
                 type = NotifType.MISSED_DOSE,

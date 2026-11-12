@@ -40,6 +40,21 @@ class OutboxDeliveryWorker @AssistedInject constructor(
         val undelivered = outboxRepository.getUndelivered()
         if (undelivered.isEmpty()) return Result.success()
 
+        // Demo accounts never sign in to Firebase and all live on this one device, so their alerts are
+        // shown as local notifications here instead of waiting forever for a cloud sign-in.
+        val localUserId = try {
+            userPreferences.currentUserId.firstOrNull()
+        } catch (_: Exception) {
+            null
+        }
+        if (localUserId != null && localUserId.startsWith("demo_")) {
+            for (event in undelivered) {
+                postLocalDemoNotification(event)
+                outboxRepository.markDelivered(event.id)
+            }
+            return Result.success()
+        }
+
         val isFirebaseAvailable = try {
             FirebaseApp.getApps(appContext).isNotEmpty()
         } catch (_: Exception) {
@@ -68,15 +83,18 @@ class OutboxDeliveryWorker @AssistedInject constructor(
         // Strictly filter to ACCEPTED caregivers only; REVOKED or PENDING caregivers receive NO notifications
         val acceptedCaregivers = connectedLinks.filter { it.status == LinkStatus.ACCEPTED && !it.caregiverUid.isNullOrBlank() }
 
-        if (acceptedCaregivers.isEmpty()) {
-            // No eligible recipient connected: retain events until a caregiver connects, do not claim delivery
-            return Result.retry()
-        }
-
         var anyFailed = false
 
         for (event in undelivered) {
-            val success = deliverEvent(event, patientUid, acceptedCaregivers.mapNotNull { it.caregiverUid })
+            val success = if (isDoctorEvent(event)) {
+                // Doctor/prescription events go between patient and doctor; they never depend on a caregiver.
+                deliverDoctorEvent(event, authUid)
+            } else if (acceptedCaregivers.isEmpty()) {
+                // No eligible recipient connected: retain the event until a caregiver connects, do not claim delivery
+                false
+            } else {
+                deliverEvent(event, patientUid, acceptedCaregivers.mapNotNull { it.caregiverUid })
+            }
             if (success) {
                 outboxRepository.markDelivered(event.id)
             } else {
@@ -85,6 +103,122 @@ class OutboxDeliveryWorker @AssistedInject constructor(
         }
 
         return if (anyFailed) Result.retry() else Result.success()
+    }
+
+    private fun isDoctorEvent(event: NotificationOutbox): Boolean =
+        event.type.name.startsWith("DOCTOR_INVITE_") || event.type.name.startsWith("PRESCRIPTION_")
+
+    /**
+     * Writes a doctor/prescription event with top-level patientId and doctorUid, which the Cloud Function
+     * needs to check the patient-doctor link and pick the recipient.
+     * The sender is the signed-in user: a payload carrying another person's patientId was written by the doctor,
+     * a payload carrying doctorUid was written by the patient.
+     */
+    private suspend fun deliverDoctorEvent(event: NotificationOutbox, authUid: String): Boolean {
+        var payloadPatientId: String? = null
+        var payloadDoctorUid: String? = null
+        var medicineName: String? = null
+        var doctorName: String? = null
+        var patientName: String? = null
+        try {
+            val json = JSONObject(event.payloadJson)
+            if (json.has("patientId") && !json.isNull("patientId")) payloadPatientId = json.getString("patientId")
+            if (json.has("doctorUid") && !json.isNull("doctorUid")) payloadDoctorUid = json.getString("doctorUid")
+            if (json.has("medicineName") && !json.isNull("medicineName")) medicineName = json.getString("medicineName")
+            if (json.has("doctorName") && !json.isNull("doctorName")) doctorName = json.getString("doctorName")
+            if (json.has("patientName") && !json.isNull("patientName")) patientName = json.getString("patientName")
+        } catch (_: Exception) {}
+
+        val patientId: String
+        val doctorUid: String
+        if (!payloadDoctorUid.isNullOrBlank() && payloadDoctorUid != authUid) {
+            patientId = authUid
+            doctorUid = payloadDoctorUid
+        } else if (!payloadPatientId.isNullOrBlank() && payloadPatientId != authUid) {
+            patientId = payloadPatientId
+            doctorUid = authUid
+        } else {
+            // Neither side can be identified, so this event can never be routed. Drop it instead of retrying forever.
+            return true
+        }
+
+        return try {
+            val eventMap = hashMapOf<String, Any?>(
+                "id" to event.id,
+                "type" to event.type.name,
+                "patientId" to patientId,
+                "patientUid" to patientId,
+                "doctorUid" to doctorUid,
+                "medicineName" to medicineName,
+                "doctorName" to doctorName,
+                "patientName" to patientName,
+                "createdAt" to event.createdAt,
+                "payloadJson" to event.payloadJson
+            )
+            val firestore = FirebaseFirestore.getInstance()
+            try {
+                firestore.collection("notificationEvents").document(event.id).set(eventMap).await()
+            } catch (e: Exception) {
+                // Same rule as caregiver events: an already-written immutable event counts as delivered.
+                val rejected = e is FirebaseFirestoreException &&
+                    (e.code == FirebaseFirestoreException.Code.ALREADY_EXISTS ||
+                        e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED)
+                if (!rejected) throw e
+                val exists = try {
+                    firestore.collection("notificationEvents").document(event.id).get().await().exists()
+                } catch (_: Exception) {
+                    false
+                }
+                if (!exists) throw e
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Shows a demo account's alert on this device (demo patient, doctor and caregiver share one phone). */
+    private fun postLocalDemoNotification(event: NotificationOutbox) {
+        try {
+            var medicineName: String? = null
+            var patientName: String? = null
+            var doctorName: String? = null
+            try {
+                val json = JSONObject(event.payloadJson)
+                if (json.has("medicineName") && !json.isNull("medicineName")) medicineName = json.getString("medicineName")
+                if (json.has("patientName") && !json.isNull("patientName")) patientName = json.getString("patientName")
+                if (json.has("doctorName") && !json.isNull("doctorName")) doctorName = json.getString("doctorName")
+            } catch (_: Exception) {}
+
+            val (title, body) = com.meditrack.app.domain.model.NotificationText.buildText(
+                type = event.type,
+                medicineName = medicineName,
+                patientName = patientName ?: "Demo Patient",
+                doctorName = doctorName
+            )
+            val audience = if (isDoctorEvent(event)) "Doctor/patient alert (demo)" else "Caregiver alert (demo)"
+            val urgent = event.type == com.meditrack.app.domain.model.NotifType.MISSED_DOSE ||
+                event.type == com.meditrack.app.domain.model.NotifType.DOSE_SKIPPED
+            val channel = if (urgent) {
+                com.meditrack.app.feature.reminder.NotificationChannels.CHANNEL_MISSED_DOSES
+            } else {
+                com.meditrack.app.feature.reminder.NotificationChannels.CHANNEL_GENERAL
+            }
+
+            com.meditrack.app.feature.reminder.NotificationChannels.createChannels(appContext)
+            val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                ?: return
+            val notification = androidx.core.app.NotificationCompat.Builder(appContext, channel)
+                .setSmallIcon(com.meditrack.app.R.mipmap.ic_launcher)
+                .setContentTitle("$audience: $title")
+                .setContentText(body)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(event.id.hashCode(), notification)
+        } catch (_: Throwable) {
+            // A demo alert that cannot be shown (for example notifications are switched off) must not block the outbox.
+        }
     }
 
     private suspend fun deliverEvent(

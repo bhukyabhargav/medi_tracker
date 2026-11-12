@@ -31,7 +31,7 @@ android {
 
         val roboflowKey = System.getenv("ROBOFLOW_API_KEY")
             ?: localProps.getProperty("roboflow.api.key")
-            ?: "NsIKvkibCEK1QT2yRlhk"
+            ?: ""
         buildConfigField("String", "ROBOFLOW_API_KEY", "\"$roboflowKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

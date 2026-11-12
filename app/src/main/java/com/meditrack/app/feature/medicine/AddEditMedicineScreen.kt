@@ -194,6 +194,7 @@ fun AddEditMedicineScreen(
                         viewModel.onPhotoCapturedWithLedger(photoPath, baselineEmpty)
                     },
                     onSkip = viewModel::onSkipPhoto,
+                    allowSkip = uiState.acceptProposalId.isNullOrBlank(),
                     onConfirmSave = viewModel::onConfirmPhotoAndSave,
                     modifier = modifier.padding(innerPadding),
                     stripDetector = viewModel.stripDetector

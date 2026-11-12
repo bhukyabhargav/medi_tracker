@@ -588,6 +588,7 @@ fun CreateProposalDialog(
     var dosage by remember { mutableStateOf("500mg") }
     var pillsCount by remember { mutableStateOf("1") }
     var timeInput by remember { mutableStateOf("09:00") }
+    var inputError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -642,6 +643,14 @@ fun CreateProposalDialog(
                     singleLine = true
                 )
 
+                if (inputError != null) {
+                    Text(
+                        text = inputError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.fillMaxWidth()
@@ -665,12 +674,28 @@ fun CreateProposalDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (medName.isNotBlank()) {
+                    // Never guess: a wrong pill count or time must be corrected by the doctor, not silently replaced.
+                    val pills = pillsCount.trim().toIntOrNull()
+                    val time = try {
+                        java.time.LocalTime.parse(
+                            timeInput.trim(),
+                            java.time.format.DateTimeFormatter.ofPattern("H:mm")
+                        )
+                    } catch (_: Exception) {
+                        null
+                    }
+                    inputError = when {
+                        medName.isBlank() -> "Enter the medicine name."
+                        pills == null || pills < 1 || pills > 20 -> "Pills per session must be a whole number from 1 to 20."
+                        time == null -> "Enter the time as HH:mm in 24-hour form, for example 09:00 or 21:30."
+                        else -> null
+                    }
+                    if (inputError == null && pills != null && time != null) {
                         val payload = PrescriptionPayload(
                             medicineName = medName.trim(),
                             dosageText = dosage.trim(),
-                            pillsPerDose = pillsCount.toIntOrNull() ?: 1,
-                            times = listOf(timeInput.trim()),
+                            pillsPerDose = pills,
+                            times = listOf(String.format(java.util.Locale.US, "%02d:%02d", time.hour, time.minute)),
                             startDate = LocalDate.now().toString(),
                             additionalInstructions = null
                         )

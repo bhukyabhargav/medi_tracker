@@ -758,4 +758,26 @@ class VerificationPipelineTest {
         assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
         assertEquals("Expected 2 pill(s) removed, but counted 1.", result.friendlyMessage)
     }
+
+    @Test
+    fun detectorUnavailable_throwsInsteadOfRejectingThePhoto() = runTest {
+        coEvery { stripDetector.detect(any()) } returns Detection(
+            cells = emptyList(),
+            stripFullyInFrame = false,
+            stripConfidence = 0.0f,
+            isRoboflowWorkflow = true,
+            roboflowPackStatus = "rejected",
+            detectorUnavailable = true
+        )
+
+        val error = try {
+            pipeline.verify(createSharpBitmap(), sampleMedicine, lastVerifiedEmptyCells = 0)
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+
+        assertNotNull("An unreachable detector must not be reported as a photo rejection", error)
+        assertEquals(VerificationPipeline.DETECTOR_UNAVAILABLE_MESSAGE, error?.message)
+    }
 }
