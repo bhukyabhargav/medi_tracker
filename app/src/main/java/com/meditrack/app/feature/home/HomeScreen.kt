@@ -1161,10 +1161,11 @@ fun QuickActionsRow(
     val caregiverLabel = stringResource(R.string.action_caregiver)
     val scanLabel = stringResource(R.string.action_scan)
 
-    val actions = listOf(
+    val actions = listOfNotNull(
         Pair(Icons.Default.AddCircle, addMedicineLabel),
         Pair(Icons.Default.Medication, "My Medicines"),
-        Pair(Icons.Default.QrCodeScanner, scanLabel),
+        // Scan Rx is hidden while it only reads clean printed text for one medicine (see AppConfig.SCAN_RX_ENABLED).
+        if (com.meditrack.app.core.config.AppConfig.SCAN_RX_ENABLED) Pair(Icons.Default.QrCodeScanner, scanLabel) else null,
         Pair(Icons.Default.Person, "Doctor Mode"),
         Pair(Icons.Default.CalendarMonth, calendarLabel),
         Pair(Icons.Default.History, historyLabel),

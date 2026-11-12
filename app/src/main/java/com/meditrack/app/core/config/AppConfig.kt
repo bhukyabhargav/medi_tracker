@@ -36,4 +36,9 @@ object AppConfig {
 
     // Stock
     const val LOW_STOCK_DAYS_THRESHOLD = 3        // low when remaining pills < pillsPerDay * this
+
+    // Scan Rx (prescription photo -> prefilled medicine). Hidden from the patient dashboard: it only reads clean
+    // printed text for a single medicine, cannot read handwriting, and can mix fields across medicines.
+    // The screen and parser are kept; set this to true to show the button again.
+    var SCAN_RX_ENABLED: Boolean = false
 }
