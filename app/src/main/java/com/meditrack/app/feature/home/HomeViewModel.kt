@@ -3,6 +3,12 @@ package com.meditrack.app.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meditrack.app.core.config.AppConfig
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.meditrack.app.domain.usecase.AdherenceCalculator
+import com.meditrack.app.domain.usecase.AdherenceReport
+import com.meditrack.app.feature.reminder.MissedDoseNotifier
+import com.meditrack.app.feature.caregiver.CaregiverAlertNotifier
 import com.meditrack.app.domain.model.DoseEvent
 import com.meditrack.app.domain.model.DoseStatus
 import com.meditrack.app.domain.model.Medicine
@@ -28,6 +34,7 @@ data class HomeUiState(
     val todayDoses: List<DoseEvent> = emptyList(),
     val upcomingDoses: List<DoseEvent> = emptyList(),
     val missedDoses: List<DoseEvent> = emptyList(),
+    val adherenceReport: AdherenceReport? = null,
     val isLoading: Boolean = true
 )
 
@@ -35,7 +42,8 @@ data class HomeUiState(
 class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val medicineRepository: MedicineRepository,
-    private val doseRepository: DoseRepository
+    private val doseRepository: DoseRepository,
+    @ApplicationContext private val context: Context? = null
 ) : ViewModel() {
 
     internal var timeProvider: () -> Long = { System.currentTimeMillis() }
@@ -57,7 +65,16 @@ class HomeViewModel @Inject constructor(
     fun markDoseAsMissed(doseId: String) {
         viewModelScope.launch {
             val dose = doseRepository.getById(doseId) ?: return@launch
-            doseRepository.update(dose.copy(status = DoseStatus.MISSED, updatedAt = timeProvider()))
+            val updated = dose.copy(status = DoseStatus.MISSED, updatedAt = timeProvider())
+            doseRepository.update(updated)
+
+            context?.let { ctx ->
+                val medName = medicineRepository.getById(dose.medicineId)?.name ?: "Scheduled Medicine"
+                try {
+                    MissedDoseNotifier.post(ctx, dose.id, medName)
+                    CaregiverAlertNotifier.postMissedAlert(ctx, "Demo Patient", medName)
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -75,7 +92,8 @@ class HomeViewModel @Inject constructor(
             val startOfToday = ZonedDateTime.of(todayDate, LocalTime.MIN, zoneId).toInstant().toEpochMilli()
             val endOfToday = ZonedDateTime.of(todayDate, LocalTime.MAX, zoneId).toInstant().toEpochMilli()
 
-            val queryStart = minOf(startOfToday, now - LATE_WINDOW_MILLIS)
+            val historyStart = now - (14L * 24 * MILLIS_PER_HOUR)
+            val queryStart = minOf(startOfToday - (14L * 24 * MILLIS_PER_HOUR), now - LATE_WINDOW_MILLIS)
             val queryEnd = maxOf(endOfToday, now + UPCOMING_WINDOW_MILLIS)
 
             combine(
@@ -94,12 +112,15 @@ class HomeViewModel @Inject constructor(
                     it.status == DoseStatus.MISSED && (now - it.scheduledAt) in 0..LATE_WINDOW_MILLIS
                 }.sortedBy { it.scheduledAt }
 
+                val adherence = AdherenceCalculator.calculate(allDoses)
+
                 HomeUiState(
                     user = user,
                     activeMedicines = medicines,
                     todayDoses = today,
                     upcomingDoses = upcoming,
                     missedDoses = missed,
+                    adherenceReport = adherence,
                     isLoading = false
                 )
             }.collect { state ->

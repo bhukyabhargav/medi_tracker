@@ -301,11 +301,20 @@ fun DoctorDashboardContent(
 
         item {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                "Connected Patients (Explicitly Accepted)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Connected Patients",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(onClick = { onSelectPatient("demo_patient_001") }) {
+                    Text("Link Demo Patient")
+                }
+            }
         }
 
         if (uiState.acceptedPatients.isEmpty()) {

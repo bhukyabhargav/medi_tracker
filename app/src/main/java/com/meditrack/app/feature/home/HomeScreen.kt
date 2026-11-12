@@ -112,10 +112,10 @@ fun HomeScreen(
     val caregiverUiState by caregiverViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(isCaregiver) {
-        if (isCaregiver) {
-            caregiverViewModel.loadData()
-        }
+    LaunchedEffect(uiState.user?.id) {
+        doctorViewModel.loadData()
+        caregiverViewModel.loadData()
+        viewModel.loadDashboard()
     }
 
     LaunchedEffect(caregiverUiState.userMessage) {
@@ -127,12 +127,6 @@ fun HomeScreen(
 
     var showProposalDialog by remember { mutableStateOf(false) }
     var targetPatientIdForProposal by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(isDoctor) {
-        if (isDoctor) {
-            doctorViewModel.loadData()
-        }
-    }
 
     LaunchedEffect(doctorUiState.userMessage) {
         doctorUiState.userMessage?.let { msg ->
@@ -225,6 +219,7 @@ fun HomeScreen(
                 doctorUiState = doctorUiState,
                 onGenerateInvite = { doctorViewModel.generateDoctorInvite() },
                 onSelectPatient = { patientId -> doctorViewModel.selectPatient(patientId) },
+                onConnectPatient = { patientId -> doctorViewModel.linkPatient(patientId) },
                 onOpenProposalDialog = { patientId ->
                     targetPatientIdForProposal = patientId
                     showProposalDialog = true
@@ -241,6 +236,7 @@ fun HomeScreen(
                 caregiverUiState = caregiverUiState,
                 onGenerateInvite = { caregiverViewModel.generateCaregiverInvite() },
                 onConnectWithCode = { code -> caregiverViewModel.connectWithCode(code) },
+                onConnectPatient = { patientId -> caregiverViewModel.linkPatient(patientId) },
                 onNavigateToCaregiverPortal = onNavigateToCaregiver,
                 onNavigateToSettings = onNavigateToSettings,
                 modifier = Modifier
@@ -269,6 +265,43 @@ fun HomeScreen(
                         onNavigateToScan = onNavigateToScan,
                         onNavigateToSettings = onNavigateToSettings
                     )
+                }
+
+                // Section 1.1: Medication Adherence Report (for Patient)
+                val patientAdherence = uiState.adherenceReport
+                if (patientAdherence != null) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "My Medication Adherence: ${patientAdherence.percentageFormatted}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "Verified Taken: ${patientAdherence.verifiedTakenCount} • Missed: ${patientAdherence.missedCount} • Skipped: ${patientAdherence.skippedCount}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Section 1.2: Incoming Doctor Prescription Proposals (for Patient)
@@ -618,8 +651,11 @@ fun DoctorHomeContent(
     onOpenProposalDialog: (String) -> Unit,
     onNavigateToDoctorPortal: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onConnectPatient: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var patientIdInput by remember { mutableStateOf("") }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
@@ -752,8 +788,37 @@ fun DoctorHomeContent(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    Button(onClick = onGenerateInvite) {
-                        Text("Generate Invitation Code")
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { onConnectPatient("demo_patient_001") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Link Demo Patient")
+                        }
+                        OutlinedButton(onClick = onGenerateInvite, modifier = Modifier.weight(1f)) {
+                            Text("Invite Code")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = patientIdInput,
+                            onValueChange = { patientIdInput = it },
+                            placeholder = { Text("e.g. demo_patient_001") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (patientIdInput.isNotBlank()) {
+                                    onConnectPatient(patientIdInput)
+                                    patientIdInput = ""
+                                }
+                            }
+                        ) {
+                            Text("Connect")
+                        }
                     }
                     if (doctorUiState.generatedInviteCode != null) {
                         Spacer(modifier = Modifier.height(10.dp))
@@ -1173,6 +1238,7 @@ fun CaregiverHomeContent(
     onConnectWithCode: (String) -> Unit,
     onNavigateToCaregiverPortal: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onConnectPatient: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var codeInput by remember { mutableStateOf("") }
@@ -1319,11 +1385,23 @@ fun CaregiverHomeContent(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { onConnectPatient("demo_patient_001") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Link Demo Patient")
+                        }
+                        OutlinedButton(onClick = onGenerateInvite, modifier = Modifier.weight(1f)) {
+                            Text("Generate Code")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = codeInput,
                             onValueChange = { codeInput = it },
-                            placeholder = { Text("e.g. CG-1234") },
+                            placeholder = { Text("e.g. CG-1234 or demo_patient_001") },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -1331,17 +1409,17 @@ fun CaregiverHomeContent(
                         Button(
                             onClick = {
                                 if (codeInput.isNotBlank()) {
-                                    onConnectWithCode(codeInput)
+                                    if (codeInput.startsWith("CG-")) {
+                                        onConnectWithCode(codeInput)
+                                    } else {
+                                        onConnectPatient(codeInput)
+                                    }
                                     codeInput = ""
                                 }
                             }
                         ) {
                             Text("Connect")
                         }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = onGenerateInvite) {
-                        Text("Generate Invitation Code")
                     }
                     if (caregiverUiState.generatedInviteCode != null) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1395,6 +1473,42 @@ fun CaregiverHomeContent(
                         }
                         Button(onClick = onNavigateToCaregiverPortal) {
                             Text("View in Portal")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Connected Patient Adherence
+        if (caregiverUiState.adherenceReport != null) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Connected Patient Adherence: ${caregiverUiState.adherenceReport.percentageFormatted}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Verified Taken: ${caregiverUiState.adherenceReport.verifiedTakenCount} • Missed: ${caregiverUiState.adherenceReport.missedCount} • Skipped: ${caregiverUiState.adherenceReport.skippedCount}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                            )
                         }
                     }
                 }
