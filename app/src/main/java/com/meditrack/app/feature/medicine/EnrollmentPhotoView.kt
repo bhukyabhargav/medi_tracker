@@ -136,6 +136,8 @@ fun EnrollmentPhotoView(
     var qualityError by remember { mutableStateOf<String?>(null) }
     var pendingPhotoPath by remember { mutableStateOf<String?>(null) }
     var pendingEmptyCells by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // Empty pockets counted on the accepted baseline photo; the patient can correct it before saving.
+    var confirmedEmptyCells by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     fun validateAndAccept(path: String) {
         scope.launch(Dispatchers.Default) {
@@ -246,6 +248,7 @@ fun EnrollmentPhotoView(
                 pendingPhotoPath = null
                 isCapturing = false
                 qualityError = null
+                confirmedEmptyCells = detectedEmptyCells
                 onPhotoCaptured(path, detectedEmptyCells)
             }
         }
@@ -414,6 +417,58 @@ fun EnrollmentPhotoView(
         Spacer(modifier = Modifier.height(16.dp))
 
         if (capturedPhotoPath != null) {
+            // Every later dose is compared with this number, so one miscounted pocket here would reject
+            // correct doses. The patient sees the count and can fix it before it is saved.
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Empty pockets on this strip right now",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (confirmedEmptyCells > 0) {
+                                    confirmedEmptyCells -= 1
+                                    capturedPhotoPath?.let { onPhotoCaptured(it, confirmedEmptyCells) }
+                                }
+                            },
+                            enabled = confirmedEmptyCells > 0
+                        ) { Text("-") }
+                        Text(
+                            text = confirmedEmptyCells.toString(),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                if (confirmedEmptyCells < 60) {
+                                    confirmedEmptyCells += 1
+                                    capturedPhotoPath?.let { onPhotoCaptured(it, confirmedEmptyCells) }
+                                }
+                            }
+                        ) { Text("+") }
+                    }
+                    Text(
+                        text = "Count the pockets where a pill is already pushed out. If this number is wrong, correct it with - and + before you continue.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

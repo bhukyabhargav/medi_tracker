@@ -178,6 +178,8 @@ class VerificationPipeline @Inject constructor(
             validCells.count { it.state == CellState.EMPTY }
         }
         val delta = newEmpty - previousEmpty
+        // Shown with every count rejection so the patient (and support) can see what the check actually counted.
+        val countDetail = " Empty pockets counted in this photo: $newEmpty. Last recorded: $previousEmpty."
 
         return when {
             delta == 0 -> {
@@ -185,7 +187,7 @@ class VerificationPipeline @Inject constructor(
                     passed = false,
                     rejectReason = RejectReason.PILLS_NOT_REMOVED,
                     emptyCellsAfter = newEmpty,
-                    friendlyMessage = "No new pills removed. Please push out your dose."
+                    friendlyMessage = "No new pills removed. Please push out your dose.$countDetail"
                 )
             }
             isFirstDose -> {
@@ -210,12 +212,23 @@ class VerificationPipeline @Inject constructor(
                         friendlyMessage = "This looks like a different or new strip. If you started a new strip, " +
                             "open Medicines > Refill and switch on \"I started a new strip\"."
                     )
+                } else if (delta < 0) {
+                    // Fewer empty pockets than the baseline but within tolerance: the same strip cannot gain pills,
+                    // so either this photo or the baseline photo was counted wrongly.
+                    VerificationResult(
+                        passed = false,
+                        rejectReason = RejectReason.WRONG_PILL_COUNT,
+                        emptyCellsAfter = newEmpty,
+                        friendlyMessage = "This photo shows fewer empty pockets than your baseline photo. " +
+                            "Retake the photo with the whole strip flat and clearly visible. If it keeps happening, " +
+                            "retake the baseline photo for this medicine.$countDetail"
+                    )
                 } else {
                     VerificationResult(
                         passed = false,
                         rejectReason = RejectReason.WRONG_PILL_COUNT,
                         emptyCellsAfter = newEmpty,
-                        friendlyMessage = "Expected ${medicine.pillsPerDose} pill(s) removed, but counted $delta."
+                        friendlyMessage = "Expected ${medicine.pillsPerDose} pill(s) removed, but counted $delta.$countDetail"
                     )
                 }
             }
@@ -241,7 +254,7 @@ class VerificationPipeline @Inject constructor(
                     passed = false,
                     rejectReason = RejectReason.WRONG_PILL_COUNT,
                     emptyCellsAfter = newEmpty,
-                    friendlyMessage = "Expected ${medicine.pillsPerDose} pill(s) removed, but counted $delta."
+                    friendlyMessage = "Expected ${medicine.pillsPerDose} pill(s) removed, but counted $delta.$countDetail"
                 )
             }
         }

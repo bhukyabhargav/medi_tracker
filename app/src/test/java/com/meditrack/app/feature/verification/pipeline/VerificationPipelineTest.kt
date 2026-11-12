@@ -756,7 +756,32 @@ class VerificationPipelineTest {
 
         assertFalse("Later dose must strictly require delta == pillsPerDose", result.passed)
         assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
-        assertEquals("Expected 2 pill(s) removed, but counted 1.", result.friendlyMessage)
+        assertEquals(
+            "Expected 2 pill(s) removed, but counted 1. Empty pockets counted in this photo: 3. Last recorded: 2.",
+            result.friendlyMessage
+        )
+    }
+
+    @Test
+    fun firstDose_fewerEmptyThanBaseline_explainsMiscountInsteadOfNegativePills() = runTest {
+        // Baseline recorded 3 empty pockets, this photo shows 2: the same strip cannot gain a pill.
+        val medicine = sampleMedicine.copy(baselineEmptyCells = 3, pillsPerDose = 1)
+        val cells = listOf(
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.EMPTY, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f),
+            Cell(state = CellState.FULL, confidence = 0.95f)
+        )
+        coEvery { stripDetector.detect(any()) } returns detectionOf(cells)
+
+        val result = pipeline.verify(createSharpBitmap(), medicine, lastVerifiedEmptyCells = null)
+
+        assertFalse(result.passed)
+        assertEquals(RejectReason.WRONG_PILL_COUNT, result.rejectReason)
+        assertTrue(result.friendlyMessage!!.contains("fewer empty pockets than your baseline", ignoreCase = true))
+        assertTrue(result.friendlyMessage!!.contains("counted in this photo: 2. Last recorded: 3."))
+        assertFalse("Must not tell the patient a negative pill count", result.friendlyMessage!!.contains("-1"))
     }
 
     @Test
