@@ -960,17 +960,18 @@ fun DoctorHomeContent(
                             Spacer(modifier = Modifier.height(8.dp))
                             // Recent Doses
                             Text(
-                                text = "Today's Dose Logs (${doctorUiState.selectedPatientDoses.size}):",
+                                text = "Recent Dose Logs (${doctorUiState.selectedPatientDoses.size}):",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             if (doctorUiState.selectedPatientDoses.isEmpty()) {
                                 Text(
-                                    text = "No dose events recorded today.",
+                                    text = "No dose events recorded yet.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             } else {
+                                val doseMedicineNames = doctorUiState.selectedPatientMedicines.associate { it.id to it.name }
                                 doctorUiState.selectedPatientDoses.take(5).forEach { dose ->
                                     Row(
                                         modifier = Modifier
@@ -979,8 +980,9 @@ fun DoctorHomeContent(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = "Dose: ${dose.id.take(8)}",
-                                            style = MaterialTheme.typography.bodySmall
+                                            text = com.meditrack.app.core.ui.DoseLabel.of(dose, doseMedicineNames),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.weight(1f)
                                         )
                                         Text(
                                             text = dose.status.name,

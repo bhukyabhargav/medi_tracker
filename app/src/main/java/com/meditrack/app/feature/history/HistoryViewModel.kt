@@ -46,6 +46,7 @@ data class HistoryUiState(
     val timeRange: HistoryTimeRange = HistoryTimeRange.TODAY,
     val items: List<HistoryItem> = emptyList(),
     val adherenceReport: AdherenceReport = AdherenceCalculator.calculate(emptyList()),
+    val medicineAdherence: List<com.meditrack.app.domain.usecase.MedicineAdherence> = emptyList(),
     val selectedItem: HistoryItem? = null,
     val isLoading: Boolean = false
 )
@@ -121,11 +122,19 @@ class HistoryViewModel @Inject constructor(
                 }
 
                 val adherence = AdherenceCalculator.calculate(doses)
+                // Per medicine, for the same time range. A deleted medicine is listed only if it has doses in the range.
+                val medicineAdherence = AdherenceCalculator.calculateByMedicine(
+                    doses,
+                    medicines.associate { it.id to it.name }
+                ).filter { entry ->
+                    entry.report.closedDosesCount > 0 || medMap[entry.medicineId]?.isDeleted == false
+                }
 
                 HistoryUiState(
                     timeRange = range,
                     items = items,
                     adherenceReport = adherence,
+                    medicineAdherence = medicineAdherence,
                     selectedItem = selected,
                     isLoading = false
                 )

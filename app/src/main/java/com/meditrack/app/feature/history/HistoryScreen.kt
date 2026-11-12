@@ -44,6 +44,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -137,7 +138,10 @@ fun HistoryScreen(
 
                 // Section 2: Adherence Summary Card
                 item {
-                    AdherenceSummaryCard(report = uiState.adherenceReport)
+                    AdherenceSummaryCard(
+                        report = uiState.adherenceReport,
+                        perMedicine = uiState.medicineAdherence
+                    )
                 }
 
                 // Section 3: Records List Header
@@ -201,10 +205,17 @@ fun HistoryScreen(
 @Composable
 fun AdherenceSummaryCard(
     report: com.meditrack.app.domain.usecase.AdherenceReport,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    perMedicine: List<com.meditrack.app.domain.usecase.MedicineAdherence> = emptyList()
 ) {
+    // Tapping the card opens the adherence of each medicine for the selected time range.
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer
         ),
@@ -255,6 +266,55 @@ fun AdherenceSummaryCard(
                         count = report.unverifiedClosedCount,
                         color = Color(0xFFE65100)
                     )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = if (expanded) "▲ Tap to hide medicines" else "▼ Tap to see each medicine",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+            )
+            androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f))
+                    if (perMedicine.isEmpty()) {
+                        Text(
+                            text = "No doses recorded for any medicine in this period.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    } else {
+                        perMedicine.forEach { entry ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = entry.medicineName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = "Taken: ${entry.report.verifiedTakenCount} • Missed: ${entry.report.missedCount} • Skipped: ${entry.report.skippedCount}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                                    )
+                                }
+                                Text(
+                                    text = entry.report.displayText,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

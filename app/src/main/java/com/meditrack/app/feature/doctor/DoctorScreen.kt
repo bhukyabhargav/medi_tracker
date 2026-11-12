@@ -387,7 +387,7 @@ fun DoctorDashboardContent(
             }
 
             item {
-                Text("Today's Doses:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text("Recent Doses:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
 
             items(uiState.selectedPatientDoses, key = { it.id }) { dose ->
@@ -400,8 +400,14 @@ fun DoctorDashboardContent(
                         modifier = Modifier.padding(12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Dose: ${dose.id.take(8)}")
-                        Text("Status: ${dose.status.name}", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = com.meditrack.app.core.ui.DoseLabel.of(
+                                dose,
+                                uiState.selectedPatientMedicines.associate { it.id to it.name }
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(dose.status.name, fontWeight = FontWeight.Bold)
                     }
                 }
             }
