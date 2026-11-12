@@ -507,11 +507,20 @@ private fun CaregiverPortalView(
 
         // Section: Connected Patients
         item {
-            Text(
-                text = "Connected Loved Ones & Patients (${linkedPatients.size})",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Connected Loved Ones (${linkedPatients.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(onClick = { onSelectPatient("demo_patient_001") }) {
+                    Text("Link Demo Patient")
+                }
+            }
         }
 
         if (linkedPatients.isEmpty()) {
