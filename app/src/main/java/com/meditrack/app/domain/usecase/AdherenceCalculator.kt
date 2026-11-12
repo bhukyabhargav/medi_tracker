@@ -18,7 +18,36 @@ data class AdherenceReport(
     val manualUnverifiedCount: Int
 )
 
+/** Adherence of one medicine, shown in the per-medicine list. */
+data class MedicineAdherence(
+    val medicineId: String,
+    val medicineName: String,
+    val report: AdherenceReport
+)
+
 object AdherenceCalculator {
+
+    /**
+     * Splits the doses by medicine and calculates each medicine's adherence with the same formula as [calculate].
+     * Every medicine in [medicineNames] is listed (even with no closed doses yet, shown as "—"); doses of a
+     * medicine that is not in the map (for example a removed medicine) are listed under "Removed medicine".
+     * Sorted by medicine name.
+     */
+    fun calculateByMedicine(
+        doses: List<DoseEvent>,
+        medicineNames: Map<String, String>,
+        now: Long = System.currentTimeMillis()
+    ): List<MedicineAdherence> {
+        val dosesByMedicine = doses.groupBy { it.medicineId }
+        val ids = (medicineNames.keys + dosesByMedicine.keys).distinct()
+        return ids.map { id ->
+            MedicineAdherence(
+                medicineId = id,
+                medicineName = medicineNames[id]?.takeIf { it.isNotBlank() } ?: "Removed medicine",
+                report = calculate(dosesByMedicine[id] ?: emptyList(), now)
+            )
+        }.sortedBy { it.medicineName.lowercase() }
+    }
 
     /**
      * Calculates medication adherence based on the closed doses.

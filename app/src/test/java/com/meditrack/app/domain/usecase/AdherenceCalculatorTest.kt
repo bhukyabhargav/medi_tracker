@@ -105,4 +105,34 @@ class AdherenceCalculatorTest {
         assertEquals(2, closedLater.closedDosesCount)
         assertEquals("50%", closedLater.percentageFormatted)
     }
+
+    @Test
+    fun calculateByMedicine_splitsDosesPerMedicine_andListsEveryMedicine() {
+        fun dose(id: String, med: String, status: DoseStatus) = DoseEvent(
+            id = id, medicineId = med, scheduledAt = 1_000L, windowEndsAt = 2_000L, status = status
+        )
+        val doses = listOf(
+            dose("a1", "med_a", DoseStatus.TAKEN),
+            dose("a2", "med_a", DoseStatus.TAKEN),
+            dose("b1", "med_b", DoseStatus.TAKEN),
+            dose("b2", "med_b", DoseStatus.MISSED),
+            dose("x1", "med_gone", DoseStatus.SKIPPED)
+        )
+        val names = mapOf("med_b" to "Metformin", "med_a" to "Dolo", "med_c" to "Aspirin")
+
+        val result = AdherenceCalculator.calculateByMedicine(doses, names, now = 5_000L)
+
+        // Sorted by name; a medicine without doses is still listed; an unknown medicine keeps its doses
+        assertEquals(listOf("Aspirin", "Dolo", "Metformin", "Removed medicine"), result.map { it.medicineName })
+        assertEquals("—", result[0].report.percentageFormatted)
+        assertEquals("100%", result[1].report.percentageFormatted)
+        assertEquals("50%", result[2].report.percentageFormatted)
+        assertEquals(1, result[2].report.missedCount)
+        assertEquals("0%", result[3].report.percentageFormatted)
+
+        // The per-medicine counts add up to the overall report
+        val overall = AdherenceCalculator.calculate(doses, now = 5_000L)
+        assertEquals(overall.closedDosesCount, result.sumOf { it.report.closedDosesCount })
+        assertEquals(overall.verifiedTakenCount, result.sumOf { it.report.verifiedTakenCount })
+    }
 }

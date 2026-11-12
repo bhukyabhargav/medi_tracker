@@ -35,6 +35,7 @@ data class HomeUiState(
     val upcomingDoses: List<DoseEvent> = emptyList(),
     val missedDoses: List<DoseEvent> = emptyList(),
     val adherenceReport: AdherenceReport? = null,
+    val medicineAdherence: List<com.meditrack.app.domain.usecase.MedicineAdherence> = emptyList(),
     val isLoading: Boolean = true
 )
 
@@ -121,6 +122,10 @@ class HomeViewModel @Inject constructor(
                     upcomingDoses = upcoming,
                     missedDoses = missed,
                     adherenceReport = adherence,
+                    medicineAdherence = AdherenceCalculator.calculateByMedicine(
+                        allDoses,
+                        medicines.associate { it.id to it.name }
+                    ),
                     isLoading = false
                 )
             }.collect { state ->

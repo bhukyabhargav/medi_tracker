@@ -371,17 +371,18 @@ fun DoctorDashboardContent(
 
             if (uiState.selectedPatientAdherence != null) {
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Adherence: ${uiState.selectedPatientAdherence.percentageFormatted}", fontWeight = FontWeight.Bold)
-                            Text("Taken: ${uiState.selectedPatientAdherence.verifiedTakenCount} • Missed: ${uiState.selectedPatientAdherence.missedCount} • Skipped: ${uiState.selectedPatientAdherence.skippedCount}", style = MaterialTheme.typography.bodySmall)
-                        }
+                    val perMedicine = remember(uiState.selectedPatientDoses, uiState.selectedPatientMedicines) {
+                        com.meditrack.app.domain.usecase.AdherenceCalculator.calculateByMedicine(
+                            uiState.selectedPatientDoses,
+                            uiState.selectedPatientMedicines.associate { it.id to it.name }
+                        )
                     }
+                    com.meditrack.app.core.ui.ExpandableAdherenceCard(
+                        title = "Patient Adherence",
+                        overall = uiState.selectedPatientAdherence,
+                        perMedicine = perMedicine,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
                 }
             }
 

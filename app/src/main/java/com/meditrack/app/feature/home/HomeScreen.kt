@@ -271,36 +271,13 @@ fun HomeScreen(
                 val patientAdherence = uiState.adherenceReport
                 if (patientAdherence != null) {
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CalendarMonth,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "My Medication Adherence: ${patientAdherence.percentageFormatted}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Text(
-                                        text = "Verified Taken: ${patientAdherence.verifiedTakenCount} • Missed: ${patientAdherence.missedCount} • Skipped: ${patientAdherence.skippedCount}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                                    )
-                                }
-                            }
-                        }
+                        com.meditrack.app.core.ui.ExpandableAdherenceCard(
+                            title = "My Medication Adherence",
+                            overall = patientAdherence,
+                            perMedicine = uiState.medicineAdherence,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
 
@@ -927,24 +904,22 @@ fun DoctorHomeContent(
                             // Adherence Report
                             val adherence = doctorUiState.selectedPatientAdherence
                             if (adherence != null) {
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
+                                val perMedicine = remember(
+                                    doctorUiState.selectedPatientDoses,
+                                    doctorUiState.selectedPatientMedicines
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = "7-Day Adherence: ${adherence.percentageFormatted}",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Verified Taken: ${adherence.verifiedTakenCount} \u2022 Missed: ${adherence.missedCount} \u2022 Skipped: ${adherence.skippedCount}",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
+                                    com.meditrack.app.domain.usecase.AdherenceCalculator.calculateByMedicine(
+                                        doctorUiState.selectedPatientDoses,
+                                        doctorUiState.selectedPatientMedicines.associate { it.id to it.name }
+                                    )
                                 }
+                                com.meditrack.app.core.ui.ExpandableAdherenceCard(
+                                    title = "Patient Adherence",
+                                    overall = adherence,
+                                    perMedicine = perMedicine,
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
@@ -1490,36 +1465,20 @@ fun CaregiverHomeContent(
         // Section: Connected Patient Adherence
         if (caregiverUiState.adherenceReport != null) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
+                val perMedicine = remember(
+                    caregiverUiState.selectedPatientDoses,
+                    caregiverUiState.selectedPatientMedicines
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Connected Patient Adherence: ${caregiverUiState.adherenceReport.percentageFormatted}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "Verified Taken: ${caregiverUiState.adherenceReport.verifiedTakenCount} • Missed: ${caregiverUiState.adherenceReport.missedCount} • Skipped: ${caregiverUiState.adherenceReport.skippedCount}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
-                            )
-                        }
-                    }
+                    com.meditrack.app.domain.usecase.AdherenceCalculator.calculateByMedicine(
+                        caregiverUiState.selectedPatientDoses,
+                        caregiverUiState.selectedPatientMedicines.associate { it.id to it.name }
+                    )
                 }
+                com.meditrack.app.core.ui.ExpandableAdherenceCard(
+                    title = "Connected Patient Adherence",
+                    overall = caregiverUiState.adherenceReport,
+                    perMedicine = perMedicine
+                )
             }
         }
 
