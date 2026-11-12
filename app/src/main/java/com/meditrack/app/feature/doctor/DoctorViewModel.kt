@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.firstOrNull
@@ -133,7 +134,16 @@ class DoctorViewModel @Inject constructor(
 
             // Observe accepted patients for doctor
             val linksFlow = if (role == UserRole.DOCTOR) {
-                doctorRepository.observeAcceptedForDoctor(userId)
+                if (userId.startsWith("demo_") || userId == "doctor_1") {
+                    doctorRepository.observeAll().map { all ->
+                        all.filter {
+                            it.status == DoctorLinkStatus.ACCEPTED &&
+                            (it.doctorUid == userId || it.doctorUid == "demo_doctor_001" || it.patientId == "demo_patient_001")
+                        }
+                    }
+                } else {
+                    doctorRepository.observeAcceptedForDoctor(userId)
+                }
             } else {
                 doctorRepository.observeAll()
             }
@@ -324,6 +334,27 @@ class DoctorViewModel @Inject constructor(
      * Calculates adherence via existing AdherenceCalculator.
      */
     private var selectPatientJob: Job? = null
+
+    fun linkPatient(patientId: String = "demo_patient_001") {
+        val clean = patientId.trim().ifBlank { "demo_patient_001" }
+        viewModelScope.launch {
+            val user = authRepository.getCurrentUser()
+            val doctorUid = user?.id ?: _uiState.value.currentUserId
+            val doctorName = user?.name ?: "Dr. Smith (Demo)"
+            val link = DoctorLink(
+                id = "doclink_${clean}_${doctorUid}",
+                patientId = clean,
+                doctorUid = doctorUid,
+                doctorName = doctorName,
+                doctorContact = "dr.smith@hospital.org",
+                status = DoctorLinkStatus.ACCEPTED,
+                createdAt = System.currentTimeMillis()
+            )
+            doctorRepository.insert(link)
+            selectPatient(clean)
+            _uiState.update { it.copy(userMessage = "Connected to patient $clean successfully.") }
+        }
+    }
 
     fun selectPatient(patientId: String) {
         selectPatientJob?.cancel()
